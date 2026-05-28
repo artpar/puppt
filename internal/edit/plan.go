@@ -97,6 +97,9 @@ func validateOperationTarget(spec model.EditSpec) string {
 			"object_id": true,
 			"image":     true,
 		},
+		"update_description": {
+			"slide_number": true,
+		},
 		"add_text_box": {
 			"slide_number": true,
 		},
@@ -139,6 +142,9 @@ func validateOperationTarget(spec model.EditSpec) string {
 	if spec.Operation == "replace_image" && spec.ImagePath == "" {
 		return "replace_image requires image_path"
 	}
+	if spec.Operation == "update_description" && spec.Replacement == "" {
+		return "update_description requires replacement"
+	}
 	if spec.Operation == "slide_move" && spec.DestinationSlideNumber == 0 {
 		return "slide_move requires destination_slide_number"
 	}
@@ -159,7 +165,7 @@ func validateOperationTarget(spec model.EditSpec) string {
 
 func isSupportedMetadataProperty(property string) bool {
 	switch property {
-	case "title", "author", "subject":
+	case "title", "author", "subject", "keywords", "last_modified_by":
 		return true
 	default:
 		return false
@@ -185,7 +191,7 @@ func operationSupportsMatchKind(operation string, kind string) bool {
 		return kind == "metadata"
 	case "replace_image":
 		return kind == "image"
-	case "add_text_box", "add_shape":
+	case "add_text_box", "add_shape", "update_description":
 		return kind == "slide"
 	case "slide_add", "slide_delete", "slide_move", "slide_duplicate":
 		return kind == "slide"

@@ -1,7 +1,9 @@
 package edit
 
 import (
+	"archive/zip"
 	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -176,6 +178,108 @@ func TestApplyUpdatesMetadataAndValidates(t *testing.T) {
 	inspection := inspectOutput(t, outputPath)
 	if got := inspection.Metadata.Title; got != "New deck title" {
 		t.Fatalf("unexpected title: %s", got)
+	}
+}
+
+func TestApplyRepeatedEditsKeepXMLNamespaceDeclarationsValid(t *testing.T) {
+	dir := t.TempDir()
+	deckPath := filepath.Join(dir, "deck.pptx")
+	firstPath := filepath.Join(dir, "first.pptx")
+	secondPath := filepath.Join(dir, "second.pptx")
+	thirdPath := filepath.Join(dir, "third.pptx")
+	if err := fixtures.WritePPTX(deckPath, fixtures.PPTXOptions{
+		Metadata: fixtures.Metadata{
+			Title:          "Old title",
+			Creator:        "Author",
+			Subject:        "Subject",
+			Keywords:       "old, keywords",
+			LastModifiedBy: "Author",
+		},
+		Slides: []fixtures.Slide{{
+			PartName: "ppt/slides/slide1.xml",
+			Text:     "First text",
+			Notes:    "First notes",
+		}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	textSpecPath := writeSpec(t, `{
+  "operation": "replace_text",
+  "target": {
+    "type": "object_id",
+    "object_id": "ppt/slides/slide1.xml#shape-2"
+  },
+  "replacement": "Second text"
+}`)
+	if result, err := Apply(context.Background(), deckPath, textSpecPath, firstPath); err != nil || result.Status != "ok" {
+		t.Fatalf("first apply failed: result=%+v err=%v", result, err)
+	}
+
+	notesSpecPath := writeSpec(t, `{
+  "operation": "update_notes",
+  "target": {
+    "type": "notes",
+    "slide_number": 1
+  },
+  "replacement": "Second notes"
+}`)
+	if result, err := Apply(context.Background(), firstPath, notesSpecPath, secondPath); err != nil || result.Status != "ok" {
+		t.Fatalf("second apply failed: result=%+v err=%v", result, err)
+	}
+
+	metadataSpecPath := writeSpec(t, `{
+  "operation": "update_metadata",
+  "target": {
+    "type": "metadata",
+    "property": "keywords"
+  },
+  "replacement": "puppt, xml, valid"
+}`)
+	if result, err := Apply(context.Background(), secondPath, metadataSpecPath, thirdPath); err != nil || result.Status != "ok" {
+		t.Fatalf("third apply failed: result=%+v err=%v", result, err)
+	}
+
+	for _, partName := range []string{
+		"ppt/slides/slide1.xml",
+		"ppt/notesSlides/notesSlide1.xml",
+		"docProps/core.xml",
+	} {
+		data := readZipPart(t, thirdPath, partName)
+		if strings.Contains(string(data), "_xmlns") {
+			t.Fatalf("%s contains malformed namespace attribute: %s", partName, data)
+		}
+	}
+
+	inspection := inspectOutput(t, thirdPath)
+	if inspection.Metadata.Keywords != "puppt, xml, valid" {
+		t.Fatalf("unexpected keywords: %q", inspection.Metadata.Keywords)
+	}
+}
+
+func TestReplaceDescriptionAttributes(t *testing.T) {
+	input := []byte(`<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
+  <p:cSld>
+    <p:spTree>
+      <p:pic><p:nvPicPr><p:cNvPr id="4" descr="Old description"/></p:nvPicPr></p:pic>
+      <p:sp><p:nvSpPr><p:cNvPr id="5"/></p:nvSpPr></p:sp>
+    </p:spTree>
+  </p:cSld>
+</p:sld>`)
+
+	updated, count, err := replaceDescriptionAttributes(input, "Puppt description")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("unexpected replacement count: %d", count)
+	}
+	got := string(updated)
+	if !strings.Contains(got, `descr="Puppt description"`) {
+		t.Fatalf("description was not replaced: %s", got)
+	}
+	if strings.Contains(got, "_xmlns") {
+		t.Fatalf("malformed namespace attribute: %s", got)
 	}
 }
 
@@ -468,4 +572,31 @@ func inspectOutput(t *testing.T, outputPath string) *model.Inspection {
 		t.Fatal("missing inspection")
 	}
 	return result.Inspection
+}
+
+func readZipPart(t *testing.T, filePath string, partName string) []byte {
+	t.Helper()
+	archive, err := zip.OpenReader(filePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer archive.Close()
+
+	for _, file := range archive.File {
+		if file.Name != partName {
+			continue
+		}
+		reader, err := file.Open()
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer reader.Close()
+		data, err := io.ReadAll(reader)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return data
+	}
+	t.Fatalf("part not found: %s", partName)
+	return nil
 }

@@ -14,9 +14,11 @@ type PPTXOptions struct {
 }
 
 type Metadata struct {
-	Title   string
-	Creator string
-	Subject string
+	Title          string
+	Creator        string
+	Subject        string
+	Keywords       string
+	LastModifiedBy string
 }
 
 type Slide struct {
@@ -238,12 +240,15 @@ func coreProperties(metadata Metadata) string {
   <dc:title>%s</dc:title>
   <dc:creator>%s</dc:creator>
   <dc:subject>%s</dc:subject>
+  <cp:keywords>%s</cp:keywords>
+  <cp:lastModifiedBy>%s</cp:lastModifiedBy>
 </cp:coreProperties>
-`, metadata.Title, metadata.Creator, metadata.Subject)
+`, metadata.Title, metadata.Creator, metadata.Subject, metadata.Keywords, metadata.LastModifiedBy)
 }
 
 func hasMetadata(metadata Metadata) bool {
-	return metadata.Title != "" || metadata.Creator != "" || metadata.Subject != ""
+	return metadata.Title != "" || metadata.Creator != "" || metadata.Subject != "" ||
+		metadata.Keywords != "" || metadata.LastModifiedBy != ""
 }
 
 func baseSlideName(name string) string {

@@ -132,7 +132,7 @@ func planSpec(ctx context.Context, deckPath string, spec model.EditSpec) (*model
 
 func validateMutationSupport(operation string) string {
 	switch operation {
-	case "replace_text", "update_notes", "update_metadata", "replace_image", "add_text_box", "add_shape", "slide_add", "slide_delete", "slide_move", "slide_duplicate":
+	case "replace_text", "update_notes", "update_metadata", "replace_image", "update_description", "add_text_box", "add_shape", "slide_add", "slide_delete", "slide_move", "slide_duplicate":
 		return ""
 	default:
 		return fmt.Sprintf("operation %q is planned but not implemented for mutation yet", operation)
@@ -149,6 +149,8 @@ func applyMutation(pkg *pptx.Package, spec model.EditSpec, matches []model.Targe
 		return applyMetadataUpdate(pkg, spec)
 	case "replace_image":
 		return applyImageReplacement(pkg, spec, matches)
+	case "update_description":
+		return applyDescriptionUpdate(pkg, spec, matches)
 	case "add_text_box", "add_shape":
 		return applySimpleAddition(pkg, spec, matches)
 	case "slide_add", "slide_delete", "slide_move", "slide_duplicate":
@@ -180,6 +182,9 @@ func applyTextReplacement(pkg *pptx.Package, spec model.EditSpec, matches []mode
 			return nil, fmt.Errorf("no text runs changed for object %s", match.ObjectID)
 		}
 		pkg.Parts[partName] = updated
+		if wholeObject {
+			replaceExtendedPropertyText(pkg, match.Text, spec.Replacement)
+		}
 		changes = append(changes, model.ChangeItem{
 			SlideNumber: match.SlideNumber,
 			ObjectID:    match.ObjectID,
@@ -242,6 +247,66 @@ func applyMetadataUpdate(pkg *pptx.Package, spec model.EditSpec) ([]model.Change
 	return []model.ChangeItem{{
 		Message: fmt.Sprintf("Updated metadata property %s.", spec.Target.Property),
 	}}, nil
+}
+
+func applyDescriptionUpdate(pkg *pptx.Package, spec model.EditSpec, matches []model.TargetMatch) ([]model.ChangeItem, error) {
+	var changes []model.ChangeItem
+	for _, match := range matches {
+		data, ok := pkg.Parts[match.SlideID]
+		if !ok {
+			return nil, fmt.Errorf("matched slide part missing: %s", match.SlideID)
+		}
+		updated, count, err := replaceDescriptionAttributes(data, spec.Replacement)
+		if err != nil {
+			return nil, err
+		}
+		if count == 0 {
+			return nil, fmt.Errorf("slide has no description attributes: %s", match.SlideID)
+		}
+		pkg.Parts[match.SlideID] = updated
+		changes = append(changes, model.ChangeItem{
+			SlideNumber: match.SlideNumber,
+			ObjectID:    match.SlideID,
+			Message:     fmt.Sprintf("Updated %d object description(s).", count),
+		})
+	}
+	return changes, nil
+}
+
+func replaceDescriptionAttributes(data []byte, replacement string) ([]byte, int, error) {
+	decoder := xml.NewDecoder(bytes.NewReader(data))
+	var output bytes.Buffer
+	encoder := xml.NewEncoder(&output)
+	count := 0
+
+	for {
+		token, err := decoder.Token()
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			return nil, 0, err
+		}
+		if start, ok := token.(xml.StartElement); ok {
+			for index := range start.Attr {
+				if start.Attr[index].Name.Local == "descr" && start.Attr[index].Value != "" {
+					start.Attr[index].Value = replacement
+					count++
+				}
+			}
+			if err := encodeStartElement(encoder, start); err != nil {
+				return nil, 0, err
+			}
+			continue
+		}
+		if err := encoder.EncodeToken(token); err != nil {
+			return nil, 0, err
+		}
+	}
+	if err := encoder.Flush(); err != nil {
+		return nil, 0, err
+	}
+	return output.Bytes(), count, nil
 }
 
 func notesPartForSlide(pkg *pptx.Package, slidePart string) (string, error) {
@@ -310,7 +375,7 @@ func replaceShapeText(data []byte, shapeID string, oldText string, replacement s
 				}
 				continue
 			}
-			if err := encoder.EncodeToken(item); err != nil {
+			if err := encodeStartElement(encoder, item); err != nil {
 				return nil, 0, err
 			}
 		case xml.EndElement:
@@ -364,6 +429,12 @@ func replaceFirstTextObject(data []byte, replacement string) ([]byte, int, error
 			}
 			continue
 		}
+		if start, ok := token.(xml.StartElement); ok {
+			if err := encodeStartElement(encoder, start); err != nil {
+				return nil, 0, err
+			}
+			continue
+		}
 		if err := encoder.EncodeToken(token); err != nil {
 			return nil, 0, err
 		}
@@ -405,6 +476,12 @@ func replaceCoreProperty(data []byte, property string, replacement string) ([]by
 			count++
 			continue
 		}
+		if start, ok := token.(xml.StartElement); ok {
+			if err := encodeStartElement(encoder, start); err != nil {
+				return nil, 0, err
+			}
+			continue
+		}
 		if err := encoder.EncodeToken(token); err != nil {
 			return nil, 0, err
 		}
@@ -413,6 +490,81 @@ func replaceCoreProperty(data []byte, property string, replacement string) ([]by
 		return nil, 0, err
 	}
 	return output.Bytes(), count, nil
+}
+
+func replaceExtendedPropertyText(pkg *pptx.Package, oldText string, replacement string) {
+	if oldText == "" {
+		return
+	}
+	const appPart = "docProps/app.xml"
+	data, ok := pkg.Parts[appPart]
+	if !ok {
+		return
+	}
+	updated, count, err := replaceExactTextElements(data, oldText, replacement)
+	if err != nil || count == 0 {
+		return
+	}
+	pkg.Parts[appPart] = updated
+}
+
+func replaceExactTextElements(data []byte, oldText string, replacement string) ([]byte, int, error) {
+	decoder := xml.NewDecoder(bytes.NewReader(data))
+	var output bytes.Buffer
+	encoder := xml.NewEncoder(&output)
+	count := 0
+
+	for {
+		token, err := decoder.Token()
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			return nil, 0, err
+		}
+		start, ok := token.(xml.StartElement)
+		if ok {
+			var value string
+			if isSimpleTextElement(start.Name.Local) {
+				if err := decoder.DecodeElement(&value, &start); err != nil {
+					return nil, 0, err
+				}
+				nextValue := value
+				if equivalentText(value, oldText) {
+					nextValue = replacement
+					count++
+				}
+				if err := encodeTextElement(encoder, start, nextValue); err != nil {
+					return nil, 0, err
+				}
+				continue
+			}
+			if err := encodeStartElement(encoder, start); err != nil {
+				return nil, 0, err
+			}
+			continue
+		}
+		if err := encoder.EncodeToken(token); err != nil {
+			return nil, 0, err
+		}
+	}
+	if err := encoder.Flush(); err != nil {
+		return nil, 0, err
+	}
+	return output.Bytes(), count, nil
+}
+
+func equivalentText(left string, right string) bool {
+	return left == right || strings.Join(strings.Fields(left), " ") == strings.Join(strings.Fields(right), " ")
+}
+
+func isSimpleTextElement(localName string) bool {
+	switch localName {
+	case "lpstr", "vt:lpstr":
+		return true
+	default:
+		return false
+	}
 }
 
 func verifyApplied(ctx context.Context, outputPath string, spec model.EditSpec, matches []model.TargetMatch) error {
@@ -445,6 +597,16 @@ func verifyApplied(ctx context.Context, outputPath string, spec model.EditSpec, 
 	case "replace_image":
 		if err := verifyImageReplacement(ctx, outputPath, spec, matches); err != nil {
 			return err
+		}
+	case "update_description":
+		pkg, err := pptx.Open(ctx, outputPath)
+		if err != nil {
+			return err
+		}
+		for _, match := range matches {
+			if !slideDescriptionsContain(pkg, match.SlideID, spec.Replacement) {
+				return fmt.Errorf("replacement description not found on slide %d", match.SlideNumber)
+			}
 		}
 	case "add_text_box", "add_shape":
 		if !slideNotesOrTextContain(inspection, matches[0].SlideNumber, spec.Replacement) {
@@ -515,6 +677,29 @@ func slideNotesOrTextContain(inspection *model.Inspection, slideNumber int, text
 	return false
 }
 
+func slideDescriptionsContain(pkg *pptx.Package, slidePart string, text string) bool {
+	data, ok := pkg.Parts[slidePart]
+	if !ok {
+		return false
+	}
+	decoder := xml.NewDecoder(bytes.NewReader(data))
+	for {
+		token, err := decoder.Token()
+		if err != nil {
+			return false
+		}
+		start, ok := token.(xml.StartElement)
+		if !ok {
+			continue
+		}
+		for _, attr := range start.Attr {
+			if attr.Name.Local == "descr" && attr.Value == text {
+				return true
+			}
+		}
+	}
+}
+
 func metadataValue(metadata model.Metadata, property string) string {
 	switch property {
 	case "title":
@@ -523,6 +708,10 @@ func metadataValue(metadata model.Metadata, property string) string {
 		return metadata.Author
 	case "subject":
 		return metadata.Subject
+	case "keywords":
+		return metadata.Keywords
+	case "last_modified_by":
+		return metadata.LastModifiedBy
 	default:
 		return ""
 	}
@@ -561,13 +750,36 @@ func slideTextAt(inspection *model.Inspection, slideNumber int, text string) boo
 }
 
 func encodeTextElement(encoder *xml.Encoder, start xml.StartElement, value string) error {
-	if err := encoder.EncodeToken(start); err != nil {
+	if err := encodeStartElement(encoder, start); err != nil {
 		return err
 	}
 	if err := encoder.EncodeToken(xml.CharData([]byte(value))); err != nil {
 		return err
 	}
 	return encoder.EncodeToken(xml.EndElement{Name: start.Name})
+}
+
+func encodeStartElement(encoder *xml.Encoder, start xml.StartElement) error {
+	start.Attr = nonNamespaceDeclarationAttrs(start.Attr)
+	return encoder.EncodeToken(start)
+}
+
+func nonNamespaceDeclarationAttrs(attrs []xml.Attr) []xml.Attr {
+	if len(attrs) == 0 {
+		return attrs
+	}
+	filtered := attrs[:0]
+	for _, attr := range attrs {
+		if isNamespaceDeclarationAttr(attr) {
+			continue
+		}
+		filtered = append(filtered, attr)
+	}
+	return filtered
+}
+
+func isNamespaceDeclarationAttr(attr xml.Attr) bool {
+	return attr.Name.Local == "xmlns" || attr.Name.Space == "xmlns"
 }
 
 func currentShapeTarget(shapes []shapeState) bool {
@@ -599,6 +811,10 @@ func corePropertyElement(property string) string {
 		return "creator"
 	case "subject":
 		return "subject"
+	case "keywords":
+		return "keywords"
+	case "last_modified_by":
+		return "lastModifiedBy"
 	default:
 		return ""
 	}

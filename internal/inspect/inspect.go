@@ -186,22 +186,67 @@ type runXML struct {
 }
 
 func shapeTextBlocks(slidePart string, data []byte) ([]model.TextBlock, error) {
-	var slide slideTextXML
-	if err := xml.NewDecoder(bytes.NewReader(data)).Decode(&slide); err != nil {
-		return nil, fmt.Errorf("parse slide shapes %s: %w", slidePart, err)
-	}
+	return streamShapeTextBlocks(slidePart, data)
+}
 
-	blocks := make([]model.TextBlock, 0, len(slide.CommonSlideData.ShapeTree.Shapes))
-	for index, shape := range slide.CommonSlideData.ShapeTree.Shapes {
-		runs := shape.textRuns()
-		if len(runs) == 0 {
-			continue
+type shapeTextState struct {
+	id   string
+	runs []string
+}
+
+func streamShapeTextBlocks(slidePart string, data []byte) ([]model.TextBlock, error) {
+	decoder := xml.NewDecoder(bytes.NewReader(data))
+	var blocks []model.TextBlock
+	var shapes []shapeTextState
+	shapeIndex := 0
+
+	for {
+		token, err := decoder.Token()
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			return nil, fmt.Errorf("parse slide shapes %s: %w", slidePart, err)
 		}
-		blocks = append(blocks, model.TextBlock{
-			ObjectID: shapeObjectID(slidePart, index, shape.NonVisual.Properties),
-			Text:     strings.Join(runs, ""),
-			Runs:     runs,
-		})
+
+		switch item := token.(type) {
+		case xml.StartElement:
+			switch item.Name.Local {
+			case "sp":
+				shapeIndex++
+				shapes = append(shapes, shapeTextState{
+					id: fmt.Sprintf("%s#shape-%d", slidePart, shapeIndex),
+				})
+			case "cNvPr":
+				if len(shapes) > 0 {
+					if id := attrValue(item.Attr, "id"); id != "" {
+						shapes[len(shapes)-1].id = slidePart + "#shape-" + id
+					}
+				}
+			case "t":
+				if len(shapes) > 0 {
+					var value string
+					if err := decoder.DecodeElement(&value, &item); err != nil {
+						return nil, fmt.Errorf("parse text run %s: %w", slidePart, err)
+					}
+					if value != "" {
+						shapes[len(shapes)-1].runs = append(shapes[len(shapes)-1].runs, value)
+					}
+				}
+			}
+		case xml.EndElement:
+			if item.Name.Local == "sp" && len(shapes) > 0 {
+				shape := shapes[len(shapes)-1]
+				shapes = shapes[:len(shapes)-1]
+				if len(shape.runs) > 0 {
+					blocks = append(blocks, model.TextBlock{
+						ObjectID: shape.id,
+						Text:     strings.Join(shape.runs, ""),
+						Runs:     shape.runs,
+					})
+				}
+			}
+		}
 	}
 	return blocks, nil
 }
@@ -223,6 +268,15 @@ func shapeObjectID(slidePart string, index int, properties nonVisualPropertiesXM
 		return slidePart + "#shape-" + properties.ID
 	}
 	return fmt.Sprintf("%s#shape-%d", slidePart, index+1)
+}
+
+func attrValue(attrs []xml.Attr, localName string) string {
+	for _, attr := range attrs {
+		if attr.Name.Local == localName {
+			return attr.Value
+		}
+	}
+	return ""
 }
 
 func inspectSlideRelationships(pkg *pptx.Package, slidePart string) ([]model.TextBlock, []model.MediaRef, []model.MediaRef, string, string, string, string, []model.Warning, error) {
@@ -389,6 +443,16 @@ func parseCoreProperties(data []byte) (model.Metadata, error) {
 				return model.Metadata{}, err
 			}
 			metadata.Subject = value
+		case "keywords":
+			if err := decoder.DecodeElement(&value, &start); err != nil {
+				return model.Metadata{}, err
+			}
+			metadata.Keywords = value
+		case "lastModifiedBy":
+			if err := decoder.DecodeElement(&value, &start); err != nil {
+				return model.Metadata{}, err
+			}
+			metadata.LastModifiedBy = value
 		}
 	}
 	return metadata, nil

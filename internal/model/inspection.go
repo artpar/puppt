@@ -10,9 +10,11 @@ type Inspection struct {
 }
 
 type Metadata struct {
-	Title   string `json:"title,omitempty"`
-	Author  string `json:"author,omitempty"`
-	Subject string `json:"subject,omitempty"`
+	Title          string `json:"title,omitempty"`
+	Author         string `json:"author,omitempty"`
+	Subject        string `json:"subject,omitempty"`
+	Keywords       string `json:"keywords,omitempty"`
+	LastModifiedBy string `json:"last_modified_by,omitempty"`
 }
 
 type Slide struct {
