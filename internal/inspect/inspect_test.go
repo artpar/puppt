@@ -65,7 +65,11 @@ func TestInspectReturnsMetadataNotesImagesAndLayout(t *testing.T) {
 				Text:     "Summary",
 				Notes:    "Speaker note",
 				Image:    "fake png bytes",
+				Audio:    "fake audio bytes",
+				Video:    "fake video bytes",
+				OLE:      "fake ole bytes",
 				Layout:   "Title Layout",
+				Master:   "Corporate Master",
 			},
 		},
 	}); err != nil {
@@ -95,6 +99,12 @@ func TestInspectReturnsMetadataNotesImagesAndLayout(t *testing.T) {
 	if slide.LayoutName != "Title Layout" {
 		t.Fatalf("unexpected layout name: %q", slide.LayoutName)
 	}
+	if slide.Master != "ppt/slideMasters/slideMaster1.xml" {
+		t.Fatalf("unexpected master: %q", slide.Master)
+	}
+	if slide.MasterName != "Corporate Master" {
+		t.Fatalf("unexpected master name: %q", slide.MasterName)
+	}
 	if len(slide.Notes) != 1 || slide.Notes[0].Text != "Speaker note" {
 		t.Fatalf("unexpected notes: %+v", slide.Notes)
 	}
@@ -106,6 +116,24 @@ func TestInspectReturnsMetadataNotesImagesAndLayout(t *testing.T) {
 	}
 	if slide.Images[0].ContentType != "image/png" {
 		t.Fatalf("unexpected image content type: %+v", slide.Images[0])
+	}
+	if slide.Images[0].Kind != "image" || slide.Images[0].Extension != "png" {
+		t.Fatalf("unexpected image classification: %+v", slide.Images[0])
+	}
+	if len(slide.Media) != 4 {
+		t.Fatalf("unexpected media refs: %+v", slide.Media)
+	}
+	seenMedia := map[string]bool{}
+	for _, media := range slide.Media {
+		seenMedia[media.Kind] = true
+	}
+	for _, want := range []string{"image", "audio", "video", "ole_object"} {
+		if !seenMedia[want] {
+			t.Fatalf("missing media kind %s in %+v", want, slide.Media)
+		}
+	}
+	if len(slide.Warnings) != 1 || slide.Warnings[0].Code != "unsupported_ole_object" {
+		t.Fatalf("unexpected slide warnings: %+v", slide.Warnings)
 	}
 }
 

@@ -17,12 +17,12 @@ Checkpoint 2: Inspection Core, in progress.
 - Invalid extension, invalid ZIP, and missing required part cases fail explicitly.
 - `puppt inspect <input.pptx> --json` is wired.
 - Inspection JSON uses the `puppt.v1` envelope.
-- Inspection currently reports presentation part, package part count, slide count, slide order, simple titles, shape-level visible text runs, speaker notes, image/media references, layout references and names, core metadata, repeated visible text, and basic unsupported-part warnings.
+- Inspection currently reports presentation part, package part count, slide count, slide order, simple titles, shape-level visible text runs, speaker notes, image/media references, layout references and names, master references and names, core metadata, repeated visible text, and basic unsupported-part/object warnings.
 - Golden JSON test exists for a deterministic minimal deck.
 
 ## Not Implemented Yet
 
-- Slide masters, full media classification, advanced non-text object extraction, and broader real-world unsupported-feature warning detection.
+- Advanced non-text object extraction, richer media metadata, and broader real-world unsupported-feature warning detection.
 - Target resolution and edit planning.
 - Mutations.
 - Deck creation.

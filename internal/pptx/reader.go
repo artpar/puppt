@@ -22,8 +22,12 @@ const (
 	slideRelType          = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide"
 	CorePropertiesRelType = "http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties"
 	SlideLayoutRelType    = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout"
+	SlideMasterRelType    = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideMaster"
 	NotesSlideRelType     = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/notesSlide"
 	ImageRelType          = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/image"
+	VideoRelType          = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/video"
+	AudioRelType          = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/audio"
+	OLEObjectRelType      = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/oleObject"
 )
 
 // Package is the initial structural view of a .pptx package.

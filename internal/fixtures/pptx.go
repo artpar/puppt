@@ -24,7 +24,11 @@ type Slide struct {
 	Text     string
 	Notes    string
 	Image    string
+	Audio    string
+	Video    string
+	OLE      string
 	Layout   string
+	Master   string
 }
 
 type ExtraPart struct {
@@ -94,10 +98,23 @@ func fixtureParts(options PPTXOptions) []part {
 		if slide.Image != "" {
 			parts = append(parts, part{Name: imagePart(index), Data: []byte(slide.Image)})
 		}
+		if slide.Audio != "" {
+			parts = append(parts, part{Name: audioPart(index), Data: []byte(slide.Audio)})
+		}
+		if slide.Video != "" {
+			parts = append(parts, part{Name: videoPart(index), Data: []byte(slide.Video)})
+		}
+		if slide.OLE != "" {
+			parts = append(parts, part{Name: olePart(index), Data: []byte(slide.OLE)})
+		}
 		if slide.Layout != "" {
 			parts = append(parts, part{Name: layoutPart(index), Data: []byte(layoutXML(slide.Layout))})
+			if slide.Master != "" {
+				parts = append(parts, part{Name: layoutRelationshipsPart(index), Data: []byte(layoutRelationships(index))})
+				parts = append(parts, part{Name: masterPart(index), Data: []byte(masterXML(slide.Master))})
+			}
 		}
-		if slide.Notes != "" || slide.Image != "" || slide.Layout != "" {
+		if slide.Notes != "" || slide.Image != "" || slide.Audio != "" || slide.Video != "" || slide.OLE != "" || slide.Layout != "" {
 			parts = append(parts, part{Name: slideRelationshipsPart(slide.PartName), Data: []byte(slideRelationships(index, slide))})
 		}
 	}
@@ -113,6 +130,9 @@ func contentTypes(options PPTXOptions) string {
   <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
   <Default Extension="xml" ContentType="application/xml"/>
   <Default Extension="png" ContentType="image/png"/>
+  <Default Extension="mp3" ContentType="audio/mpeg"/>
+  <Default Extension="mp4" ContentType="video/mp4"/>
+  <Default Extension="bin" ContentType="application/vnd.openxmlformats-officedocument.oleObject"/>
   <Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/>
 `
 	if hasMetadata(options.Metadata) {
@@ -126,6 +146,9 @@ func contentTypes(options PPTXOptions) string {
 		}
 		if slide.Layout != "" {
 			output += fmt.Sprintf("  <Override PartName=\"/%s\" ContentType=\"application/vnd.openxmlformats-officedocument.presentationml.slideLayout+xml\"/>\n", layoutPart(index))
+			if slide.Master != "" {
+				output += fmt.Sprintf("  <Override PartName=\"/%s\" ContentType=\"application/vnd.openxmlformats-officedocument.presentationml.slideMaster+xml\"/>\n", masterPart(index))
+			}
 		}
 	}
 	return output + `</Types>
@@ -182,11 +205,31 @@ func slideRelationships(index int, slide Slide) string {
 		output += fmt.Sprintf("  <Relationship Id=\"rId%d\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/image\" Target=\"../media/image%d.png\"/>\n", nextID, index+1)
 		nextID++
 	}
+	if slide.Audio != "" {
+		output += fmt.Sprintf("  <Relationship Id=\"rId%d\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/audio\" Target=\"../media/audio%d.mp3\"/>\n", nextID, index+1)
+		nextID++
+	}
+	if slide.Video != "" {
+		output += fmt.Sprintf("  <Relationship Id=\"rId%d\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/video\" Target=\"../media/video%d.mp4\"/>\n", nextID, index+1)
+		nextID++
+	}
+	if slide.OLE != "" {
+		output += fmt.Sprintf("  <Relationship Id=\"rId%d\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/oleObject\" Target=\"../embeddings/oleObject%d.bin\"/>\n", nextID, index+1)
+		nextID++
+	}
 	if slide.Layout != "" {
 		output += fmt.Sprintf("  <Relationship Id=\"rId%d\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout\" Target=\"../slideLayouts/slideLayout%d.xml\"/>\n", nextID, index+1)
 	}
 	return output + `</Relationships>
 `
+}
+
+func layoutRelationships(index int) string {
+	return fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideMaster" Target="../slideMasters/slideMaster%d.xml"/>
+</Relationships>
+`, index+1)
 }
 
 func coreProperties(metadata Metadata) string {
@@ -224,8 +267,28 @@ func imagePart(index int) string {
 	return fmt.Sprintf("ppt/media/image%d.png", index+1)
 }
 
+func audioPart(index int) string {
+	return fmt.Sprintf("ppt/media/audio%d.mp3", index+1)
+}
+
+func videoPart(index int) string {
+	return fmt.Sprintf("ppt/media/video%d.mp4", index+1)
+}
+
+func olePart(index int) string {
+	return fmt.Sprintf("ppt/embeddings/oleObject%d.bin", index+1)
+}
+
 func layoutPart(index int) string {
 	return fmt.Sprintf("ppt/slideLayouts/slideLayout%d.xml", index+1)
+}
+
+func layoutRelationshipsPart(index int) string {
+	return fmt.Sprintf("ppt/slideLayouts/_rels/slideLayout%d.xml.rels", index+1)
+}
+
+func masterPart(index int) string {
+	return fmt.Sprintf("ppt/slideMasters/slideMaster%d.xml", index+1)
 }
 
 func slideXML(text string) string {
@@ -275,5 +338,13 @@ func layoutXML(name string) string {
 <p:sldLayout xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" type="title" preserve="1">
   <p:cSld name="%s"/>
 </p:sldLayout>
+`, name)
+}
+
+func masterXML(name string) string {
+	return fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<p:sldMaster xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
+  <p:cSld name="%s"/>
+</p:sldMaster>
 `, name)
 }

@@ -6,6 +6,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"io"
+	"path"
 	"sort"
 	"strings"
 
@@ -32,7 +33,7 @@ func Inspect(ctx context.Context, filePath string) (*model.CommandResult, error)
 		if err != nil {
 			return nil, err
 		}
-		notes, images, layout, layoutName, slideWarnings, err := inspectSlideRelationships(pkg, slidePart)
+		notes, images, media, layout, layoutName, master, masterName, slideWarnings, err := inspectSlideRelationships(pkg, slidePart)
 		if err != nil {
 			return nil, err
 		}
@@ -53,10 +54,13 @@ func Inspect(ctx context.Context, filePath string) (*model.CommandResult, error)
 			Part:        slidePart,
 			Layout:      layout,
 			LayoutName:  layoutName,
+			Master:      master,
+			MasterName:  masterName,
 			Title:       title,
 			VisibleText: blocks,
 			Notes:       notes,
 			Images:      images,
+			Media:       media,
 			Warnings:    slideWarnings,
 		})
 	}
@@ -221,16 +225,19 @@ func shapeObjectID(slidePart string, index int, properties nonVisualPropertiesXM
 	return fmt.Sprintf("%s#shape-%d", slidePart, index+1)
 }
 
-func inspectSlideRelationships(pkg *pptx.Package, slidePart string) ([]model.TextBlock, []model.MediaRef, string, string, []model.Warning, error) {
+func inspectSlideRelationships(pkg *pptx.Package, slidePart string) ([]model.TextBlock, []model.MediaRef, []model.MediaRef, string, string, string, string, []model.Warning, error) {
 	relationships, err := pkg.RelationshipsForPart(slidePart)
 	if err != nil {
-		return nil, nil, "", "", nil, err
+		return nil, nil, nil, "", "", "", "", nil, err
 	}
 
 	notes := []model.TextBlock{}
 	images := []model.MediaRef{}
+	media := []model.MediaRef{}
 	layout := ""
 	layoutName := ""
+	master := ""
+	masterName := ""
 	warnings := []model.Warning{}
 
 	for _, relationship := range relationships {
@@ -248,29 +255,77 @@ func inspectSlideRelationships(pkg *pptx.Package, slidePart string) ([]model.Tex
 			}
 			blocks, err := noteTextBlocks(targetPart, data)
 			if err != nil {
-				return nil, nil, "", "", nil, err
+				return nil, nil, nil, "", "", "", "", nil, err
 			}
 			notes = append(notes, blocks...)
 		case pptx.ImageRelType:
-			images = append(images, model.MediaRef{
-				ObjectID:         slidePart + "#" + relationship.ID,
-				Relationship:     relationship.ID,
-				Target:           targetPart,
-				ContentType:      pkg.ContentTypes.ForPart(targetPart),
-				RelationshipType: relationship.Type,
+			ref := mediaRef(pkg, slidePart, relationship, targetPart, "image")
+			images = append(images, ref)
+			media = append(media, ref)
+		case pptx.AudioRelType:
+			media = append(media, mediaRef(pkg, slidePart, relationship, targetPart, "audio"))
+		case pptx.VideoRelType:
+			media = append(media, mediaRef(pkg, slidePart, relationship, targetPart, "video"))
+		case pptx.OLEObjectRelType:
+			media = append(media, mediaRef(pkg, slidePart, relationship, targetPart, "ole_object"))
+			warnings = append(warnings, model.Warning{
+				Code:    "unsupported_ole_object",
+				Message: "OLE object relationship is present and will be preserved but not edited in v1",
+				Part:    targetPart,
 			})
 		case pptx.SlideLayoutRelType:
 			layout = targetPart
 			if data, ok := pkg.Parts[targetPart]; ok {
-				layoutName, err = parseLayoutName(data)
+				layoutName, err = parseCommonSlideName(data, "layout")
 				if err != nil {
-					return nil, nil, "", "", nil, err
+					return nil, nil, nil, "", "", "", "", nil, err
 				}
+			}
+			master, masterName, err = inspectMasterFromLayout(pkg, targetPart)
+			if err != nil {
+				return nil, nil, nil, "", "", "", "", nil, err
 			}
 		}
 	}
 
-	return notes, images, layout, layoutName, warnings, nil
+	return notes, images, media, layout, layoutName, master, masterName, warnings, nil
+}
+
+func mediaRef(pkg *pptx.Package, slidePart string, relationship pptx.Relationship, targetPart string, kind string) model.MediaRef {
+	return model.MediaRef{
+		ObjectID:         slidePart + "#" + relationship.ID,
+		Kind:             kind,
+		Relationship:     relationship.ID,
+		Target:           targetPart,
+		ContentType:      pkg.ContentTypes.ForPart(targetPart),
+		Extension:        strings.TrimPrefix(strings.ToLower(path.Ext(targetPart)), "."),
+		RelationshipType: relationship.Type,
+	}
+}
+
+func inspectMasterFromLayout(pkg *pptx.Package, layoutPart string) (string, string, error) {
+	if layoutPart == "" {
+		return "", "", nil
+	}
+	relationships, err := pkg.RelationshipsForPart(layoutPart)
+	if err != nil {
+		return "", "", err
+	}
+	for _, relationship := range relationships {
+		if relationship.Type != pptx.SlideMasterRelType {
+			continue
+		}
+		targetPart := pptx.ResolveTargetPart(layoutPart, relationship.Target)
+		name := ""
+		if data, ok := pkg.Parts[targetPart]; ok {
+			name, err = parseCommonSlideName(data, "master")
+			if err != nil {
+				return "", "", err
+			}
+		}
+		return targetPart, name, nil
+	}
+	return "", "", nil
 }
 
 func noteTextBlocks(notesPart string, data []byte) ([]model.TextBlock, error) {
@@ -339,7 +394,7 @@ func parseCoreProperties(data []byte) (model.Metadata, error) {
 	return metadata, nil
 }
 
-type layoutXML struct {
+type commonSlideNameXML struct {
 	CommonSlideData commonSlideDataNameXML `xml:"cSld"`
 }
 
@@ -347,12 +402,12 @@ type commonSlideDataNameXML struct {
 	Name string `xml:"name,attr"`
 }
 
-func parseLayoutName(data []byte) (string, error) {
-	var layout layoutXML
-	if err := xml.NewDecoder(bytes.NewReader(data)).Decode(&layout); err != nil {
-		return "", fmt.Errorf("parse layout name: %w", err)
+func parseCommonSlideName(data []byte, label string) (string, error) {
+	var item commonSlideNameXML
+	if err := xml.NewDecoder(bytes.NewReader(data)).Decode(&item); err != nil {
+		return "", fmt.Errorf("parse %s name: %w", label, err)
 	}
-	return layout.CommonSlideData.Name, nil
+	return item.CommonSlideData.Name, nil
 }
 
 func inspectPackageWarnings(pkg *pptx.Package) []model.Warning {

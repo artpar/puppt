@@ -239,6 +239,64 @@ Next checkpoint:
 
 - Continue Checkpoint 2 with slide master refs, full media classification, advanced object extraction, and broader unsupported-feature warning detection.
 
+## Checkpoint 2: Inspection Core, progress 5
+
+Changed files:
+
+- `internal/model/inspection.go`
+- `internal/pptx/reader.go`
+- `internal/fixtures/pptx.go`
+- `internal/inspect/inspect.go`
+- `internal/inspect/inspect_test.go`
+- `internal/inspect/testdata/minimal.golden.json`
+- `docs/STATUS.md`
+- `docs/DOCTRINE_CHECKLIST.md`
+- `docs/CHECKPOINTS.md`
+
+Implemented behavior:
+
+- Added slide `master` and `master_name` fields.
+- Added broader slide `media` field while preserving existing `images` field.
+- Added media kind and extension classification.
+- Added relationship constants for slide masters, audio, video, and OLE objects.
+- Extended fixtures with audio, video, OLE object, and slide master package relationships.
+- Resolved slide master references through slide layout relationships.
+- Parsed slide master names.
+- Classified image, audio, video, and OLE object relationships.
+- Added slide-level warning for OLE object relationships.
+- Updated golden output to include the additive `media` field.
+
+Verification commands:
+
+```text
+go test ./internal/inspect ./internal/model ./internal/report ./cmd/puppt
+go test ./...
+```
+
+Verification result:
+
+- `go test ./internal/inspect ./internal/model ./internal/report ./cmd/puppt` passed.
+- `go test ./...` passed.
+
+Fixtures added or updated:
+
+- Extended `internal/fixtures.PPTXOptions` and `fixtures.Slide` for master, audio, video, and OLE data.
+- Updated `internal/inspect/testdata/minimal.golden.json`.
+
+Known risks:
+
+- Media metadata is limited to relationship type, content type, target, and extension.
+- Advanced non-text object extraction is not complete.
+- Unsupported-feature warning detection is still intentionally conservative.
+
+Unsupported behavior encountered:
+
+- Embedded object internals, media dimensions/durations, chart internals, SmartArt internals, and master-inherited placeholders remain incomplete.
+
+Next checkpoint:
+
+- Continue Checkpoint 2 with advanced object extraction, richer unsupported-feature warning coverage, and inspection contract review before moving to targeting/planning.
+
 ## Checkpoint 2: Inspection Core, progress 4
 
 Changed files:
