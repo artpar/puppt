@@ -566,6 +566,47 @@ Next checkpoint:
 
 - Complete Checkpoint 3 audit or add any remaining target coverage needed before mutation workflows.
 
+## Checkpoint 3: Targeting and Edit Planning, completion audit
+
+Changed files:
+
+- `docs/STATUS.md`
+- `docs/DOCTRINE_CHECKLIST.md`
+- `docs/CHECKPOINTS.md`
+
+Exit evidence:
+
+- Targets by slide number, title, visible text, object ID, notes, metadata, and image refs are covered by `internal/target` and `internal/edit` tests.
+- Ambiguity and no-match are detected before mutation by `internal/target.Resolve` and surfaced by `puppt plan --json`.
+- `puppt plan --json` reports intended changes, skipped targets, ambiguous targets, unsupported operation/target pairs, and required-field failures.
+- Image replacement planning resolves media object IDs and records `image_path` without mutating the package.
+
+Verification commands:
+
+```text
+go test ./internal/target ./internal/edit ./cmd/puppt ./internal/cli
+go test ./...
+```
+
+Verification result:
+
+- `go test ./internal/target ./internal/edit ./cmd/puppt ./internal/cli` passed.
+- `go test ./...` passed.
+
+Known risks:
+
+- Edit application remains unsupported.
+- Replacement image validation is not implemented yet.
+- Slide add/delete/duplicate planning may require additional fields once the mutation contract is finalized.
+
+Unsupported behavior encountered:
+
+- Mutation workflows are explicitly deferred to Checkpoint 4.
+
+Next checkpoint:
+
+- Continue Checkpoint 4 with text, notes, and metadata mutations plus post-edit validation.
+
 ## Checkpoint 2: Inspection Core, progress 4
 
 Changed files:

@@ -15,12 +15,12 @@ This checklist maps current implementation practice to the binding Puppt layer i
 | Puppt MUST own authoritative `.pptx` reader/writer | Documented in `docs/decisions/0002-own-pptx-reader-writer.md`; reader is implemented in `internal/pptx` |
 | Do not shell out to office software in core path | No shell-out dependency exists |
 | Deterministic JSON and tests | `internal/report.WriteJSON` uses stable indentation; `internal/inspect/testdata/minimal.golden.json` pins output shape |
-| Tests cover the behavior at the right risk level | Inspection has focused tests for slide order, shape-level visible text, metadata, notes, image/audio/video/OLE refs, layout and master refs/names, repeated text, unsupported warnings, and CLI JSON |
+| Tests cover the behavior at the right risk level | Inspection has focused tests for slide order, shape-level visible text, metadata, notes, image/audio/video/OLE refs, layout and master refs/names, repeated text, unsupported warnings, and CLI JSON; edit planning has focused tests for target resolution, ambiguous/no-match handling, unsupported operations, required fields, image refs, and slide-operation fields |
 | Detect ambiguity before mutation | `internal/target.Resolve` classifies ready, no-match, and ambiguous targets; `puppt plan --json` emits ambiguity details and exits non-zero |
 | Unsupported behavior is explicit | `internal/edit.Plan` rejects unsupported operations, operation/target mismatches, and missing required fields before mutation |
 | Documentation required for operation is part of the system | `docs/PLAN_EXAMPLES.md`, `docs/STATUS.md`, and `docs/CHECKPOINTS.md` document current command behavior and limits |
 | Round-trip and preservation tests are required before mutations | No mutation support exists yet; preservation tests are a gate for future edit checkpoints |
-| Progress records must state changes, verification, risks, and next checkpoint | `docs/CHECKPOINTS.md` records Checkpoints 0, 1, 2, and current Checkpoint 3 progress |
+| Progress records must state changes, verification, risks, and next checkpoint | `docs/CHECKPOINTS.md` records Checkpoints 0, 1, 2, and 3 completion evidence |
 
 ## Current Known Gaps
 
