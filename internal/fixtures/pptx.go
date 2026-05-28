@@ -8,8 +8,9 @@ import (
 
 // PPTXOptions describes a deterministic fixture deck.
 type PPTXOptions struct {
-	Metadata Metadata
-	Slides   []Slide
+	Metadata   Metadata
+	Slides     []Slide
+	ExtraParts []ExtraPart
 }
 
 type Metadata struct {
@@ -24,6 +25,11 @@ type Slide struct {
 	Notes    string
 	Image    string
 	Layout   string
+}
+
+type ExtraPart struct {
+	Name string
+	Data []byte
 }
 
 // WriteMinimalPPTX writes a deterministic minimal modern .pptx package with
@@ -94,6 +100,9 @@ func fixtureParts(options PPTXOptions) []part {
 		if slide.Notes != "" || slide.Image != "" || slide.Layout != "" {
 			parts = append(parts, part{Name: slideRelationshipsPart(slide.PartName), Data: []byte(slideRelationships(index, slide))})
 		}
+	}
+	for _, extra := range options.ExtraParts {
+		parts = append(parts, part{Name: extra.Name, Data: extra.Data})
 	}
 	return parts
 }

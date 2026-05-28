@@ -92,6 +92,9 @@ func TestInspectReturnsMetadataNotesImagesAndLayout(t *testing.T) {
 	if slide.Layout != "ppt/slideLayouts/slideLayout1.xml" {
 		t.Fatalf("unexpected layout: %q", slide.Layout)
 	}
+	if slide.LayoutName != "Title Layout" {
+		t.Fatalf("unexpected layout name: %q", slide.LayoutName)
+	}
 	if len(slide.Notes) != 1 || slide.Notes[0].Text != "Speaker note" {
 		t.Fatalf("unexpected notes: %+v", slide.Notes)
 	}
@@ -103,6 +106,37 @@ func TestInspectReturnsMetadataNotesImagesAndLayout(t *testing.T) {
 	}
 	if slide.Images[0].ContentType != "image/png" {
 		t.Fatalf("unexpected image content type: %+v", slide.Images[0])
+	}
+}
+
+func TestInspectWarnsForUnsupportedPreservedParts(t *testing.T) {
+	filePath := filepath.Join(t.TempDir(), "unsupported.pptx")
+	if err := fixtures.WritePPTX(filePath, fixtures.PPTXOptions{
+		Slides: []fixtures.Slide{
+			{PartName: "ppt/slides/slide1.xml", Text: "Slide"},
+		},
+		ExtraParts: []fixtures.ExtraPart{
+			{Name: "ppt/vbaProject.bin", Data: []byte("macro bytes")},
+			{Name: "ppt/charts/chart1.xml", Data: []byte("<chart/>")},
+			{Name: "ppt/diagrams/data1.xml", Data: []byte("<diagram/>")},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := Inspect(context.Background(), filePath)
+	if err != nil {
+		t.Fatalf("inspect failed: %v", err)
+	}
+
+	seen := map[string]bool{}
+	for _, warning := range result.Warnings {
+		seen[warning.Code] = true
+	}
+	for _, want := range []string{"unsupported_macros", "unsupported_chart", "unsupported_diagram"} {
+		if !seen[want] {
+			t.Fatalf("missing warning %s in %+v", want, result.Warnings)
+		}
 	}
 }
 

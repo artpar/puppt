@@ -20,6 +20,7 @@ type Slide struct {
 	ID          string      `json:"id"`
 	Part        string      `json:"part"`
 	Layout      string      `json:"layout,omitempty"`
+	LayoutName  string      `json:"layout_name,omitempty"`
 	Title       string      `json:"title,omitempty"`
 	VisibleText []TextBlock `json:"visible_text"`
 	Notes       []TextBlock `json:"notes"`

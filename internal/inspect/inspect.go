@@ -32,7 +32,7 @@ func Inspect(ctx context.Context, filePath string) (*model.CommandResult, error)
 		if err != nil {
 			return nil, err
 		}
-		notes, images, layout, slideWarnings, err := inspectSlideRelationships(pkg, slidePart)
+		notes, images, layout, layoutName, slideWarnings, err := inspectSlideRelationships(pkg, slidePart)
 		if err != nil {
 			return nil, err
 		}
@@ -52,6 +52,7 @@ func Inspect(ctx context.Context, filePath string) (*model.CommandResult, error)
 			ID:          slidePart,
 			Part:        slidePart,
 			Layout:      layout,
+			LayoutName:  layoutName,
 			Title:       title,
 			VisibleText: blocks,
 			Notes:       notes,
@@ -63,9 +64,10 @@ func Inspect(ctx context.Context, filePath string) (*model.CommandResult, error)
 	warnings := []model.Warning{
 		{
 			Code:    "inspection_partial",
-			Message: "inspection currently covers text shapes, notes, image refs, layouts, and metadata; advanced non-text object extraction and unsupported-feature warnings are not complete yet",
+			Message: "inspection currently covers text shapes, notes, image refs, layouts, metadata, and basic unsupported-part warnings; advanced non-text object extraction is not complete yet",
 		},
 	}
+	warnings = append(warnings, inspectPackageWarnings(pkg)...)
 
 	return &model.CommandResult{
 		SchemaVersion: model.SchemaVersion,
@@ -219,15 +221,16 @@ func shapeObjectID(slidePart string, index int, properties nonVisualPropertiesXM
 	return fmt.Sprintf("%s#shape-%d", slidePart, index+1)
 }
 
-func inspectSlideRelationships(pkg *pptx.Package, slidePart string) ([]model.TextBlock, []model.MediaRef, string, []model.Warning, error) {
+func inspectSlideRelationships(pkg *pptx.Package, slidePart string) ([]model.TextBlock, []model.MediaRef, string, string, []model.Warning, error) {
 	relationships, err := pkg.RelationshipsForPart(slidePart)
 	if err != nil {
-		return nil, nil, "", nil, err
+		return nil, nil, "", "", nil, err
 	}
 
 	notes := []model.TextBlock{}
 	images := []model.MediaRef{}
 	layout := ""
+	layoutName := ""
 	warnings := []model.Warning{}
 
 	for _, relationship := range relationships {
@@ -245,7 +248,7 @@ func inspectSlideRelationships(pkg *pptx.Package, slidePart string) ([]model.Tex
 			}
 			blocks, err := noteTextBlocks(targetPart, data)
 			if err != nil {
-				return nil, nil, "", nil, err
+				return nil, nil, "", "", nil, err
 			}
 			notes = append(notes, blocks...)
 		case pptx.ImageRelType:
@@ -258,10 +261,16 @@ func inspectSlideRelationships(pkg *pptx.Package, slidePart string) ([]model.Tex
 			})
 		case pptx.SlideLayoutRelType:
 			layout = targetPart
+			if data, ok := pkg.Parts[targetPart]; ok {
+				layoutName, err = parseLayoutName(data)
+				if err != nil {
+					return nil, nil, "", "", nil, err
+				}
+			}
 		}
 	}
 
-	return notes, images, layout, warnings, nil
+	return notes, images, layout, layoutName, warnings, nil
 }
 
 func noteTextBlocks(notesPart string, data []byte) ([]model.TextBlock, error) {
@@ -328,6 +337,49 @@ func parseCoreProperties(data []byte) (model.Metadata, error) {
 		}
 	}
 	return metadata, nil
+}
+
+type layoutXML struct {
+	CommonSlideData commonSlideDataNameXML `xml:"cSld"`
+}
+
+type commonSlideDataNameXML struct {
+	Name string `xml:"name,attr"`
+}
+
+func parseLayoutName(data []byte) (string, error) {
+	var layout layoutXML
+	if err := xml.NewDecoder(bytes.NewReader(data)).Decode(&layout); err != nil {
+		return "", fmt.Errorf("parse layout name: %w", err)
+	}
+	return layout.CommonSlideData.Name, nil
+}
+
+func inspectPackageWarnings(pkg *pptx.Package) []model.Warning {
+	var warnings []model.Warning
+	for _, partName := range pkg.PartNames() {
+		switch {
+		case strings.EqualFold(partName, "ppt/vbaProject.bin"):
+			warnings = append(warnings, model.Warning{
+				Code:    "unsupported_macros",
+				Message: "macro project is present and will be preserved but not edited in v1",
+				Part:    partName,
+			})
+		case strings.HasPrefix(partName, "ppt/charts/"):
+			warnings = append(warnings, model.Warning{
+				Code:    "unsupported_chart",
+				Message: "chart part is present and will be preserved but not edited in v1",
+				Part:    partName,
+			})
+		case strings.HasPrefix(partName, "ppt/diagrams/"):
+			warnings = append(warnings, model.Warning{
+				Code:    "unsupported_diagram",
+				Message: "diagram or SmartArt part is present and will be preserved but not edited in v1",
+				Part:    partName,
+			})
+		}
+	}
+	return warnings
 }
 
 func repeatedText(counts map[string]int) []model.RepeatedText {

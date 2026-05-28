@@ -7,7 +7,7 @@
   "warnings": [
     {
       "code": "inspection_partial",
-      "message": "inspection currently covers text shapes, notes, image refs, layouts, and metadata; advanced non-text object extraction and unsupported-feature warnings are not complete yet"
+      "message": "inspection currently covers text shapes, notes, image refs, layouts, metadata, and basic unsupported-part warnings; advanced non-text object extraction is not complete yet"
     }
   ],
   "errors": [],

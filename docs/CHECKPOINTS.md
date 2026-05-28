@@ -237,7 +237,57 @@ Unsupported behavior encountered:
 
 Next checkpoint:
 
-- Continue Checkpoint 2 with slide master/layout naming, full media classification, advanced object extraction, and unsupported-feature warning detection.
+- Continue Checkpoint 2 with slide master refs, full media classification, advanced object extraction, and broader unsupported-feature warning detection.
+
+## Checkpoint 2: Inspection Core, progress 4
+
+Changed files:
+
+- `internal/model/inspection.go`
+- `internal/fixtures/pptx.go`
+- `internal/inspect/inspect.go`
+- `internal/inspect/inspect_test.go`
+- `internal/inspect/testdata/minimal.golden.json`
+- `docs/STATUS.md`
+- `docs/DOCTRINE_CHECKLIST.md`
+- `docs/CHECKPOINTS.md`
+
+Implemented behavior:
+
+- Added `layout_name` to slide inspection output.
+- Parsed layout names from slide layout parts.
+- Added deterministic extra package parts to fixtures.
+- Added basic unsupported-part warnings for macro projects, chart parts, and diagram/SmartArt parts.
+- Added tests for layout names and unsupported-part warnings.
+
+Verification commands:
+
+```text
+go test ./internal/inspect ./internal/model ./internal/report ./cmd/puppt
+```
+
+Verification result:
+
+- `go test ./internal/inspect ./internal/model ./internal/report ./cmd/puppt` passed.
+
+Fixtures added or updated:
+
+- Extended `internal/fixtures.PPTXOptions` with `ExtraParts`.
+- Updated `internal/inspect/testdata/minimal.golden.json`.
+
+Known risks:
+
+- Slide master references are not populated yet.
+- Full media classification and advanced non-text object extraction are not complete.
+- Unsupported-feature warning detection is intentionally basic.
+
+Unsupported behavior encountered:
+
+- Real-world embedded media, OLE objects, chart internals, SmartArt internals, and master-derived layout behavior remain incomplete.
+
+Next checkpoint:
+
+- Continue Checkpoint 2 with slide master refs, full media classification, advanced object extraction, and broader unsupported-feature warning detection.
 
 ## Checkpoint 2: Inspection Core, progress 3
 
