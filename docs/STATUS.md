@@ -22,7 +22,7 @@ Checkpoint 2: Inspection Core, in progress.
 
 ## Not Implemented Yet
 
-- Shape-level text/object grouping, slide masters, full media classification, and real-world unsupported-feature warning detection.
+- Slide masters, full media classification, advanced non-text object extraction, and real-world unsupported-feature warning detection.
 - Target resolution and edit planning.
 - Mutations.
 - Deck creation.

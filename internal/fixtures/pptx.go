@@ -225,6 +225,9 @@ func slideXML(text string) string {
   <p:cSld>
     <p:spTree>
       <p:sp>
+        <p:nvSpPr>
+          <p:cNvPr id="2" name="Title 1"/>
+        </p:nvSpPr>
         <p:txBody>
           <a:p xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
             <a:r><a:t>%s</a:t></a:r>
@@ -243,6 +246,9 @@ func notesXML(text string) string {
   <p:cSld>
     <p:spTree>
       <p:sp>
+        <p:nvSpPr>
+          <p:cNvPr id="2" name="Notes Placeholder"/>
+        </p:nvSpPr>
         <p:txBody>
           <a:p xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
             <a:r><a:t>%s</a:t></a:r>

@@ -227,8 +227,8 @@ Fixtures added or updated:
 
 Known risks:
 
-- Visible text is still grouped at slide level rather than shape/object level.
 - Slide master inspection is not populated yet.
+- Full media classification and advanced non-text object extraction are not complete.
 - Unsupported-feature warning detection is not complete.
 
 Unsupported behavior encountered:
@@ -237,4 +237,53 @@ Unsupported behavior encountered:
 
 Next checkpoint:
 
-- Continue Checkpoint 2 with shape/object-level text extraction, slide master/layout naming, and unsupported-feature warning detection.
+- Continue Checkpoint 2 with slide master/layout naming, full media classification, advanced object extraction, and unsupported-feature warning detection.
+
+## Checkpoint 2: Inspection Core, progress 3
+
+Changed files:
+
+- `internal/fixtures/pptx.go`
+- `internal/inspect/inspect.go`
+- `internal/inspect/inspect_test.go`
+- `internal/inspect/testdata/minimal.golden.json`
+- `docs/STATUS.md`
+- `docs/DOCTRINE_CHECKLIST.md`
+- `docs/CHECKPOINTS.md`
+
+Implemented behavior:
+
+- Added non-visual shape properties to deterministic slide and notes fixtures.
+- Extracted visible text at shape level where `p:sp` and `p:cNvPr` are available.
+- Generated stable text object IDs from slide part and PowerPoint shape ID.
+- Applied the same shape-level extraction to speaker notes where available.
+- Updated golden JSON to pin shape-level object IDs.
+
+Verification commands:
+
+```text
+go test ./internal/inspect ./internal/model ./internal/report ./cmd/puppt
+```
+
+Verification result:
+
+- `go test ./internal/inspect ./internal/model ./internal/report ./cmd/puppt` passed.
+
+Fixtures added or updated:
+
+- Updated generated slide and notes XML fixtures with `p:cNvPr` IDs/names.
+- Updated `internal/inspect/testdata/minimal.golden.json`.
+
+Known risks:
+
+- Slide master inspection is not populated yet.
+- Full media classification and advanced non-text object extraction are not complete.
+- Unsupported-feature warning detection is not complete.
+
+Unsupported behavior encountered:
+
+- Group shapes, pictures as objects, charts, SmartArt, embedded media details, and master-derived layout names remain incomplete.
+
+Next checkpoint:
+
+- Continue Checkpoint 2 with slide master/layout naming, full media classification, advanced object extraction, and unsupported-feature warning detection.

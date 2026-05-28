@@ -21,7 +21,6 @@ This checklist maps current implementation practice to the binding Puppt layer i
 
 ## Current Known Gaps
 
-- Shape-level text grouping is not implemented yet.
-- Slide masters, full media classification, and real-world unsupported-feature warning detection are not implemented yet.
+- Slide masters, full media classification, advanced non-text object extraction, and real-world unsupported-feature warning detection are not implemented yet.
 - No mutation path exists yet, so round-trip preservation tests have not started.
 - `inspect` emits `inspection_partial` until the rest of Checkpoint 2 is complete.

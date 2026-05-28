@@ -7,7 +7,7 @@
   "warnings": [
     {
       "code": "inspection_partial",
-      "message": "inspection currently groups visible text at slide level; shape-level object extraction and advanced feature warnings are not complete yet"
+      "message": "inspection currently covers text shapes, notes, image refs, layouts, and metadata; advanced non-text object extraction and unsupported-feature warnings are not complete yet"
     }
   ],
   "errors": [],
@@ -27,7 +27,7 @@
         "title": "Slide 1",
         "visible_text": [
           {
-            "object_id": "ppt/slides/slide1.xml#text-1",
+            "object_id": "ppt/slides/slide1.xml#shape-2",
             "text": "Slide 1",
             "runs": [
               "Slide 1"

@@ -63,7 +63,7 @@ func Inspect(ctx context.Context, filePath string) (*model.CommandResult, error)
 	warnings := []model.Warning{
 		{
 			Code:    "inspection_partial",
-			Message: "inspection currently groups visible text at slide level; shape-level object extraction and advanced feature warnings are not complete yet",
+			Message: "inspection currently covers text shapes, notes, image refs, layouts, and metadata; advanced non-text object extraction and unsupported-feature warnings are not complete yet",
 		},
 	}
 
@@ -90,6 +90,13 @@ func Inspect(ctx context.Context, filePath string) (*model.CommandResult, error)
 }
 
 func visibleTextBlocks(slidePart string, data []byte) ([]model.TextBlock, error) {
+	blocks, err := shapeTextBlocks(slidePart, data)
+	if err != nil {
+		return nil, err
+	}
+	if len(blocks) > 0 {
+		return blocks, nil
+	}
 	return textBlocks(slidePart, slidePart+"#text-1", data)
 }
 
@@ -134,6 +141,84 @@ func textBlocks(partName string, objectID string, data []byte) ([]model.TextBloc
 	}, nil
 }
 
+type slideTextXML struct {
+	CommonSlideData commonSlideDataXML `xml:"cSld"`
+}
+
+type commonSlideDataXML struct {
+	ShapeTree shapeTreeXML `xml:"spTree"`
+}
+
+type shapeTreeXML struct {
+	Shapes []shapeXML `xml:"sp"`
+}
+
+type shapeXML struct {
+	NonVisual nonVisualShapeXML `xml:"nvSpPr"`
+	TextBody  textBodyXML       `xml:"txBody"`
+}
+
+type nonVisualShapeXML struct {
+	Properties nonVisualPropertiesXML `xml:"cNvPr"`
+}
+
+type nonVisualPropertiesXML struct {
+	ID   string `xml:"id,attr"`
+	Name string `xml:"name,attr"`
+}
+
+type textBodyXML struct {
+	Paragraphs []paragraphXML `xml:"p"`
+}
+
+type paragraphXML struct {
+	Runs []runXML `xml:"r"`
+}
+
+type runXML struct {
+	Text string `xml:"t"`
+}
+
+func shapeTextBlocks(slidePart string, data []byte) ([]model.TextBlock, error) {
+	var slide slideTextXML
+	if err := xml.NewDecoder(bytes.NewReader(data)).Decode(&slide); err != nil {
+		return nil, fmt.Errorf("parse slide shapes %s: %w", slidePart, err)
+	}
+
+	blocks := make([]model.TextBlock, 0, len(slide.CommonSlideData.ShapeTree.Shapes))
+	for index, shape := range slide.CommonSlideData.ShapeTree.Shapes {
+		runs := shape.textRuns()
+		if len(runs) == 0 {
+			continue
+		}
+		blocks = append(blocks, model.TextBlock{
+			ObjectID: shapeObjectID(slidePart, index, shape.NonVisual.Properties),
+			Text:     strings.Join(runs, ""),
+			Runs:     runs,
+		})
+	}
+	return blocks, nil
+}
+
+func (s shapeXML) textRuns() []string {
+	var runs []string
+	for _, paragraph := range s.TextBody.Paragraphs {
+		for _, run := range paragraph.Runs {
+			if run.Text != "" {
+				runs = append(runs, run.Text)
+			}
+		}
+	}
+	return runs
+}
+
+func shapeObjectID(slidePart string, index int, properties nonVisualPropertiesXML) string {
+	if properties.ID != "" {
+		return slidePart + "#shape-" + properties.ID
+	}
+	return fmt.Sprintf("%s#shape-%d", slidePart, index+1)
+}
+
 func inspectSlideRelationships(pkg *pptx.Package, slidePart string) ([]model.TextBlock, []model.MediaRef, string, []model.Warning, error) {
 	relationships, err := pkg.RelationshipsForPart(slidePart)
 	if err != nil {
@@ -158,7 +243,7 @@ func inspectSlideRelationships(pkg *pptx.Package, slidePart string) ([]model.Tex
 				})
 				continue
 			}
-			blocks, err := textBlocks(targetPart, targetPart+"#notes-1", data)
+			blocks, err := noteTextBlocks(targetPart, data)
 			if err != nil {
 				return nil, nil, "", nil, err
 			}
@@ -177,6 +262,17 @@ func inspectSlideRelationships(pkg *pptx.Package, slidePart string) ([]model.Tex
 	}
 
 	return notes, images, layout, warnings, nil
+}
+
+func noteTextBlocks(notesPart string, data []byte) ([]model.TextBlock, error) {
+	blocks, err := shapeTextBlocks(notesPart, data)
+	if err != nil {
+		return nil, err
+	}
+	if len(blocks) > 0 {
+		return blocks, nil
+	}
+	return textBlocks(notesPart, notesPart+"#notes-1", data)
 }
 
 func inspectMetadata(pkg *pptx.Package) (model.Metadata, error) {

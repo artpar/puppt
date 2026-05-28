@@ -40,6 +40,9 @@ func TestInspectReturnsSlideOrderAndVisibleText(t *testing.T) {
 	if got := result.Inspection.Slides[0].VisibleText[0].Text; got != "Slide 1" {
 		t.Fatalf("unexpected first slide text: %s", got)
 	}
+	if got := result.Inspection.Slides[0].VisibleText[0].ObjectID; got != "ppt/slides/slide1.xml#shape-2" {
+		t.Fatalf("unexpected first slide object id: %s", got)
+	}
 	if got := result.Inspection.Slides[1].VisibleText[0].Text; got != "Slide 2" {
 		t.Fatalf("unexpected second slide text: %s", got)
 	}
