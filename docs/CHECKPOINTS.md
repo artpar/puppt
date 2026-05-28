@@ -848,6 +848,67 @@ Next checkpoint:
 
 - Continue Checkpoint 8 with review summaries, command docs, support matrix, acceptance workflows, and explicit v1 gap listing.
 
+## Checkpoint 8: Review and v1 Hardening, completion audit
+
+Changed files:
+
+- `internal/cli/root.go`
+- `internal/cli/root_test.go`
+- `internal/review/doc.go`
+- `internal/review/review.go`
+- `internal/review/review_test.go`
+- `docs/COMMANDS.md`
+- `docs/SUPPORT_MATRIX.md`
+- `docs/FAILURE_MODES.md`
+- `docs/ACCEPTANCE.md`
+- `docs/STATUS.md`
+- `docs/DOCTRINE_CHECKLIST.md`
+- `docs/CHECKPOINTS.md`
+- `README.md`
+
+Implemented behavior:
+
+- Wired `puppt validate <input.pptx> --json`.
+- Wired `puppt review <input.pptx> --changes <changes.json> --json`.
+- Review accepts prior `puppt.v1` command results or raw change arrays.
+- Review emits changes, skipped, ambiguous, unsupported, inspection facts, and validation status.
+- Added end-to-end CLI acceptance test covering create, inspect, edit, validate, and review.
+- Added command docs, support matrix, failure modes, acceptance workflow docs, and known non-v1 gap listing.
+
+Verification commands:
+
+```text
+go test ./internal/review ./internal/cli ./internal/validate ./cmd/puppt
+go test ./...
+git diff --check
+```
+
+Verification result:
+
+- `go test ./internal/review ./internal/cli ./internal/validate ./cmd/puppt` passed.
+- `go test ./...` passed.
+- `git diff --check` passed.
+
+Fixtures added or updated:
+
+- Added review tests for prior command result changes and raw change arrays.
+- Added CLI JSON tests for `validate` and `review`.
+- Added CLI acceptance workflow test.
+
+Known risks:
+
+- Validation remains structural plus workflow-specific expected-content checks; it does not perform rendered visual comparison.
+- Review summarizes supplied change artifacts; it does not compute a semantic diff between two decks.
+- Advanced object/media extraction remains intentionally limited to current v1 coverage.
+
+Unsupported behavior encountered:
+
+- Preview rendering, legacy `.ppt`, macro/VBA editing, chart editing, SmartArt editing, and design-rich visual fidelity checks remain documented non-v1 gaps.
+
+Next checkpoint:
+
+- v1 checkpoint sequence is complete; future work should start from a new scoped goal or from the documented non-v1 gaps.
+
 ## Checkpoint 2: Inspection Core, progress 4
 
 Changed files:

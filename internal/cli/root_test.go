@@ -50,15 +50,15 @@ func TestVersionIncludesSchemaVersion(t *testing.T) {
 	}
 }
 
-func TestStubCommandFailsExplicitly(t *testing.T) {
+func TestUnknownCommandFails(t *testing.T) {
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 
-	err := Execute(context.Background(), []string{"review"}, &stdout, &stderr)
+	err := Execute(context.Background(), []string{"unknown"}, &stdout, &stderr)
 	if err == nil {
-		t.Fatal("review unexpectedly succeeded")
+		t.Fatal("unknown command unexpectedly succeeded")
 	}
-	if !strings.Contains(err.Error(), "not implemented yet") {
+	if !strings.Contains(err.Error(), "unknown command") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -158,6 +158,158 @@ func TestCreateJSON(t *testing.T) {
 	}
 	if payload.Output != outputPath || !payload.Validation.Valid {
 		t.Fatalf("unexpected create payload: %+v", payload)
+	}
+}
+
+func TestValidateJSON(t *testing.T) {
+	filePath := filepath.Join(t.TempDir(), "deck.pptx")
+	if err := fixtures.WriteMinimalPPTX(filePath, []string{"ppt/slides/slide1.xml"}); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	if err := Execute(context.Background(), []string{"validate", filePath, "--json"}, &stdout, &stderr); err != nil {
+		t.Fatalf("validate failed: %v\n%s", err, stdout.String())
+	}
+
+	var payload struct {
+		SchemaVersion string `json:"schema_version"`
+		Command       string `json:"command"`
+		Status        string `json:"status"`
+		Validation    struct {
+			Valid bool `json:"valid"`
+		} `json:"validation"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
+		t.Fatalf("invalid json: %v\n%s", err, stdout.String())
+	}
+	if payload.SchemaVersion != "puppt.v1" || payload.Command != "validate" || payload.Status != "ok" || !payload.Validation.Valid {
+		t.Fatalf("unexpected validate payload: %+v", payload)
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("validate wrote stderr: %s", stderr.String())
+	}
+}
+
+func TestReviewJSON(t *testing.T) {
+	dir := t.TempDir()
+	deckPath := filepath.Join(dir, "deck.pptx")
+	if err := fixtures.WriteMinimalPPTX(deckPath, []string{"ppt/slides/slide1.xml"}); err != nil {
+		t.Fatal(err)
+	}
+	changesPath := filepath.Join(dir, "changes.json")
+	if err := os.WriteFile(changesPath, []byte(`{
+  "schema_version": "puppt.v1",
+  "changes": [
+    {
+      "slide_number": 1,
+      "object_id": "ppt/slides/slide1.xml#shape-2",
+      "message": "Reviewed change."
+    }
+  ]
+}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	if err := Execute(context.Background(), []string{"review", deckPath, "--changes", changesPath, "--json"}, &stdout, &stderr); err != nil {
+		t.Fatalf("review failed: %v\n%s", err, stdout.String())
+	}
+
+	var payload struct {
+		SchemaVersion string `json:"schema_version"`
+		Command       string `json:"command"`
+		Status        string `json:"status"`
+		Changes       []struct {
+			Message string `json:"message"`
+		} `json:"changes"`
+		Inspection struct {
+			SlideCount int `json:"slide_count"`
+		} `json:"inspection"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
+		t.Fatalf("invalid json: %v\n%s", err, stdout.String())
+	}
+	if payload.SchemaVersion != "puppt.v1" || payload.Command != "review" || payload.Status != "ok" {
+		t.Fatalf("unexpected review payload: %+v", payload)
+	}
+	if len(payload.Changes) != 1 || payload.Inspection.SlideCount != 1 {
+		t.Fatalf("unexpected review details: %+v", payload)
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("review wrote stderr: %s", stderr.String())
+	}
+}
+
+func TestAcceptanceWorkflowEndToEnd(t *testing.T) {
+	dir := t.TempDir()
+	inputPath := filepath.Join(dir, "deck.json")
+	createdPath := filepath.Join(dir, "created.pptx")
+	editedPath := filepath.Join(dir, "edited.pptx")
+	if err := os.WriteFile(inputPath, []byte(`{
+  "metadata": {
+    "title": "Acceptance Deck"
+  },
+  "slides": [
+    {
+      "layout": "title_body",
+      "title": "Original",
+      "body": "Body"
+    }
+  ]
+}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var createOut bytes.Buffer
+	if err := Execute(context.Background(), []string{"create", "--input", inputPath, "--out", createdPath, "--json"}, &createOut, &bytes.Buffer{}); err != nil {
+		t.Fatalf("create failed: %v\n%s", err, createOut.String())
+	}
+	var inspectOut bytes.Buffer
+	if err := Execute(context.Background(), []string{"inspect", createdPath, "--json"}, &inspectOut, &bytes.Buffer{}); err != nil {
+		t.Fatalf("inspect failed: %v\n%s", err, inspectOut.String())
+	}
+	editPath := filepath.Join(dir, "edit.json")
+	if err := os.WriteFile(editPath, []byte(`{
+  "operation": "replace_text",
+  "target": {
+    "type": "object_id",
+    "object_id": "ppt/slides/slide1.xml#shape-2"
+  },
+  "replacement": "Updated"
+}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var editOut bytes.Buffer
+	if err := Execute(context.Background(), []string{"edit", createdPath, "--edit", editPath, "--out", editedPath, "--json"}, &editOut, &bytes.Buffer{}); err != nil {
+		t.Fatalf("edit failed: %v\n%s", err, editOut.String())
+	}
+	changesPath := filepath.Join(dir, "changes.json")
+	if err := os.WriteFile(changesPath, editOut.Bytes(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var validateOut bytes.Buffer
+	if err := Execute(context.Background(), []string{"validate", editedPath, "--json"}, &validateOut, &bytes.Buffer{}); err != nil {
+		t.Fatalf("validate failed: %v\n%s", err, validateOut.String())
+	}
+	var reviewOut bytes.Buffer
+	if err := Execute(context.Background(), []string{"review", editedPath, "--changes", changesPath, "--json"}, &reviewOut, &bytes.Buffer{}); err != nil {
+		t.Fatalf("review failed: %v\n%s", err, reviewOut.String())
+	}
+
+	var reviewPayload struct {
+		Status  string `json:"status"`
+		Changes []struct {
+			ObjectID string `json:"object_id"`
+		} `json:"changes"`
+	}
+	if err := json.Unmarshal(reviewOut.Bytes(), &reviewPayload); err != nil {
+		t.Fatalf("invalid review json: %v\n%s", err, reviewOut.String())
+	}
+	if reviewPayload.Status != "ok" || len(reviewPayload.Changes) != 1 {
+		t.Fatalf("unexpected acceptance review payload: %+v", reviewPayload)
 	}
 }
 

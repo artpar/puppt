@@ -28,6 +28,15 @@ Run CLI help:
 go run ./cmd/puppt --help
 ```
 
+## Operation Docs
+
+- [Commands](docs/COMMANDS.md)
+- [Create examples](docs/CREATE_EXAMPLES.md)
+- [Plan examples](docs/PLAN_EXAMPLES.md)
+- [Support matrix](docs/SUPPORT_MATRIX.md)
+- [Failure modes](docs/FAILURE_MODES.md)
+- [Acceptance workflow](docs/ACCEPTANCE.md)
+
 ## Implementation Language
 
 The product core, CLI, public API surface, tests, and fixtures are implemented in Go.

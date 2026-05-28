@@ -10,6 +10,8 @@ import (
 	editworkflow "github.com/artpar/puppt/internal/edit"
 	inspectworkflow "github.com/artpar/puppt/internal/inspect"
 	"github.com/artpar/puppt/internal/report"
+	reviewworkflow "github.com/artpar/puppt/internal/review"
+	validateworkflow "github.com/artpar/puppt/internal/validate"
 	"github.com/spf13/cobra"
 )
 
@@ -44,8 +46,8 @@ func NewRootCommand() *cobra.Command {
 	cmd.AddCommand(newPlanCommand())
 	cmd.AddCommand(newEditCommand())
 	cmd.AddCommand(newCreateCommand())
-	cmd.AddCommand(stubCommand("validate", "Validate a .pptx deck for structure and expected content."))
-	cmd.AddCommand(stubCommand("review", "Summarize deck changes for agents and human reviewers."))
+	cmd.AddCommand(newValidateCommand())
+	cmd.AddCommand(newReviewCommand())
 
 	return cmd
 }
@@ -196,14 +198,66 @@ func newInspectCommand() *cobra.Command {
 	return cmd
 }
 
-func stubCommand(name string, short string) *cobra.Command {
+func newValidateCommand() *cobra.Command {
+	var emitJSON bool
 	cmd := &cobra.Command{
-		Use:   name,
-		Short: short,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			return fmt.Errorf("%s is not implemented yet", name)
+		Use:   "validate <input.pptx>",
+		Short: "Validate a .pptx deck for structure and expected content.",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			result, err := validateworkflow.Validate(cmd.Context(), args[0])
+			if err != nil {
+				return err
+			}
+			if emitJSON {
+				if err := report.WriteJSON(cmd.OutOrStdout(), result); err != nil {
+					return err
+				}
+				if result.Status != "ok" {
+					return errors.New(result.Summary.Human)
+				}
+				return nil
+			}
+			if _, err := fmt.Fprintln(cmd.OutOrStdout(), result.Summary.Human); err != nil {
+				return err
+			}
+			if result.Status != "ok" {
+				return errors.New(result.Summary.Human)
+			}
+			return nil
 		},
 	}
-	cmd.Flags().Bool("json", false, "emit stable machine-readable JSON")
+	cmd.Flags().BoolVar(&emitJSON, "json", false, "emit stable machine-readable JSON")
+	return cmd
+}
+
+func newReviewCommand() *cobra.Command {
+	var changesPath string
+	var emitJSON bool
+	cmd := &cobra.Command{
+		Use:   "review <input.pptx>",
+		Short: "Summarize deck changes for agents and human reviewers.",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			result, err := reviewworkflow.Review(cmd.Context(), args[0], changesPath)
+			if err != nil {
+				return err
+			}
+			if emitJSON {
+				if err := report.WriteJSON(cmd.OutOrStdout(), result); err != nil {
+					return err
+				}
+				if result.Status != "ok" {
+					return errors.New(result.Summary.Human)
+				}
+				return nil
+			}
+			_, err = fmt.Fprintln(cmd.OutOrStdout(), result.Summary.Human)
+			return err
+		},
+	}
+	cmd.Flags().StringVar(&changesPath, "changes", "", "path to changes JSON")
+	cmd.Flags().BoolVar(&emitJSON, "json", false, "emit stable machine-readable JSON")
+	cmd.MarkFlagRequired("changes")
 	return cmd
 }
