@@ -13,7 +13,7 @@ type CommandResult struct {
 	Errors        []ErrorItem  `json:"errors"`
 	Summary       Summary      `json:"summary"`
 	Inspection    *Inspection  `json:"inspection,omitempty"`
-	Plan          any          `json:"plan,omitempty"`
+	Plan          *EditPlan    `json:"plan,omitempty"`
 	Changes       []ChangeItem `json:"changes,omitempty"`
 	Skipped       []SkipItem   `json:"skipped,omitempty"`
 	Ambiguous     []SkipItem   `json:"ambiguous,omitempty"`

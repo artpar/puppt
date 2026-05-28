@@ -20,18 +20,22 @@ Checkpoint 3: Targeting and Edit Planning.
 - Inspection currently reports presentation part, package part count, slide count, slide order, simple titles, shape-level visible text runs, speaker notes, image/media references, layout references and names, master references and names, core metadata, repeated visible text, and basic unsupported-part/object warnings.
 - Golden JSON test exists for a deterministic minimal deck.
 - Checkpoint 2 inspection exit evidence is recorded in `docs/CHECKPOINTS.md`.
+- `puppt plan <input.pptx> --edit <edit.json> --json` is wired.
+- Target resolution supports slide number, title, visible text, object ID, notes by slide number, and metadata property.
+- Planning detects ready, no-match, and ambiguous targets before mutation.
+- Ambiguous plan results emit JSON and return non-zero.
 
 ## Not Implemented Yet
 
 - Advanced non-text object extraction, richer media metadata, and broader real-world unsupported-feature warning detection beyond the current basic warning set.
-- Target resolution and edit planning.
+- Mutating edit application.
 - Mutations.
 - Deck creation.
 - Validation.
 - Review summaries.
 - Fixtures and acceptance suite.
 
-Commands other than `inspect`, `version`, and `--help` currently fail explicitly as unimplemented.
+Commands other than `inspect`, `plan`, `version`, and `--help` currently fail explicitly as unimplemented.
 
 ## Next Checkpoint
 

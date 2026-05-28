@@ -1,3 +1,3 @@
-// Package edit will plan and apply targeted deck mutations while preserving
+// Package edit plans and applies targeted deck mutations while preserving
 // unrelated package content.
 package edit

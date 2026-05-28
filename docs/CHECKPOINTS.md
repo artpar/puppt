@@ -400,6 +400,67 @@ Checkpoint 2 decision:
 - Complete enough to enter Checkpoint 3: Targeting and Edit Planning.
 - Remaining inspection improvements are tracked as known risks and should be added as fixtures reveal real-world gaps.
 
+## Checkpoint 3: Targeting and Edit Planning, progress 1
+
+Changed files:
+
+- `internal/model/result.go`
+- `internal/model/plan.go`
+- `internal/target/doc.go`
+- `internal/target/resolve.go`
+- `internal/target/resolve_test.go`
+- `internal/edit/doc.go`
+- `internal/edit/plan.go`
+- `internal/edit/plan_test.go`
+- `internal/cli/root.go`
+- `internal/cli/root_test.go`
+- `docs/STATUS.md`
+- `docs/DOCTRINE_CHECKLIST.md`
+- `docs/CHECKPOINTS.md`
+
+Implemented behavior:
+
+- Added edit spec, target spec, edit plan, and target match models.
+- Added target resolution against inspection facts.
+- Supported target types: slide number, title, visible text, object ID, notes by slide number, and metadata property.
+- Added ambiguity detection before mutation.
+- Added deck-scope override for multi-match visible text plans.
+- Added no-match classification.
+- Added non-mutating `internal/edit.Plan`.
+- Wired `puppt plan <input.pptx> --edit <edit.json> --json`.
+- Made ambiguous/no-match CLI plan results write JSON and return non-zero.
+
+Verification commands:
+
+```text
+go test ./internal/target ./internal/edit ./cmd/puppt ./internal/cli
+go test ./...
+```
+
+Verification result:
+
+- `go test ./internal/target ./internal/edit ./cmd/puppt ./internal/cli` passed.
+- `go test ./...` passed.
+
+Fixtures added or updated:
+
+- Reused deterministic generated `.pptx` fixtures.
+- Added inline edit specs in tests.
+
+Known risks:
+
+- Plan schema is still internal/pre-v1 and may need command examples before freezing.
+- Planning does not yet validate operation-specific required fields beyond operation and target type.
+- No mutation engine exists yet.
+
+Unsupported behavior encountered:
+
+- Edit application remains explicitly unsupported.
+
+Next checkpoint:
+
+- Continue Checkpoint 3 with operation-specific planning validation, skipped/unsupported operation reporting, and more target tests before mutation workflows.
+
 ## Checkpoint 2: Inspection Core, progress 4
 
 Changed files:
