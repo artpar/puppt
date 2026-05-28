@@ -10,7 +10,7 @@ This checklist maps current implementation practice to the binding Puppt layer i
 | CLI code in `cmd/puppt` MUST stay thin | `cmd/puppt/main.go` only delegates to `internal/cli` |
 | Business logic belongs in internal packages | `.pptx` package reading is in `internal/pptx`; inspection is in `internal/inspect`; JSON output is in `internal/report` |
 | Use `context.Context` for I/O operations | `cli.Execute`, `inspect.Inspect`, and `pptx.Open` accept context |
-| Return explicit errors for malformed decks and unsupported operations | `internal/pptx.PackageError` classifies package failures; unimplemented commands return explicit errors |
+| Return explicit errors for malformed decks and unsupported operations | `internal/pptx.PackageError` classifies package failures; unsupported operations and invalid command inputs return explicit errors |
 | Prefer reliable libraries for non-core infrastructure | Cobra is used for CLI routing and documented in `docs/decisions/0001-cli-library.md` |
 | Puppt MUST own authoritative `.pptx` reader/writer | Documented in `docs/decisions/0002-own-pptx-reader-writer.md`; reader is implemented in `internal/pptx` |
 | Do not shell out to office software in core path | No shell-out dependency exists |

@@ -12,7 +12,7 @@ The binding product and engineering documents are:
 
 ## Current State
 
-Puppt is at Checkpoint 8: Review and v1 Hardening. Inspection, edit planning, supported mutations, image replacement, simple editable additions, and structured deck creation are implemented for deterministic `.pptx` fixtures, with post-edit validation.
+Puppt's v1 checkpoint sequence is complete. Inspection, edit planning, supported mutations, image replacement, simple editable additions, structured deck creation, validation, and review are implemented for deterministic `.pptx` fixtures.
 
 ## Development
 

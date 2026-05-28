@@ -2,7 +2,7 @@
 
 ## Current Checkpoint
 
-Checkpoint 8: Review and v1 Hardening.
+V1 checkpoint sequence complete.
 
 ## Implemented
 
@@ -63,4 +63,4 @@ All required v1 command names are implemented: `inspect`, `plan`, `edit`, `creat
 
 ## Next Checkpoint
 
-Checkpoint 8: Review and v1 Hardening.
+No remaining v1 checkpoint is open. Future work should start from a new scoped goal or one of the known non-v1 gaps above.
