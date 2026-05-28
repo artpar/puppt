@@ -251,11 +251,13 @@ Fields MAY grow additively. Existing v1 fields MUST NOT be removed or repurposed
 
 ## Dependency Policy
 
-Prefer reliable, maintained third-party Go libraries over hand-written implementations wherever they materially reduce correctness, compatibility, parsing, writing, validation, or maintenance risk.
+Prefer reliable, maintained third-party Go libraries over hand-written implementations wherever they materially reduce correctness, compatibility, parsing, validation, or maintenance risk outside Puppt's core `.pptx` package reader/writer.
 
-This preference is binding, but not blind. A library is acceptable only when evidence shows it is maintained, licensed compatibly, testable, and does not weaken Puppt's preservation and explicit-error guarantees. If no reliable library exists for a required `.pptx` capability, implement the smallest necessary Go-native package/XML logic behind a narrow internal interface and document why library use was rejected.
+Puppt's core USP is controlled, inspectable, preservation-first `.pptx` reading and writing. That layer MUST be Puppt-owned Go code built on well-understood primitives and narrow internal interfaces. Third-party `.pptx` libraries MAY be studied as references and MAY be used for optional comparison tests or non-core helpers, but they MUST NOT own the authoritative read/write/mutation path for v1.
 
-Use the Go standard library directly for generic primitives such as filesystem access, ZIP handling, XML decoding, JSON encoding, hashing, and testing when those primitives are sufficient. Use specialized libraries for `.pptx`, Open XML, CLI ergonomics, diffing, validation, or document manipulation when they are more reliable than bespoke code and can be isolated behind Puppt-owned interfaces.
+This preference is binding, but not blind. A library is acceptable only when evidence shows it is maintained, licensed compatibly, testable, and does not weaken Puppt's preservation and explicit-error guarantees. If a capability falls inside the core `.pptx` reader/writer, implement the smallest necessary Go-native package/XML logic behind a narrow internal interface and document the invariants it preserves.
+
+Use the Go standard library directly for core package primitives such as filesystem access, ZIP handling, XML decoding, JSON encoding, hashing, and testing when those primitives are sufficient. Use specialized libraries for CLI ergonomics, diffing, schema validation, diagnostics, or optional comparison tooling when they are more reliable than bespoke code and can be isolated behind Puppt-owned interfaces.
 
 Before adding a dependency, record:
 

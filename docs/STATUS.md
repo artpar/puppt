@@ -2,7 +2,7 @@
 
 ## Current Checkpoint
 
-Checkpoint 0: Repository Foundation.
+Checkpoint 1: `.pptx` Package Reader.
 
 ## Implemented
 
@@ -12,10 +12,12 @@ Checkpoint 0: Repository Foundation.
 - `puppt --help` and `puppt version` work.
 - Internal package layout exists for the planned modules.
 - Initial test command is `go test ./...`.
+- Official reference map exists for ECMA-376, ISO/IEC 29500, Microsoft PresentationML structure, and Microsoft Office implementation notes.
+- Puppt-owned `.pptx` package reader opens ZIP packages, reads content types, reads root relationships, resolves the presentation part, reads presentation relationships, and exposes slide part order.
+- Invalid extension, invalid ZIP, and missing required part cases fail explicitly.
 
 ## Not Implemented Yet
 
-- `.pptx` package reading.
 - Deck inspection.
 - Target resolution and edit planning.
 - Mutations.
@@ -24,8 +26,8 @@ Checkpoint 0: Repository Foundation.
 - Review summaries.
 - Fixtures and acceptance suite.
 
-Commands other than `version` and `--help` currently fail explicitly with a repository-foundation message.
+Commands other than `version` and `--help` currently fail explicitly with a repository-foundation message. The package reader is available internally but is not yet wired to `puppt inspect`.
 
 ## Next Checkpoint
 
-Checkpoint 1: `.pptx` Package Reader.
+Checkpoint 2: Inspection Core.

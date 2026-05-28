@@ -13,8 +13,9 @@ Puppt-specific interpretation:
 7. The command-line and JSON result shapes are interfaces. They require compatibility discipline.
 8. Test fixtures and golden outputs are part of the system because they prove behavior across real package structures.
 9. Unsupported content MUST be preserved where possible and reported when relevant. Unknown content MUST NOT be silently dropped.
-10. Reliable third-party Go libraries SHOULD be used wherever they reduce correctness, compatibility, parsing, writing, validation, or maintenance risk.
-11. Any dependency that reads, writes, renders, mutates, validates, or interprets `.pptx` content is a controlled dependency and requires justification.
+10. Reliable third-party Go libraries SHOULD be used wherever they reduce non-core infrastructure risk.
+11. Puppt MUST own the authoritative `.pptx` package reader/writer and mutation path because that preservation layer is the product's core USP.
+12. Any dependency that reads, writes, renders, mutates, validates, or interprets `.pptx` content is a controlled dependency and requires justification.
 
 ## Go Engineering Rules for Puppt
 
@@ -27,8 +28,8 @@ These rules specialize the doctrine below for Go implementation.
 5. Wrap errors with operation and file/part context while avoiding secrets or excessive document content in logs and errors.
 6. Prefer typed or classified errors for unsupported file type, malformed package, unsupported feature, ambiguous target, no match, validation failure, and internal failure.
 7. Use deterministic output ordering for JSON, inspection results, plans, warnings, changes, and tests.
-8. Prefer reliable, maintained Go libraries over bespoke code when they make Puppt safer or more complete; isolate them behind Puppt-owned internal interfaces.
-9. Use Go standard library ZIP, XML, JSON, filesystem, and testing facilities directly when generic primitives are enough.
+8. Prefer reliable, maintained Go libraries over bespoke code for non-core infrastructure when they make Puppt safer or more complete; isolate them behind Puppt-owned internal interfaces.
+9. Use Go standard library ZIP, XML, JSON, filesystem, and testing facilities directly for the core `.pptx` reader/writer unless a future decision explicitly proves a helper library does not control or obscure Puppt's preservation logic.
 10. Do not shell out to office software as part of the core product path.
 11. Do not use reflection-heavy or global-state-heavy designs where plain structs and interfaces are sufficient.
 12. Do not hide PowerPoint package complexity behind an abstraction that prevents precise preservation or validation.
