@@ -1,9 +1,12 @@
 package model
 
 type EditSpec struct {
-	Operation   string     `json:"operation"`
-	Target      TargetSpec `json:"target"`
-	Replacement string     `json:"replacement,omitempty"`
+	Operation              string     `json:"operation"`
+	Target                 TargetSpec `json:"target"`
+	Replacement            string     `json:"replacement,omitempty"`
+	ImagePath              string     `json:"image_path,omitempty"`
+	InsertAfterSlide       int        `json:"insert_after_slide,omitempty"`
+	DestinationSlideNumber int        `json:"destination_slide_number,omitempty"`
 }
 
 type TargetSpec struct {
@@ -16,11 +19,15 @@ type TargetSpec struct {
 }
 
 type EditPlan struct {
-	Operation string        `json:"operation"`
-	Target    TargetSpec    `json:"target"`
-	Matches   []TargetMatch `json:"matches"`
-	Status    string        `json:"status"`
-	Message   string        `json:"message"`
+	Operation              string        `json:"operation"`
+	Target                 TargetSpec    `json:"target"`
+	Matches                []TargetMatch `json:"matches"`
+	Status                 string        `json:"status"`
+	Message                string        `json:"message"`
+	Replacement            string        `json:"replacement,omitempty"`
+	ImagePath              string        `json:"image_path,omitempty"`
+	InsertAfterSlide       int           `json:"insert_after_slide,omitempty"`
+	DestinationSlideNumber int           `json:"destination_slide_number,omitempty"`
 }
 
 type TargetMatch struct {

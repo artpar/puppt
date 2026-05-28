@@ -513,6 +513,59 @@ Next checkpoint:
 
 - Continue Checkpoint 3 with documented plan examples, image object target identity, and slide-operation plan fields before mutation workflows.
 
+## Checkpoint 3: Targeting and Edit Planning, progress 3
+
+Changed files:
+
+- `internal/model/plan.go`
+- `internal/target/resolve.go`
+- `internal/target/resolve_test.go`
+- `internal/edit/plan.go`
+- `internal/edit/plan_test.go`
+- `docs/PLAN_EXAMPLES.md`
+- `docs/STATUS.md`
+- `docs/DOCTRINE_CHECKLIST.md`
+- `docs/CHECKPOINTS.md`
+
+Implemented behavior:
+
+- Added plan fields for `image_path`, `insert_after_slide`, and `destination_slide_number`.
+- Included those fields in emitted edit plans.
+- Resolved media object IDs for image targets.
+- Added image replacement plan tests.
+- Added image-path required-field validation.
+- Added slide-move destination planning test.
+- Added agent-facing plan examples for text replacement, deck-wide replacement, notes, metadata, image replacement, slide move, and slide duplicate.
+
+Verification commands:
+
+```text
+go test ./internal/target ./internal/edit ./cmd/puppt ./internal/cli
+```
+
+Verification result:
+
+- `go test ./internal/target ./internal/edit ./cmd/puppt ./internal/cli` passed.
+
+Fixtures added or updated:
+
+- Reused deterministic generated `.pptx` fixtures.
+- Added inline image and slide operation edit specs in tests.
+
+Known risks:
+
+- Slide add/delete/duplicate planning does not yet validate all future mutation fields.
+- Image replacement planning resolves media object IDs, but replacement image validation is not implemented yet.
+- The mutation engine still does not exist.
+
+Unsupported behavior encountered:
+
+- Edit application remains explicitly unsupported.
+
+Next checkpoint:
+
+- Complete Checkpoint 3 audit or add any remaining target coverage needed before mutation workflows.
+
 ## Checkpoint 2: Inspection Core, progress 4
 
 Changed files:

@@ -55,3 +55,23 @@ func TestResolveObjectID(t *testing.T) {
 		t.Fatalf("unexpected matches: %+v", matches)
 	}
 }
+
+func TestResolveImageObjectID(t *testing.T) {
+	inspection := &model.Inspection{
+		Slides: []model.Slide{
+			{
+				Number: 1,
+				ID:     "s1",
+				Media:  []model.MediaRef{{ObjectID: "s1#rId2", Kind: "image"}},
+			},
+		},
+	}
+
+	matches, status, _ := Resolve(inspection, model.TargetSpec{Type: "object_id", ObjectID: "s1#rId2"})
+	if status != StatusReady {
+		t.Fatalf("unexpected status: %s", status)
+	}
+	if len(matches) != 1 || matches[0].Kind != "image" {
+		t.Fatalf("unexpected matches: %+v", matches)
+	}
+}

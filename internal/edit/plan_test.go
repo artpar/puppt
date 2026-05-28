@@ -120,6 +120,94 @@ func TestPlanReportsMissingRequiredReplacement(t *testing.T) {
 	}
 }
 
+func TestPlanReadyForImageReplacement(t *testing.T) {
+	deckPath := filepath.Join(t.TempDir(), "deck.pptx")
+	if err := fixtures.WritePPTX(deckPath, fixtures.PPTXOptions{
+		Slides: []fixtures.Slide{
+			{PartName: "ppt/slides/slide1.xml", Text: "Slide", Image: "old image"},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	specPath := writeSpec(t, `{
+  "operation": "replace_image",
+  "target": {
+    "type": "object_id",
+    "object_id": "ppt/slides/slide1.xml#rId1"
+  },
+  "image_path": "replacement.png"
+}`)
+
+	result, err := Plan(context.Background(), deckPath, specPath)
+	if err != nil {
+		t.Fatalf("plan failed: %v", err)
+	}
+	if result.Status != "ok" {
+		t.Fatalf("unexpected status: %s", result.Status)
+	}
+	if result.Plan.ImagePath != "replacement.png" {
+		t.Fatalf("unexpected image path: %s", result.Plan.ImagePath)
+	}
+	if len(result.Plan.Matches) != 1 || result.Plan.Matches[0].Kind != "image" {
+		t.Fatalf("unexpected matches: %+v", result.Plan.Matches)
+	}
+}
+
+func TestPlanRequiresImagePath(t *testing.T) {
+	deckPath := filepath.Join(t.TempDir(), "deck.pptx")
+	if err := fixtures.WritePPTX(deckPath, fixtures.PPTXOptions{
+		Slides: []fixtures.Slide{
+			{PartName: "ppt/slides/slide1.xml", Text: "Slide", Image: "old image"},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	specPath := writeSpec(t, `{
+  "operation": "replace_image",
+  "target": {
+    "type": "object_id",
+    "object_id": "ppt/slides/slide1.xml#rId1"
+  }
+}`)
+
+	result, err := Plan(context.Background(), deckPath, specPath)
+	if err != nil {
+		t.Fatalf("plan failed: %v", err)
+	}
+	if result.Status != "unsupported" {
+		t.Fatalf("unexpected status: %s", result.Status)
+	}
+	if result.Plan.Message != "replace_image requires image_path" {
+		t.Fatalf("unexpected message: %s", result.Plan.Message)
+	}
+}
+
+func TestPlanReadyForSlideMove(t *testing.T) {
+	deckPath := filepath.Join(t.TempDir(), "deck.pptx")
+	if err := fixtures.WriteMinimalPPTX(deckPath, []string{"ppt/slides/slide1.xml", "ppt/slides/slide2.xml"}); err != nil {
+		t.Fatal(err)
+	}
+	specPath := writeSpec(t, `{
+  "operation": "slide_move",
+  "target": {
+    "type": "slide_number",
+    "slide_number": 1
+  },
+  "destination_slide_number": 2
+}`)
+
+	result, err := Plan(context.Background(), deckPath, specPath)
+	if err != nil {
+		t.Fatalf("plan failed: %v", err)
+	}
+	if result.Status != "ok" {
+		t.Fatalf("unexpected status: %s", result.Status)
+	}
+	if result.Plan.DestinationSlideNumber != 2 {
+		t.Fatalf("unexpected destination: %d", result.Plan.DestinationSlideNumber)
+	}
+}
+
 func writeSpec(t *testing.T, data string) string {
 	t.Helper()
 	filePath := filepath.Join(t.TempDir(), "edit.json")

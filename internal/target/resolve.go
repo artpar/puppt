@@ -122,6 +122,16 @@ func matchObjectID(inspection *model.Inspection, objectID string) []model.Target
 				}}
 			}
 		}
+		for _, media := range slide.Media {
+			if media.ObjectID == objectID {
+				return []model.TargetMatch{{
+					SlideNumber: slide.Number,
+					SlideID:     slide.ID,
+					ObjectID:    media.ObjectID,
+					Kind:        media.Kind,
+				}}
+			}
+		}
 	}
 	return nil
 }

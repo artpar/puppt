@@ -18,6 +18,7 @@ This checklist maps current implementation practice to the binding Puppt layer i
 | Tests cover the behavior at the right risk level | Inspection has focused tests for slide order, shape-level visible text, metadata, notes, image/audio/video/OLE refs, layout and master refs/names, repeated text, unsupported warnings, and CLI JSON |
 | Detect ambiguity before mutation | `internal/target.Resolve` classifies ready, no-match, and ambiguous targets; `puppt plan --json` emits ambiguity details and exits non-zero |
 | Unsupported behavior is explicit | `internal/edit.Plan` rejects unsupported operations, operation/target mismatches, and missing required fields before mutation |
+| Documentation required for operation is part of the system | `docs/PLAN_EXAMPLES.md`, `docs/STATUS.md`, and `docs/CHECKPOINTS.md` document current command behavior and limits |
 | Round-trip and preservation tests are required before mutations | No mutation support exists yet; preservation tests are a gate for future edit checkpoints |
 | Progress records must state changes, verification, risks, and next checkpoint | `docs/CHECKPOINTS.md` records Checkpoints 0, 1, 2, and current Checkpoint 3 progress |
 

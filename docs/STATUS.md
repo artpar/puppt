@@ -26,6 +26,7 @@ Checkpoint 3: Targeting and Edit Planning.
 - Ambiguous plan results emit JSON and return non-zero.
 - Planning validates supported operation/target combinations and required fields for text, notes, and metadata plans.
 - Unsupported plan results emit JSON and return non-zero.
+- Plan examples are documented in `docs/PLAN_EXAMPLES.md`.
 
 ## Not Implemented Yet
 

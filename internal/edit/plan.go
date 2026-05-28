@@ -21,11 +21,15 @@ func Plan(ctx context.Context, deckPath string, specPath string) (*model.Command
 	}
 	if message := validateOperationTarget(spec); message != "" {
 		plan := &model.EditPlan{
-			Operation: spec.Operation,
-			Target:    spec.Target,
-			Matches:   []model.TargetMatch{},
-			Status:    statusUnsupported,
-			Message:   message,
+			Operation:              spec.Operation,
+			Target:                 spec.Target,
+			Matches:                []model.TargetMatch{},
+			Status:                 statusUnsupported,
+			Message:                message,
+			Replacement:            spec.Replacement,
+			ImagePath:              spec.ImagePath,
+			InsertAfterSlide:       spec.InsertAfterSlide,
+			DestinationSlideNumber: spec.DestinationSlideNumber,
 		}
 		return &model.CommandResult{
 			SchemaVersion: model.SchemaVersion,
@@ -51,11 +55,15 @@ func Plan(ctx context.Context, deckPath string, specPath string) (*model.Command
 
 	matches, status, message := target.Resolve(inspectionResult.Inspection, spec.Target)
 	plan := &model.EditPlan{
-		Operation: spec.Operation,
-		Target:    spec.Target,
-		Matches:   matches,
-		Status:    status,
-		Message:   message,
+		Operation:              spec.Operation,
+		Target:                 spec.Target,
+		Matches:                matches,
+		Status:                 status,
+		Message:                message,
+		Replacement:            spec.Replacement,
+		ImagePath:              spec.ImagePath,
+		InsertAfterSlide:       spec.InsertAfterSlide,
+		DestinationSlideNumber: spec.DestinationSlideNumber,
 	}
 
 	resultStatus := "ok"
@@ -137,6 +145,12 @@ func validateOperationTarget(spec model.EditSpec) string {
 	}
 	if spec.Operation == "update_metadata" && spec.Target.Property == "" {
 		return "update_metadata requires target property"
+	}
+	if spec.Operation == "replace_image" && spec.ImagePath == "" {
+		return "replace_image requires image_path"
+	}
+	if spec.Operation == "slide_move" && spec.DestinationSlideNumber == 0 {
+		return "slide_move requires destination_slide_number"
 	}
 	return ""
 }
