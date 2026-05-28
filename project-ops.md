@@ -251,7 +251,11 @@ Fields MAY grow additively. Existing v1 fields MUST NOT be removed or repurposed
 
 ## Dependency Policy
 
-Start with Go standard library support for ZIP and XML package handling unless evidence shows a maintained Go library provides safer `.pptx` support without weakening preservation.
+Prefer reliable, maintained third-party Go libraries over hand-written implementations wherever they materially reduce correctness, compatibility, parsing, writing, validation, or maintenance risk.
+
+This preference is binding, but not blind. A library is acceptable only when evidence shows it is maintained, licensed compatibly, testable, and does not weaken Puppt's preservation and explicit-error guarantees. If no reliable library exists for a required `.pptx` capability, implement the smallest necessary Go-native package/XML logic behind a narrow internal interface and document why library use was rejected.
+
+Use the Go standard library directly for generic primitives such as filesystem access, ZIP handling, XML decoding, JSON encoding, hashing, and testing when those primitives are sufficient. Use specialized libraries for `.pptx`, Open XML, CLI ergonomics, diffing, validation, or document manipulation when they are more reliable than bespoke code and can be isolated behind Puppt-owned interfaces.
 
 Before adding a dependency, record:
 
@@ -262,6 +266,8 @@ Before adding a dependency, record:
 - what part of Puppt it owns
 - whether it reads, writes, or validates `.pptx`
 - how unsupported features are preserved
+- why this library is safer than writing or maintaining equivalent code ourselves
+- the fallback path if the dependency becomes abandoned or unsafe
 - rollback/removal plan
 
 Shelling out to LibreOffice, PowerPoint, Keynote, browser renderers, or image conversion tools MUST NOT be part of the core v1 mutation path. Such tools MAY be used for optional manual verification only if the core product remains Go-native and editable-output-first.

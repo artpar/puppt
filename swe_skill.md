@@ -13,7 +13,8 @@ Puppt-specific interpretation:
 7. The command-line and JSON result shapes are interfaces. They require compatibility discipline.
 8. Test fixtures and golden outputs are part of the system because they prove behavior across real package structures.
 9. Unsupported content MUST be preserved where possible and reported when relevant. Unknown content MUST NOT be silently dropped.
-10. Any dependency that reads, writes, renders, mutates, validates, or interprets `.pptx` content is a controlled dependency and requires justification.
+10. Reliable third-party Go libraries SHOULD be used wherever they reduce correctness, compatibility, parsing, writing, validation, or maintenance risk.
+11. Any dependency that reads, writes, renders, mutates, validates, or interprets `.pptx` content is a controlled dependency and requires justification.
 
 ## Go Engineering Rules for Puppt
 
@@ -26,14 +27,15 @@ These rules specialize the doctrine below for Go implementation.
 5. Wrap errors with operation and file/part context while avoiding secrets or excessive document content in logs and errors.
 6. Prefer typed or classified errors for unsupported file type, malformed package, unsupported feature, ambiguous target, no match, validation failure, and internal failure.
 7. Use deterministic output ordering for JSON, inspection results, plans, warnings, changes, and tests.
-8. Use Go standard library ZIP and XML facilities first unless a dependency is approved through `project-ops.md`.
-9. Do not shell out to office software as part of the core product path.
-10. Do not use reflection-heavy or global-state-heavy designs where plain structs and interfaces are sufficient.
-11. Do not hide PowerPoint package complexity behind an abstraction that prevents precise preservation or validation.
-12. Keep public structs additive and versioned once they appear in CLI/API JSON.
-13. Fixture builders MUST produce deterministic `.pptx` files or deterministic normalized expectations.
-14. Golden tests MUST normalize values that are legitimately unstable, and only those values.
-15. Round-trip tests MUST prove both requested changes and preservation of unrelated content.
+8. Prefer reliable, maintained Go libraries over bespoke code when they make Puppt safer or more complete; isolate them behind Puppt-owned internal interfaces.
+9. Use Go standard library ZIP, XML, JSON, filesystem, and testing facilities directly when generic primitives are enough.
+10. Do not shell out to office software as part of the core product path.
+11. Do not use reflection-heavy or global-state-heavy designs where plain structs and interfaces are sufficient.
+12. Do not hide PowerPoint package complexity behind an abstraction that prevents precise preservation or validation.
+13. Keep public structs additive and versioned once they appear in CLI/API JSON.
+14. Fixture builders MUST produce deterministic `.pptx` files or deterministic normalized expectations.
+15. Golden tests MUST normalize values that are legitimately unstable, and only those values.
+16. Round-trip tests MUST prove both requested changes and preservation of unrelated content.
 
 ## Puppt Definition of Done
 
