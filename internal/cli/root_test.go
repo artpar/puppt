@@ -54,9 +54,9 @@ func TestStubCommandFailsExplicitly(t *testing.T) {
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 
-	err := Execute(context.Background(), []string{"create"}, &stdout, &stderr)
+	err := Execute(context.Background(), []string{"review"}, &stdout, &stderr)
 	if err == nil {
-		t.Fatal("create unexpectedly succeeded")
+		t.Fatal("review unexpectedly succeeded")
 	}
 	if !strings.Contains(err.Error(), "not implemented yet") {
 		t.Fatalf("unexpected error: %v", err)
@@ -111,6 +111,53 @@ func TestEditJSON(t *testing.T) {
 	}
 	if payload.Output != outputPath || !payload.Validation.Valid || len(payload.Changes) != 1 {
 		t.Fatalf("unexpected edit payload: %+v", payload)
+	}
+}
+
+func TestCreateJSON(t *testing.T) {
+	dir := t.TempDir()
+	inputPath := filepath.Join(dir, "deck.json")
+	outputPath := filepath.Join(dir, "created.pptx")
+	if err := os.WriteFile(inputPath, []byte(`{
+  "metadata": {
+    "title": "CLI Deck"
+  },
+  "slides": [
+    {
+      "layout": "title",
+      "title": "Created from CLI"
+    }
+  ]
+}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	if err := Execute(context.Background(), []string{"create", "--input", inputPath, "--out", outputPath, "--json"}, &stdout, &stderr); err != nil {
+		t.Fatalf("create failed: %v\n%s", err, stdout.String())
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("create wrote stderr: %s", stderr.String())
+	}
+
+	var payload struct {
+		SchemaVersion string `json:"schema_version"`
+		Command       string `json:"command"`
+		Status        string `json:"status"`
+		Output        string `json:"output"`
+		Validation    struct {
+			Valid bool `json:"valid"`
+		} `json:"validation"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
+		t.Fatalf("invalid json: %v\n%s", err, stdout.String())
+	}
+	if payload.SchemaVersion != "puppt.v1" || payload.Command != "create" || payload.Status != "ok" {
+		t.Fatalf("unexpected envelope: %+v", payload)
+	}
+	if payload.Output != outputPath || !payload.Validation.Valid {
+		t.Fatalf("unexpected create payload: %+v", payload)
 	}
 }
 

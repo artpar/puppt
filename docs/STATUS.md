@@ -2,7 +2,7 @@
 
 ## Current Checkpoint
 
-Checkpoint 7: Creation Workflow.
+Checkpoint 8: Review and v1 Hardening.
 
 ## Implemented
 
@@ -42,17 +42,21 @@ Checkpoint 7: Creation Workflow.
 - Simple editable text boxes and rectangle shapes can be added to existing slides.
 - Unsupported advanced visual edits remain rejected before mutation.
 - Checkpoint 6 image replacement and simple additions exit evidence is recorded in `docs/CHECKPOINTS.md`.
+- `puppt create --input <deck.json> --out <output.pptx> --json` is wired.
+- Creation supports title slides, section slides, title/body slides, bullet lists, speaker notes, metadata, and provided images.
+- Created decks inspect and validate after writing.
+- Created deck output is deterministic for the same structured input.
+- Checkpoint 7 creation workflow exit evidence is recorded in `docs/CHECKPOINTS.md`.
 
 ## Not Implemented Yet
 
 - Advanced non-text object extraction, richer media metadata, and broader real-world unsupported-feature warning detection beyond the current basic warning set.
 - Adding new notes parts when a slide has no notes relationship.
-- Deck creation.
 - Review summaries.
 - Fixtures and acceptance suite.
 
-Commands other than `inspect`, `plan`, `edit`, `version`, and `--help` currently fail explicitly as unimplemented.
+Commands other than `inspect`, `plan`, `edit`, `create`, `version`, and `--help` currently fail explicitly as unimplemented.
 
 ## Next Checkpoint
 
-Checkpoint 7: Creation Workflow.
+Checkpoint 8: Review and v1 Hardening.

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 
+	createworkflow "github.com/artpar/puppt/internal/create"
 	editworkflow "github.com/artpar/puppt/internal/edit"
 	inspectworkflow "github.com/artpar/puppt/internal/inspect"
 	"github.com/artpar/puppt/internal/report"
@@ -42,7 +43,7 @@ func NewRootCommand() *cobra.Command {
 	cmd.AddCommand(newInspectCommand())
 	cmd.AddCommand(newPlanCommand())
 	cmd.AddCommand(newEditCommand())
-	cmd.AddCommand(stubCommand("create", "Create an editable .pptx deck from structured input."))
+	cmd.AddCommand(newCreateCommand())
 	cmd.AddCommand(stubCommand("validate", "Validate a .pptx deck for structure and expected content."))
 	cmd.AddCommand(stubCommand("review", "Summarize deck changes for agents and human reviewers."))
 
@@ -131,6 +132,44 @@ func newEditCommand() *cobra.Command {
 	cmd.Flags().StringVar(&outputPath, "out", "", "path to write edited .pptx")
 	cmd.Flags().BoolVar(&emitJSON, "json", false, "emit stable machine-readable JSON")
 	cmd.MarkFlagRequired("edit")
+	cmd.MarkFlagRequired("out")
+	return cmd
+}
+
+func newCreateCommand() *cobra.Command {
+	var inputPath string
+	var outputPath string
+	var emitJSON bool
+	cmd := &cobra.Command{
+		Use:   "create",
+		Short: "Create an editable .pptx deck from structured input.",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			result, err := createworkflow.Create(cmd.Context(), inputPath, outputPath)
+			if err != nil {
+				return err
+			}
+			if emitJSON {
+				if err := report.WriteJSON(cmd.OutOrStdout(), result); err != nil {
+					return err
+				}
+				if result.Status != "ok" {
+					return errors.New(result.Summary.Human)
+				}
+				return nil
+			}
+			if _, err := fmt.Fprintln(cmd.OutOrStdout(), result.Summary.Human); err != nil {
+				return err
+			}
+			if result.Status != "ok" {
+				return errors.New(result.Summary.Human)
+			}
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&inputPath, "input", "", "path to structured deck JSON")
+	cmd.Flags().StringVar(&outputPath, "out", "", "path to write created .pptx")
+	cmd.Flags().BoolVar(&emitJSON, "json", false, "emit stable machine-readable JSON")
+	cmd.MarkFlagRequired("input")
 	cmd.MarkFlagRequired("out")
 	return cmd
 }

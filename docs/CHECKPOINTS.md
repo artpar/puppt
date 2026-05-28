@@ -789,6 +789,65 @@ Next checkpoint:
 
 - Continue Checkpoint 7 with structured JSON deck creation, deterministic output, inspection, and validation.
 
+## Checkpoint 7: Creation Workflow, completion audit
+
+Changed files:
+
+- `internal/create/create.go`
+- `internal/create/create_test.go`
+- `internal/cli/root.go`
+- `internal/cli/root_test.go`
+- `docs/STATUS.md`
+- `docs/DOCTRINE_CHECKLIST.md`
+- `docs/CHECKPOINTS.md`
+- `docs/CREATE_EXAMPLES.md`
+- `README.md`
+
+Implemented behavior:
+
+- Wired `puppt create --input <deck.json> --out <output.pptx> --json`.
+- Added a structured JSON creation contract with deck metadata and ordered slides.
+- Created deterministic editable `.pptx` packages using Puppt-owned package writing.
+- Supported `title`, `section`, and `title_body` slide layouts.
+- Supported title text, body text, bullet lists, speaker notes, metadata, and local image paths.
+- Added deterministic slide layout and master parts for created decks.
+- Ran validation and inspection-based content checks after writing created decks.
+
+Verification commands:
+
+```text
+go test ./internal/create ./internal/inspect ./internal/validate ./cmd/puppt ./internal/cli
+go test ./...
+git diff --check
+```
+
+Verification result:
+
+- `go test ./internal/create ./internal/inspect ./internal/validate ./cmd/puppt ./internal/cli` passed.
+- `go test ./...` passed.
+- `git diff --check` passed.
+
+Fixtures added or updated:
+
+- Added creation tests for structured JSON with metadata, title slides, section slides, title/body slides, bullets, notes, and images.
+- Added deterministic output test that compares two generated decks byte-for-byte.
+- Added CLI JSON creation test.
+
+Known risks:
+
+- Created decks use simple deterministic layouts and basic shape XML rather than design-rich PowerPoint layouts.
+- Created image support preserves the provided bytes and relationship target but does not normalize image dimensions.
+- Creation validates expected content through current inspection coverage, so advanced visual fidelity remains outside current verification.
+
+Unsupported behavior encountered:
+
+- Review summaries are not implemented yet.
+- Acceptance fixture workflows and final support matrix hardening remain for Checkpoint 8.
+
+Next checkpoint:
+
+- Continue Checkpoint 8 with review summaries, command docs, support matrix, acceptance workflows, and explicit v1 gap listing.
+
 ## Checkpoint 2: Inspection Core, progress 4
 
 Changed files:
