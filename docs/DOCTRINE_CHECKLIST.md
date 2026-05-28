@@ -21,10 +21,13 @@ This checklist maps current implementation practice to the binding Puppt layer i
 | Documentation required for operation is part of the system | `docs/COMMANDS.md`, `docs/CREATE_EXAMPLES.md`, `docs/PLAN_EXAMPLES.md`, `docs/SUPPORT_MATRIX.md`, `docs/FAILURE_MODES.md`, `docs/ACCEPTANCE.md`, `docs/STATUS.md`, and `docs/CHECKPOINTS.md` document command behavior and limits |
 | Round-trip and preservation tests are required before mutations | Text, notes, metadata, slide, image, simple-addition, and creation workflows inspect and validate output; targeted text replacement verifies unrelated media part preservation |
 | Progress records must state changes, verification, risks, and next checkpoint | `docs/CHECKPOINTS.md` records Checkpoints 0, 1, 2, 3, 4, 5, 6, and 7 completion evidence |
+| Build and handoff must be reproducible | `Makefile`, `docs/BUILD_RELEASE.md`, `docs/HANDOFF.md`, `docs/TECHNICAL_KT.md`, and `docs/COMPLIANCE_AUDIT.md` define current build and state transfer |
 
 ## Current Known Gaps
 
 - Advanced non-text object extraction, richer media metadata, and broader real-world unsupported-feature warning detection are not implemented yet.
 - Rich visual fidelity verification beyond editable package structure is not implemented yet.
 - Notes updates require an existing notes relationship; adding new notes parts is not implemented yet.
+- Real-world deck fixture breadth remains limited.
+- CI/release packaging and production rollback procedures are not implemented.
 - `inspect` emits `inspection_partial` for advanced non-text object extraction.

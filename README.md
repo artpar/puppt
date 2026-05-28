@@ -12,7 +12,7 @@ The binding product and engineering documents are:
 
 ## Current State
 
-Puppt's v1 checkpoint sequence is complete. Inspection, edit planning, supported mutations, image replacement, simple editable additions, structured deck creation, validation, and review are implemented for deterministic `.pptx` fixtures.
+Puppt has fixture-backed v1 checkpoint workflows for inspection, edit planning, supported mutations, image replacement, simple editable additions, structured deck creation, validation, and review. Full production-grade compliance is not claimed yet; see `docs/HANDOFF.md` and `docs/COMPLIANCE_AUDIT.md`.
 
 ## Development
 
@@ -20,6 +20,18 @@ Run the baseline test suite:
 
 ```sh
 go test ./...
+```
+
+Build the local binary:
+
+```sh
+make build
+```
+
+Run the repository verification handoff:
+
+```sh
+make verify
 ```
 
 Run CLI help:
@@ -36,6 +48,10 @@ go run ./cmd/puppt --help
 - [Support matrix](docs/SUPPORT_MATRIX.md)
 - [Failure modes](docs/FAILURE_MODES.md)
 - [Acceptance workflow](docs/ACCEPTANCE.md)
+- [Build and release](docs/BUILD_RELEASE.md)
+- [State handoff](docs/HANDOFF.md)
+- [Technical KT](docs/TECHNICAL_KT.md)
+- [Doctrine compliance audit](docs/COMPLIANCE_AUDIT.md)
 
 ## Implementation Language
 

@@ -1,8 +1,8 @@
 # Puppt Status
 
-## Current Checkpoint
+## Current State
 
-V1 checkpoint sequence complete.
+Fixture-backed v1 checkpoint workflows are implemented. Full production-grade compliance with `swe_skill.md` is not yet claimed.
 
 ## Implemented
 
@@ -53,14 +53,17 @@ V1 checkpoint sequence complete.
 - Command docs, support matrix, failure modes, and acceptance workflow docs exist.
 - End-to-end CLI acceptance workflow is covered by tests.
 
-## Not Implemented Yet
+## Known Gaps
 
 - Advanced non-text object extraction, richer media metadata, and broader real-world unsupported-feature warning detection beyond the current basic warning set.
 - Adding new notes parts when a slide has no notes relationship.
 - Rich visual fidelity verification beyond editable package structure.
+- Real-world deck fixture breadth remains limited.
+- General `puppt validate` does not yet accept explicit expected-content assertions.
+- CI/release packaging and production rollback procedures are not implemented.
 
 All required v1 command names are implemented: `inspect`, `plan`, `edit`, `create`, `validate`, `review`, and `version`.
 
-## Next Checkpoint
+## Next Work
 
-No remaining v1 checkpoint is open. Future work should start from a new scoped goal or one of the known non-v1 gaps above.
+Use `docs/HANDOFF.md` and `docs/COMPLIANCE_AUDIT.md` as the current handoff. Future work should close the known gaps above before claiming production-grade v1.
