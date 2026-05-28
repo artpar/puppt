@@ -461,6 +461,58 @@ Next checkpoint:
 
 - Continue Checkpoint 3 with operation-specific planning validation, skipped/unsupported operation reporting, and more target tests before mutation workflows.
 
+## Checkpoint 3: Targeting and Edit Planning, progress 2
+
+Changed files:
+
+- `internal/edit/plan.go`
+- `internal/edit/plan_test.go`
+- `internal/cli/root_test.go`
+- `docs/STATUS.md`
+- `docs/DOCTRINE_CHECKLIST.md`
+- `docs/CHECKPOINTS.md`
+
+Implemented behavior:
+
+- Added operation-specific target validation.
+- Supported planning operations: `replace_text`, `update_notes`, `update_metadata`, `replace_image`, `slide_add`, `slide_delete`, `slide_move`, and `slide_duplicate`.
+- Rejected unsupported operations before inspection/mutation.
+- Rejected operation/target mismatches.
+- Rejected missing required replacement for text and notes planning.
+- Rejected missing metadata property for metadata planning.
+- Added unsupported-result JSON and non-zero CLI behavior.
+
+Verification commands:
+
+```text
+go test ./internal/target ./internal/edit ./cmd/puppt ./internal/cli
+go test ./...
+```
+
+Verification result:
+
+- `go test ./internal/target ./internal/edit ./cmd/puppt ./internal/cli` passed.
+- `go test ./...` passed.
+
+Fixtures added or updated:
+
+- Reused deterministic generated `.pptx` fixtures.
+- Added inline unsupported and missing-field edit specs in tests.
+
+Known risks:
+
+- Slide operation specs still need operation-specific fields for destination/position before mutation work starts.
+- Image replacement planning currently targets object IDs but image object targeting needs stronger image-object identity tests.
+- Plan examples are not documented for users yet.
+
+Unsupported behavior encountered:
+
+- Edit application remains explicitly unsupported.
+
+Next checkpoint:
+
+- Continue Checkpoint 3 with documented plan examples, image object target identity, and slide-operation plan fields before mutation workflows.
+
 ## Checkpoint 2: Inspection Core, progress 4
 
 Changed files:

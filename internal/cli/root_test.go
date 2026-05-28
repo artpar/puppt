@@ -209,3 +209,40 @@ func TestPlanAmbiguousJSONWritesPayloadAndFails(t *testing.T) {
 		t.Fatalf("unexpected ambiguous details: %+v", payload)
 	}
 }
+
+func TestPlanUnsupportedJSONWritesPayloadAndFails(t *testing.T) {
+	dir := t.TempDir()
+	deckPath := filepath.Join(dir, "deck.pptx")
+	if err := fixtures.WriteMinimalPPTX(deckPath, []string{"ppt/slides/slide1.xml"}); err != nil {
+		t.Fatal(err)
+	}
+	specPath := filepath.Join(dir, "edit.json")
+	if err := os.WriteFile(specPath, []byte(`{
+  "operation": "unknown_operation",
+  "target": {
+    "type": "object_id",
+    "object_id": "ppt/slides/slide1.xml#shape-2"
+  }
+}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	err := Execute(context.Background(), []string{"plan", deckPath, "--edit", specPath, "--json"}, &stdout, &stderr)
+	if err == nil {
+		t.Fatal("unsupported plan unexpectedly succeeded")
+	}
+
+	var payload struct {
+		Status      string        `json:"status"`
+		Unsupported []interface{} `json:"unsupported"`
+	}
+	if jsonErr := json.Unmarshal(stdout.Bytes(), &payload); jsonErr != nil {
+		t.Fatalf("invalid json: %v\n%s", jsonErr, stdout.String())
+	}
+	if payload.Status != "unsupported" || len(payload.Unsupported) != 1 {
+		t.Fatalf("unexpected unsupported payload: %+v", payload)
+	}
+}

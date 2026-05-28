@@ -69,6 +69,57 @@ func TestPlanReportsAmbiguousVisibleText(t *testing.T) {
 	}
 }
 
+func TestPlanReportsUnsupportedOperationTarget(t *testing.T) {
+	deckPath := filepath.Join(t.TempDir(), "deck.pptx")
+	if err := fixtures.WriteMinimalPPTX(deckPath, []string{"ppt/slides/slide1.xml"}); err != nil {
+		t.Fatal(err)
+	}
+	specPath := writeSpec(t, `{
+  "operation": "update_metadata",
+  "target": {
+    "type": "visible_text",
+    "text": "Slide 1"
+  },
+  "replacement": "Updated"
+}`)
+
+	result, err := Plan(context.Background(), deckPath, specPath)
+	if err != nil {
+		t.Fatalf("plan failed: %v", err)
+	}
+	if result.Status != "unsupported" {
+		t.Fatalf("unexpected status: %s", result.Status)
+	}
+	if len(result.Unsupported) != 1 {
+		t.Fatalf("expected unsupported item: %+v", result.Unsupported)
+	}
+}
+
+func TestPlanReportsMissingRequiredReplacement(t *testing.T) {
+	deckPath := filepath.Join(t.TempDir(), "deck.pptx")
+	if err := fixtures.WriteMinimalPPTX(deckPath, []string{"ppt/slides/slide1.xml"}); err != nil {
+		t.Fatal(err)
+	}
+	specPath := writeSpec(t, `{
+  "operation": "replace_text",
+  "target": {
+    "type": "object_id",
+    "object_id": "ppt/slides/slide1.xml#shape-2"
+  }
+}`)
+
+	result, err := Plan(context.Background(), deckPath, specPath)
+	if err != nil {
+		t.Fatalf("plan failed: %v", err)
+	}
+	if result.Status != "unsupported" {
+		t.Fatalf("unexpected status: %s", result.Status)
+	}
+	if result.Plan.Message != "replace_text requires replacement" {
+		t.Fatalf("unexpected message: %s", result.Plan.Message)
+	}
+}
+
 func writeSpec(t *testing.T, data string) string {
 	t.Helper()
 	filePath := filepath.Join(t.TempDir(), "edit.json")

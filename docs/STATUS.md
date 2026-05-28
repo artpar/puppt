@@ -24,6 +24,8 @@ Checkpoint 3: Targeting and Edit Planning.
 - Target resolution supports slide number, title, visible text, object ID, notes by slide number, and metadata property.
 - Planning detects ready, no-match, and ambiguous targets before mutation.
 - Ambiguous plan results emit JSON and return non-zero.
+- Planning validates supported operation/target combinations and required fields for text, notes, and metadata plans.
+- Unsupported plan results emit JSON and return non-zero.
 
 ## Not Implemented Yet
 
