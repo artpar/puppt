@@ -153,6 +153,36 @@ func TestPlanReadyForImageReplacement(t *testing.T) {
 	}
 }
 
+func TestPlanRejectsTextReplacementForImageObject(t *testing.T) {
+	deckPath := filepath.Join(t.TempDir(), "deck.pptx")
+	if err := fixtures.WritePPTX(deckPath, fixtures.PPTXOptions{
+		Slides: []fixtures.Slide{
+			{PartName: "ppt/slides/slide1.xml", Text: "Slide", Image: "old image"},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	specPath := writeSpec(t, `{
+  "operation": "replace_text",
+  "target": {
+    "type": "object_id",
+    "object_id": "ppt/slides/slide1.xml#rId1"
+  },
+  "replacement": "Updated"
+}`)
+
+	result, err := Plan(context.Background(), deckPath, specPath)
+	if err != nil {
+		t.Fatalf("plan failed: %v", err)
+	}
+	if result.Status != "unsupported" {
+		t.Fatalf("unexpected status: %s", result.Status)
+	}
+	if len(result.Unsupported) != 1 {
+		t.Fatalf("expected unsupported item: %+v", result.Unsupported)
+	}
+}
+
 func TestPlanRequiresImagePath(t *testing.T) {
 	deckPath := filepath.Join(t.TempDir(), "deck.pptx")
 	if err := fixtures.WritePPTX(deckPath, fixtures.PPTXOptions{

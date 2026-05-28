@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/artpar/puppt/internal/inspect"
 	"github.com/artpar/puppt/internal/model"
 	"github.com/artpar/puppt/internal/target"
 )
@@ -19,41 +18,17 @@ func Plan(ctx context.Context, deckPath string, specPath string) (*model.Command
 	if err != nil {
 		return nil, err
 	}
-	if message := validateOperationTarget(spec); message != "" {
-		plan := &model.EditPlan{
-			Operation:              spec.Operation,
-			Target:                 spec.Target,
-			Matches:                []model.TargetMatch{},
-			Status:                 statusUnsupported,
-			Message:                message,
-			Replacement:            spec.Replacement,
-			ImagePath:              spec.ImagePath,
-			InsertAfterSlide:       spec.InsertAfterSlide,
-			DestinationSlideNumber: spec.DestinationSlideNumber,
-		}
-		return &model.CommandResult{
-			SchemaVersion: model.SchemaVersion,
-			Command:       "plan",
-			Status:        statusUnsupported,
-			Input:         deckPath,
-			Output:        nil,
-			Warnings:      []model.Warning{},
-			Errors:        []model.ErrorItem{},
-			Summary:       model.Summary{Human: "Edit operation is unsupported for the requested target."},
-			Plan:          plan,
-			Unsupported: []model.SkipItem{{
-				Code:    "unsupported_operation_target",
-				Message: message,
-			}},
-		}, nil
-	}
+	return planSpec(ctx, deckPath, spec)
+}
 
-	inspectionResult, err := inspect.Inspect(ctx, deckPath)
-	if err != nil {
-		return nil, err
-	}
-
+func buildPlanResult(deckPath string, spec model.EditSpec, inspectionResult *model.CommandResult) *model.CommandResult {
 	matches, status, message := target.Resolve(inspectionResult.Inspection, spec.Target)
+	if status == target.StatusReady {
+		if unsupportedMessage := validateOperationMatches(spec.Operation, matches); unsupportedMessage != "" {
+			status = statusUnsupported
+			message = unsupportedMessage
+		}
+	}
 	plan := &model.EditPlan{
 		Operation:              spec.Operation,
 		Target:                 spec.Target,
@@ -96,8 +71,13 @@ func Plan(ctx context.Context, deckPath string, specPath string) (*model.Command
 			Code:    "ambiguous_target",
 			Message: message,
 		}}
+	case statusUnsupported:
+		result.Unsupported = []model.SkipItem{{
+			Code:    "unsupported_operation_target",
+			Message: message,
+		}}
 	}
-	return result, nil
+	return result
 }
 
 func validateOperationTarget(spec model.EditSpec) string {
@@ -146,6 +126,9 @@ func validateOperationTarget(spec model.EditSpec) string {
 	if spec.Operation == "update_metadata" && spec.Target.Property == "" {
 		return "update_metadata requires target property"
 	}
+	if spec.Operation == "update_metadata" && !isSupportedMetadataProperty(spec.Target.Property) {
+		return fmt.Sprintf("unsupported metadata property %q", spec.Target.Property)
+	}
 	if spec.Operation == "replace_image" && spec.ImagePath == "" {
 		return "replace_image requires image_path"
 	}
@@ -153,6 +136,41 @@ func validateOperationTarget(spec model.EditSpec) string {
 		return "slide_move requires destination_slide_number"
 	}
 	return ""
+}
+
+func isSupportedMetadataProperty(property string) bool {
+	switch property {
+	case "title", "author", "subject":
+		return true
+	default:
+		return false
+	}
+}
+
+func validateOperationMatches(operation string, matches []model.TargetMatch) string {
+	for _, match := range matches {
+		if !operationSupportsMatchKind(operation, match.Kind) {
+			return fmt.Sprintf("operation %q does not support resolved target kind %q", operation, match.Kind)
+		}
+	}
+	return ""
+}
+
+func operationSupportsMatchKind(operation string, kind string) bool {
+	switch operation {
+	case "replace_text":
+		return kind == "visible_text" || kind == "title"
+	case "update_notes":
+		return kind == "notes"
+	case "update_metadata":
+		return kind == "metadata"
+	case "replace_image":
+		return kind == "image"
+	case "slide_add", "slide_delete", "slide_move", "slide_duplicate":
+		return kind == "slide"
+	default:
+		return false
+	}
 }
 
 func readSpec(specPath string) (model.EditSpec, error) {

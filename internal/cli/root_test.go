@@ -54,12 +54,63 @@ func TestStubCommandFailsExplicitly(t *testing.T) {
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 
-	err := Execute(context.Background(), []string{"edit"}, &stdout, &stderr)
+	err := Execute(context.Background(), []string{"create"}, &stdout, &stderr)
 	if err == nil {
-		t.Fatal("edit unexpectedly succeeded")
+		t.Fatal("create unexpectedly succeeded")
 	}
 	if !strings.Contains(err.Error(), "not implemented yet") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestEditJSON(t *testing.T) {
+	dir := t.TempDir()
+	deckPath := filepath.Join(dir, "deck.pptx")
+	outputPath := filepath.Join(dir, "out.pptx")
+	if err := fixtures.WriteMinimalPPTX(deckPath, []string{"ppt/slides/slide1.xml"}); err != nil {
+		t.Fatal(err)
+	}
+	specPath := filepath.Join(dir, "edit.json")
+	if err := os.WriteFile(specPath, []byte(`{
+  "operation": "replace_text",
+  "target": {
+    "type": "object_id",
+    "object_id": "ppt/slides/slide1.xml#shape-2"
+  },
+  "replacement": "Updated"
+}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	if err := Execute(context.Background(), []string{"edit", deckPath, "--edit", specPath, "--out", outputPath, "--json"}, &stdout, &stderr); err != nil {
+		t.Fatalf("edit failed: %v\n%s", err, stdout.String())
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("edit wrote stderr: %s", stderr.String())
+	}
+
+	var payload struct {
+		SchemaVersion string `json:"schema_version"`
+		Command       string `json:"command"`
+		Status        string `json:"status"`
+		Output        string `json:"output"`
+		Validation    struct {
+			Valid bool `json:"valid"`
+		} `json:"validation"`
+		Changes []struct {
+			ObjectID string `json:"object_id"`
+		} `json:"changes"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
+		t.Fatalf("invalid json: %v\n%s", err, stdout.String())
+	}
+	if payload.SchemaVersion != "puppt.v1" || payload.Command != "edit" || payload.Status != "ok" {
+		t.Fatalf("unexpected envelope: %+v", payload)
+	}
+	if payload.Output != outputPath || !payload.Validation.Valid || len(payload.Changes) != 1 {
+		t.Fatalf("unexpected edit payload: %+v", payload)
 	}
 }
 

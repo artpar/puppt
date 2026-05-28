@@ -41,7 +41,7 @@ func NewRootCommand() *cobra.Command {
 	cmd.AddCommand(newVersionCommand())
 	cmd.AddCommand(newInspectCommand())
 	cmd.AddCommand(newPlanCommand())
-	cmd.AddCommand(stubCommand("edit", "Apply targeted edits to a .pptx deck."))
+	cmd.AddCommand(newEditCommand())
 	cmd.AddCommand(stubCommand("create", "Create an editable .pptx deck from structured input."))
 	cmd.AddCommand(stubCommand("validate", "Validate a .pptx deck for structure and expected content."))
 	cmd.AddCommand(stubCommand("review", "Summarize deck changes for agents and human reviewers."))
@@ -93,6 +93,45 @@ func newPlanCommand() *cobra.Command {
 	cmd.Flags().StringVar(&editPath, "edit", "", "path to edit spec JSON")
 	cmd.Flags().BoolVar(&emitJSON, "json", false, "emit stable machine-readable JSON")
 	cmd.MarkFlagRequired("edit")
+	return cmd
+}
+
+func newEditCommand() *cobra.Command {
+	var editPath string
+	var outputPath string
+	var emitJSON bool
+	cmd := &cobra.Command{
+		Use:   "edit <input.pptx>",
+		Short: "Apply targeted edits to a .pptx deck.",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			result, err := editworkflow.Apply(cmd.Context(), args[0], editPath, outputPath)
+			if err != nil {
+				return err
+			}
+			if emitJSON {
+				if err := report.WriteJSON(cmd.OutOrStdout(), result); err != nil {
+					return err
+				}
+				if result.Status != "ok" {
+					return errors.New(result.Summary.Human)
+				}
+				return nil
+			}
+			if _, err := fmt.Fprintln(cmd.OutOrStdout(), result.Summary.Human); err != nil {
+				return err
+			}
+			if result.Status != "ok" {
+				return errors.New(result.Summary.Human)
+			}
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&editPath, "edit", "", "path to edit spec JSON")
+	cmd.Flags().StringVar(&outputPath, "out", "", "path to write edited .pptx")
+	cmd.Flags().BoolVar(&emitJSON, "json", false, "emit stable machine-readable JSON")
+	cmd.MarkFlagRequired("edit")
+	cmd.MarkFlagRequired("out")
 	return cmd
 }
 

@@ -69,9 +69,14 @@ func matchTitle(inspection *model.Inspection, title string) []model.TargetMatch 
 	var matches []model.TargetMatch
 	for _, slide := range inspection.Slides {
 		if slide.Title == title {
+			objectID := ""
+			if len(slide.VisibleText) > 0 {
+				objectID = slide.VisibleText[0].ObjectID
+			}
 			matches = append(matches, model.TargetMatch{
 				SlideNumber: slide.Number,
 				SlideID:     slide.ID,
+				ObjectID:    objectID,
 				Kind:        "title",
 				Text:        slide.Title,
 			})

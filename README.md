@@ -12,7 +12,7 @@ The binding product and engineering documents are:
 
 ## Current State
 
-Puppt is at Checkpoint 0: Repository Foundation. The CLI skeleton and package layout exist, but `.pptx` workflows are not implemented yet.
+Puppt is at Checkpoint 5: Slide Operations. Inspection, edit planning, and first text/notes/metadata mutation workflows are implemented for deterministic `.pptx` fixtures, with post-edit validation.
 
 ## Development
 

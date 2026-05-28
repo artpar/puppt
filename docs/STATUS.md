@@ -2,7 +2,7 @@
 
 ## Current Checkpoint
 
-Checkpoint 4: Text, Notes, and Metadata Mutations.
+Checkpoint 5: Slide Operations.
 
 ## Implemented
 
@@ -28,18 +28,25 @@ Checkpoint 4: Text, Notes, and Metadata Mutations.
 - Unsupported plan results emit JSON and return non-zero.
 - Plan examples are documented in `docs/PLAN_EXAMPLES.md`.
 - Checkpoint 3 targeting and edit-planning exit evidence is recorded in `docs/CHECKPOINTS.md`.
+- `puppt edit <input.pptx> --edit <edit.json> --out <output.pptx> --json` is wired for supported text, notes, and metadata mutations.
+- Owned PPTX package writing exists in `internal/pptx`.
+- Targeted text replacement, deck-wide text replacement, speaker-note update, and metadata update run through planning before mutation.
+- Edit output validation runs after writing and reports `validation.valid`.
+- Checkpoint 4 text, notes, metadata, and validation exit evidence is recorded in `docs/CHECKPOINTS.md`.
 
 ## Not Implemented Yet
 
 - Advanced non-text object extraction, richer media metadata, and broader real-world unsupported-feature warning detection beyond the current basic warning set.
-- Mutations.
+- Adding new notes parts when a slide has no notes relationship.
+- Slide add/delete/move/duplicate mutations.
+- Image replacement mutation.
+- Simple text/shape additions.
 - Deck creation.
-- Validation.
 - Review summaries.
 - Fixtures and acceptance suite.
 
-Commands other than `inspect`, `plan`, `version`, and `--help` currently fail explicitly as unimplemented.
+Commands other than `inspect`, `plan`, `edit`, `version`, and `--help` currently fail explicitly as unimplemented.
 
 ## Next Checkpoint
 
-Checkpoint 4: Text, Notes, and Metadata Mutations.
+Checkpoint 5: Slide Operations.

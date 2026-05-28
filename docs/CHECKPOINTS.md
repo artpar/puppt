@@ -607,6 +607,73 @@ Next checkpoint:
 
 - Continue Checkpoint 4 with text, notes, and metadata mutations plus post-edit validation.
 
+## Checkpoint 4: Text, Notes, and Metadata Mutations, completion audit
+
+Changed files:
+
+- `internal/cli/root.go`
+- `internal/cli/root_test.go`
+- `internal/edit/apply.go`
+- `internal/edit/apply_test.go`
+- `internal/edit/plan.go`
+- `internal/pptx/writer.go`
+- `internal/target/resolve.go`
+- `internal/validate/validate.go`
+- `internal/validate/validate_test.go`
+- `docs/STATUS.md`
+- `docs/DOCTRINE_CHECKLIST.md`
+- `docs/CHECKPOINTS.md`
+
+Implemented behavior:
+
+- Wired `puppt edit <input.pptx> --edit <edit.json> --out <output.pptx> --json`.
+- Added Puppt-owned PPTX package writing that rewrites the ZIP from owned package parts.
+- Applied supported mutations only after successful planning and unambiguous target resolution.
+- Rejected resolved target kinds that do not match the requested operation, such as text replacement against an image object ID.
+- Implemented targeted text replacement by stable shape object ID.
+- Implemented deck-wide visible-text replacement with exact per-object match counts in changes.
+- Implemented speaker-note update for slides with existing notes relationships.
+- Implemented core metadata updates for `title`, `author`, and `subject`.
+- Added structural validation after edit output is written.
+- Added post-edit content verification through inspection for text, notes, and metadata.
+- Kept planned-but-not-safe mutation operations explicitly unsupported in `puppt edit`.
+
+Verification commands:
+
+```text
+go test ./internal/edit ./internal/validate ./cmd/puppt ./internal/cli
+go test ./...
+git diff --check
+```
+
+Verification result:
+
+- `go test ./internal/edit ./internal/validate ./cmd/puppt ./internal/cli` passed.
+- `go test ./...` passed.
+- `git diff --check` passed.
+
+Fixtures added or updated:
+
+- Added edit tests using deterministic fixture decks for text, deck-wide replacement, notes, metadata, unsupported image mutation, and unrelated media preservation.
+- Added validation tests for valid fixture decks and missing relationship targets.
+
+Known risks:
+
+- Mutated XML parts are re-encoded; unrelated package parts are preserved as part bytes, but changed XML parts are not byte-for-byte preserved.
+- Notes update requires an existing notes relationship; adding a notes part to a slide without notes is not implemented yet.
+- Metadata update requires an existing core properties part.
+- Structural validation is intentionally basic and will need to deepen as slide operations and image replacement are added.
+
+Unsupported behavior encountered:
+
+- Slide add/delete/move/duplicate mutations remain unsupported.
+- Image replacement mutation remains unsupported.
+- Simple shape/textbox additions remain unsupported.
+
+Next checkpoint:
+
+- Continue Checkpoint 5 with slide add, delete, move, and duplicate mutation workflows plus relationship validation.
+
 ## Checkpoint 2: Inspection Core, progress 4
 
 Changed files:
