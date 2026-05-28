@@ -1,3 +1,57 @@
+# Puppt SWE Skill Binding Layer
+
+This document is binding engineering doctrine for Puppt. The sections below apply to every implementation, test, fixture, CLI contract, dependency decision, validation rule, and release decision.
+
+Puppt-specific interpretation:
+
+1. Puppt is a production-grade agent-first `.pptx` inspection, editing, creation, validation, and review tool.
+2. Puppt v1 MUST be implemented in Go.
+3. Go code MUST be written as maintainable production software, not as a script-like prototype.
+4. `.pptx` files are structured Open XML packages. Puppt MUST treat them as structured documents, not visual canvases.
+5. Correctness means preserving editability, preserving untargeted content, reporting uncertainty, and validating output.
+6. Speed, convenience, broad best-effort behavior, or attractive demos MUST NOT override preservation, explicit errors, and traceable changes.
+7. The command-line and JSON result shapes are interfaces. They require compatibility discipline.
+8. Test fixtures and golden outputs are part of the system because they prove behavior across real package structures.
+9. Unsupported content MUST be preserved where possible and reported when relevant. Unknown content MUST NOT be silently dropped.
+10. Any dependency that reads, writes, renders, mutates, validates, or interprets `.pptx` content is a controlled dependency and requires justification.
+
+## Go Engineering Rules for Puppt
+
+These rules specialize the doctrine below for Go implementation.
+
+1. Every package MUST have a narrow responsibility and tests.
+2. CLI code in `cmd/puppt` MUST stay thin. Business logic belongs in internal packages.
+3. Use `context.Context` for operations that may perform I/O or later become cancellable.
+4. Return explicit errors. Do not use `panic` for ordinary user input, malformed decks, unsupported operations, ambiguity, no-match cases, or validation failures.
+5. Wrap errors with operation and file/part context while avoiding secrets or excessive document content in logs and errors.
+6. Prefer typed or classified errors for unsupported file type, malformed package, unsupported feature, ambiguous target, no match, validation failure, and internal failure.
+7. Use deterministic output ordering for JSON, inspection results, plans, warnings, changes, and tests.
+8. Use Go standard library ZIP and XML facilities first unless a dependency is approved through `project-ops.md`.
+9. Do not shell out to office software as part of the core product path.
+10. Do not use reflection-heavy or global-state-heavy designs where plain structs and interfaces are sufficient.
+11. Do not hide PowerPoint package complexity behind an abstraction that prevents precise preservation or validation.
+12. Keep public structs additive and versioned once they appear in CLI/API JSON.
+13. Fixture builders MUST produce deterministic `.pptx` files or deterministic normalized expectations.
+14. Golden tests MUST normalize values that are legitimately unstable, and only those values.
+15. Round-trip tests MUST prove both requested changes and preservation of unrelated content.
+
+## Puppt Definition of Done
+
+A Puppt change is not done until:
+
+1. The relevant source documents have been checked.
+2. The current code path has been inspected before editing.
+3. The implementation is the smallest coherent step toward the v1 goal.
+4. Tests or fixtures cover the behavior at the right level of risk.
+5. Validation commands have been run and recorded.
+6. JSON and human-facing output remain honest and stable.
+7. Unsupported behavior is either preserved, skipped with explanation, or rejected before mutation.
+8. The progress record states changed files, verification results, remaining risks, and the next checkpoint.
+
+The rest of this file supplies the general engineering law that governs those rules.
+
+---
+
 # 0. Authority, Scope, and Normative Language
 
 ## 0.1 Purpose
@@ -1115,7 +1169,7 @@ Examples:
 | Event names             | `PascalCase` past tense                                 |
 | API JSON fields         | `camelCase` unless external standard requires otherwise |
 
-Python projects MUST use Python’s conventional `snake_case` for functions, variables, and files.
+Go projects MUST use Go's conventional casing, package naming, file naming, formatting, and documentation style. `gofmt` is mandatory.
 
 ## 13.3 File Organization
 
@@ -3705,5 +3759,3 @@ A system governed by this doctrine is production-ready only when it can be:
 10. retired without leaving dangerous residue
 
 Software that cannot be operated safely is not complete.
-
-[1]: https://www.iso.org/standard/63712.html?utm_source=chatgpt.com "ISO/IEC/IEEE 12207:2017 - Systems and software ..."
