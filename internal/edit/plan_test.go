@@ -153,6 +153,62 @@ func TestPlanReadyForImageReplacement(t *testing.T) {
 	}
 }
 
+func TestPlanReportsAmbiguousImageTarget(t *testing.T) {
+	deckPath := filepath.Join(t.TempDir(), "deck.pptx")
+	if err := fixtures.WritePPTX(deckPath, fixtures.PPTXOptions{
+		Slides: []fixtures.Slide{
+			{PartName: "ppt/slides/slide1.xml", Text: "Slide 1", Image: "image 1"},
+			{PartName: "ppt/slides/slide2.xml", Text: "Slide 2", Image: "image 2"},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	specPath := writeSpec(t, `{
+  "operation": "replace_image",
+  "target": {
+    "type": "image"
+  },
+  "image_path": "replacement.png"
+}`)
+
+	result, err := Plan(context.Background(), deckPath, specPath)
+	if err != nil {
+		t.Fatalf("plan failed: %v", err)
+	}
+	if result.Status != "ambiguous" {
+		t.Fatalf("unexpected status: %s", result.Status)
+	}
+	if len(result.Ambiguous) != 1 || len(result.Plan.Matches) != 2 {
+		t.Fatalf("unexpected ambiguous image result: %+v", result)
+	}
+}
+
+func TestPlanReadyForSimpleAdditions(t *testing.T) {
+	deckPath := filepath.Join(t.TempDir(), "deck.pptx")
+	if err := fixtures.WriteMinimalPPTX(deckPath, []string{"ppt/slides/slide1.xml"}); err != nil {
+		t.Fatal(err)
+	}
+	specPath := writeSpec(t, `{
+  "operation": "add_text_box",
+  "target": {
+    "type": "slide_number",
+    "slide_number": 1
+  },
+  "replacement": "New text"
+}`)
+
+	result, err := Plan(context.Background(), deckPath, specPath)
+	if err != nil {
+		t.Fatalf("plan failed: %v", err)
+	}
+	if result.Status != "ok" {
+		t.Fatalf("unexpected status: %s", result.Status)
+	}
+	if result.Plan.Operation != "add_text_box" || len(result.Plan.Matches) != 1 {
+		t.Fatalf("unexpected plan: %+v", result.Plan)
+	}
+}
+
 func TestPlanRejectsTextReplacementForImageObject(t *testing.T) {
 	deckPath := filepath.Join(t.TempDir(), "deck.pptx")
 	if err := fixtures.WritePPTX(deckPath, fixtures.PPTXOptions{

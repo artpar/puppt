@@ -78,6 +78,45 @@ Image targets use object IDs from `puppt inspect --json`.
 }
 ```
 
+To replace the only image on a slide, use an image selector. If more than one image matches, planning returns `ambiguous`.
+
+```json
+{
+  "operation": "replace_image",
+  "target": {
+    "type": "image",
+    "slide_number": 1
+  },
+  "image_path": "replacement-logo.png"
+}
+```
+
+## Add A Text Box
+
+```json
+{
+  "operation": "add_text_box",
+  "target": {
+    "type": "slide_number",
+    "slide_number": 2
+  },
+  "replacement": "Editable callout"
+}
+```
+
+## Add A Simple Shape
+
+```json
+{
+  "operation": "add_shape",
+  "target": {
+    "type": "slide_number",
+    "slide_number": 2
+  },
+  "replacement": "Shape label"
+}
+```
+
 ## Move A Slide
 
 ```json

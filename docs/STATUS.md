@@ -2,7 +2,7 @@
 
 ## Current Checkpoint
 
-Checkpoint 6: Image Replacement and Simple Additions.
+Checkpoint 7: Creation Workflow.
 
 ## Implemented
 
@@ -37,13 +37,16 @@ Checkpoint 6: Image Replacement and Simple Additions.
 - Slide operations update presentation slide order, presentation relationships, and slide content-type overrides where needed.
 - Slide operation outputs validate through relationship checks and round-trip inspection.
 - Checkpoint 5 slide-operation exit evidence is recorded in `docs/CHECKPOINTS.md`.
+- Explicit image target replacement updates package media bytes safely.
+- Ambiguous image targets are rejected before mutation.
+- Simple editable text boxes and rectangle shapes can be added to existing slides.
+- Unsupported advanced visual edits remain rejected before mutation.
+- Checkpoint 6 image replacement and simple additions exit evidence is recorded in `docs/CHECKPOINTS.md`.
 
 ## Not Implemented Yet
 
 - Advanced non-text object extraction, richer media metadata, and broader real-world unsupported-feature warning detection beyond the current basic warning set.
 - Adding new notes parts when a slide has no notes relationship.
-- Image replacement mutation.
-- Simple text/shape additions.
 - Deck creation.
 - Review summaries.
 - Fixtures and acceptance suite.
@@ -52,4 +55,4 @@ Commands other than `inspect`, `plan`, `edit`, `version`, and `--help` currently
 
 ## Next Checkpoint
 
-Checkpoint 6: Image Replacement and Simple Additions.
+Checkpoint 7: Creation Workflow.

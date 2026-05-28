@@ -2,6 +2,7 @@ package edit
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -178,7 +179,7 @@ func TestApplyUpdatesMetadataAndValidates(t *testing.T) {
 	}
 }
 
-func TestApplyRejectsUnsupportedMutationWithoutWriting(t *testing.T) {
+func TestApplyReplacesImageAndPreservesSlideText(t *testing.T) {
 	dir := t.TempDir()
 	deckPath := filepath.Join(dir, "deck.pptx")
 	outputPath := filepath.Join(dir, "out.pptx")
@@ -187,30 +188,39 @@ func TestApplyRejectsUnsupportedMutationWithoutWriting(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	imagePath := filepath.Join(dir, "replacement.png")
+	if err := os.WriteFile(imagePath, []byte("new image"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	specPath := writeSpec(t, `{
   "operation": "replace_image",
   "target": {
     "type": "object_id",
     "object_id": "ppt/slides/slide1.xml#rId1"
   },
-  "image_path": "replacement.png"
+  "image_path": "`+imagePath+`"
 }`)
 
 	result, err := Apply(context.Background(), deckPath, specPath, outputPath)
 	if err != nil {
 		t.Fatalf("apply failed: %v", err)
 	}
-	if result.Status != "unsupported" {
+	if result.Status != "ok" || result.Validation == nil || !result.Validation.Valid {
 		t.Fatalf("unexpected status: %s", result.Status)
 	}
-	if len(result.Unsupported) != 1 {
-		t.Fatalf("expected unsupported item: %+v", result.Unsupported)
+	if len(result.Changes) != 1 || result.Changes[0].ObjectID != "ppt/slides/slide1.xml#rId1" {
+		t.Fatalf("unexpected image replacement changes: %+v", result.Changes)
 	}
-	if result.Output != nil {
-		t.Fatalf("unsupported mutation reported output: %s", *result.Output)
+	pkg, err := pptx.Open(context.Background(), outputPath)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if _, err := pptx.Open(context.Background(), outputPath); err == nil {
-		t.Fatal("unsupported mutation wrote output")
+	if got := string(pkg.Parts["ppt/media/image1.png"]); got != "new image" {
+		t.Fatalf("unexpected image bytes: %s", got)
+	}
+	inspection := inspectOutput(t, outputPath)
+	if got := inspection.Slides[0].VisibleText[0].Text; got != "Slide" {
+		t.Fatalf("slide text changed during image replacement: %s", got)
 	}
 }
 
@@ -381,6 +391,70 @@ func TestApplyDuplicatesSlideAndValidatesRelationships(t *testing.T) {
 	}
 	if len(inspection.Slides[2].Images) != 1 {
 		t.Fatalf("duplicated slide lost image relationship: %+v", inspection.Slides[2])
+	}
+}
+
+func TestApplyAddsEditableTextBox(t *testing.T) {
+	dir := t.TempDir()
+	deckPath := filepath.Join(dir, "deck.pptx")
+	outputPath := filepath.Join(dir, "out.pptx")
+	if err := fixtures.WriteMinimalPPTX(deckPath, []string{"ppt/slides/slide1.xml"}); err != nil {
+		t.Fatal(err)
+	}
+	specPath := writeSpec(t, `{
+  "operation": "add_text_box",
+  "target": {
+    "type": "slide_number",
+    "slide_number": 1
+  },
+  "replacement": "New editable textbox"
+}`)
+
+	result, err := Apply(context.Background(), deckPath, specPath, outputPath)
+	if err != nil {
+		t.Fatalf("apply failed: %v", err)
+	}
+	if result.Status != "ok" || result.Validation == nil || !result.Validation.Valid {
+		t.Fatalf("expected valid text box addition: %+v", result)
+	}
+	if len(result.Changes) != 1 || result.Changes[0].ObjectID != "ppt/slides/slide1.xml#shape-3" {
+		t.Fatalf("unexpected changes: %+v", result.Changes)
+	}
+	inspection := inspectOutput(t, outputPath)
+	if len(inspection.Slides[0].VisibleText) != 2 {
+		t.Fatalf("expected two editable text objects: %+v", inspection.Slides[0].VisibleText)
+	}
+	if got := inspection.Slides[0].VisibleText[1].Text; got != "New editable textbox" {
+		t.Fatalf("unexpected text box text: %s", got)
+	}
+}
+
+func TestApplyAddsEditableShape(t *testing.T) {
+	dir := t.TempDir()
+	deckPath := filepath.Join(dir, "deck.pptx")
+	outputPath := filepath.Join(dir, "out.pptx")
+	if err := fixtures.WriteMinimalPPTX(deckPath, []string{"ppt/slides/slide1.xml"}); err != nil {
+		t.Fatal(err)
+	}
+	specPath := writeSpec(t, `{
+  "operation": "add_shape",
+  "target": {
+    "type": "slide_number",
+    "slide_number": 1
+  },
+  "replacement": "Shape label"
+}`)
+
+	result, err := Apply(context.Background(), deckPath, specPath, outputPath)
+	if err != nil {
+		t.Fatalf("apply failed: %v", err)
+	}
+	if result.Status != "ok" || result.Validation == nil || !result.Validation.Valid {
+		t.Fatalf("expected valid shape addition: %+v", result)
+	}
+	inspection := inspectOutput(t, outputPath)
+	if got := inspection.Slides[0].VisibleText[1].Text; got != "Shape label" {
+		t.Fatalf("unexpected shape text: %s", got)
 	}
 }
 

@@ -132,7 +132,7 @@ func planSpec(ctx context.Context, deckPath string, spec model.EditSpec) (*model
 
 func validateMutationSupport(operation string) string {
 	switch operation {
-	case "replace_text", "update_notes", "update_metadata", "slide_add", "slide_delete", "slide_move", "slide_duplicate":
+	case "replace_text", "update_notes", "update_metadata", "replace_image", "add_text_box", "add_shape", "slide_add", "slide_delete", "slide_move", "slide_duplicate":
 		return ""
 	default:
 		return fmt.Sprintf("operation %q is planned but not implemented for mutation yet", operation)
@@ -147,6 +147,10 @@ func applyMutation(pkg *pptx.Package, spec model.EditSpec, matches []model.Targe
 		return applyNotesUpdate(pkg, spec, matches)
 	case "update_metadata":
 		return applyMetadataUpdate(pkg, spec)
+	case "replace_image":
+		return applyImageReplacement(pkg, spec, matches)
+	case "add_text_box", "add_shape":
+		return applySimpleAddition(pkg, spec, matches)
 	case "slide_add", "slide_delete", "slide_move", "slide_duplicate":
 		return applySlideOperation(pkg, spec, matches)
 	default:
@@ -438,6 +442,14 @@ func verifyApplied(ctx context.Context, outputPath string, spec model.EditSpec, 
 		if metadataValue(inspection.Metadata, spec.Target.Property) != spec.Replacement {
 			return fmt.Errorf("metadata property %q was not updated", spec.Target.Property)
 		}
+	case "replace_image":
+		if err := verifyImageReplacement(ctx, outputPath, spec, matches); err != nil {
+			return err
+		}
+	case "add_text_box", "add_shape":
+		if !slideNotesOrTextContain(inspection, matches[0].SlideNumber, spec.Replacement) {
+			return fmt.Errorf("added text not found on slide %d", matches[0].SlideNumber)
+		}
 	case "slide_add":
 		if !slideTextAt(inspection, spec.Target.SlideNumber+1, spec.Replacement) {
 			return fmt.Errorf("added slide text not found at position %d", spec.Target.SlideNumber+1)
@@ -474,6 +486,25 @@ func slideNotesContain(inspection *model.Inspection, slideNumber int, text strin
 	for _, slide := range inspection.Slides {
 		if slide.Number != slideNumber {
 			continue
+		}
+		for _, block := range slide.Notes {
+			if strings.Contains(block.Text, text) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func slideNotesOrTextContain(inspection *model.Inspection, slideNumber int, text string) bool {
+	for _, slide := range inspection.Slides {
+		if slide.Number != slideNumber {
+			continue
+		}
+		for _, block := range slide.VisibleText {
+			if strings.Contains(block.Text, text) {
+				return true
+			}
 		}
 		for _, block := range slide.Notes {
 			if strings.Contains(block.Text, text) {

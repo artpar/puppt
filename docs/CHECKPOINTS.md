@@ -732,6 +732,63 @@ Next checkpoint:
 
 - Continue Checkpoint 6 with explicit image target replacement and simple editable additions.
 
+## Checkpoint 6: Image Replacement and Simple Additions, completion audit
+
+Changed files:
+
+- `internal/edit/apply.go`
+- `internal/edit/apply_test.go`
+- `internal/edit/media.go`
+- `internal/edit/plan.go`
+- `internal/edit/plan_test.go`
+- `internal/target/resolve.go`
+- `docs/STATUS.md`
+- `docs/DOCTRINE_CHECKLIST.md`
+- `docs/CHECKPOINTS.md`
+- `docs/PLAN_EXAMPLES.md`
+
+Implemented behavior:
+
+- Implemented `replace_image` mutation for explicit image object IDs and image selectors that resolve to exactly one image.
+- Replaced package media bytes in the existing image target part while preserving slide text and package relationship structure.
+- Added `image` target resolution so ambiguous image targets are rejected before mutation.
+- Implemented `add_text_box` for adding a simple editable text object to a target slide.
+- Implemented `add_shape` for adding a simple editable rectangle shape with editable text to a target slide.
+- Kept advanced visual edits outside the supported operation set, so they remain rejected before mutation.
+
+Verification commands:
+
+```text
+go test ./internal/edit ./internal/validate ./cmd/puppt
+go test ./...
+git diff --check
+```
+
+Verification result:
+
+- `go test ./internal/edit ./internal/validate ./cmd/puppt` passed.
+- `go test ./...` passed.
+- `git diff --check` passed.
+
+Fixtures added or updated:
+
+- Added edit tests using deterministic fixture decks for image replacement, ambiguous image planning, editable text-box addition, and editable shape addition.
+
+Known risks:
+
+- Image replacement preserves the existing package target and content type; replacing an image with a different file type is not normalized yet.
+- Added text boxes and shapes use simple deterministic XML without layout positioning controls.
+- Advanced visual edits remain outside v1 mutation support.
+
+Unsupported behavior encountered:
+
+- Deck creation is not implemented yet.
+- Review summaries are not implemented yet.
+
+Next checkpoint:
+
+- Continue Checkpoint 7 with structured JSON deck creation, deterministic output, inspection, and validation.
+
 ## Checkpoint 2: Inspection Core, progress 4
 
 Changed files:

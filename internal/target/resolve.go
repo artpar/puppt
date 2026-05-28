@@ -29,6 +29,8 @@ func Resolve(inspection *model.Inspection, spec model.TargetSpec) ([]model.Targe
 		matches = matchVisibleText(inspection, spec.Text)
 	case "object_id":
 		matches = matchObjectID(inspection, spec.ObjectID)
+	case "image":
+		matches = matchImages(inspection, spec.SlideNumber)
 	case "notes":
 		matches = matchNotes(inspection, spec.SlideNumber)
 	case "metadata":
@@ -49,6 +51,24 @@ func Resolve(inspection *model.Inspection, spec model.TargetSpec) ([]model.Targe
 		return matches, StatusAmbiguous, fmt.Sprintf("matched %d targets; specify a narrower target or deck scope", len(matches))
 	}
 	return matches, StatusReady, "matched 1 target"
+}
+
+func matchImages(inspection *model.Inspection, slideNumber int) []model.TargetMatch {
+	var matches []model.TargetMatch
+	for _, slide := range inspection.Slides {
+		if slideNumber != 0 && slide.Number != slideNumber {
+			continue
+		}
+		for _, image := range slide.Images {
+			matches = append(matches, model.TargetMatch{
+				SlideNumber: slide.Number,
+				SlideID:     slide.ID,
+				ObjectID:    image.ObjectID,
+				Kind:        "image",
+			})
+		}
+	}
+	return matches
 }
 
 func matchSlideNumber(inspection *model.Inspection, slideNumber int) []model.TargetMatch {
