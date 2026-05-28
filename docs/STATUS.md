@@ -2,7 +2,7 @@
 
 ## Current Checkpoint
 
-Checkpoint 2: Inspection Core, in progress.
+Checkpoint 3: Targeting and Edit Planning.
 
 ## Implemented
 
@@ -19,10 +19,11 @@ Checkpoint 2: Inspection Core, in progress.
 - Inspection JSON uses the `puppt.v1` envelope.
 - Inspection currently reports presentation part, package part count, slide count, slide order, simple titles, shape-level visible text runs, speaker notes, image/media references, layout references and names, master references and names, core metadata, repeated visible text, and basic unsupported-part/object warnings.
 - Golden JSON test exists for a deterministic minimal deck.
+- Checkpoint 2 inspection exit evidence is recorded in `docs/CHECKPOINTS.md`.
 
 ## Not Implemented Yet
 
-- Advanced non-text object extraction, richer media metadata, and broader real-world unsupported-feature warning detection.
+- Advanced non-text object extraction, richer media metadata, and broader real-world unsupported-feature warning detection beyond the current basic warning set.
 - Target resolution and edit planning.
 - Mutations.
 - Deck creation.
@@ -34,4 +35,4 @@ Commands other than `inspect`, `version`, and `--help` currently fail explicitly
 
 ## Next Checkpoint
 
-Continue Checkpoint 2: Inspection Core.
+Checkpoint 3: Targeting and Edit Planning.

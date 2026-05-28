@@ -297,6 +297,109 @@ Next checkpoint:
 
 - Continue Checkpoint 2 with advanced object extraction, richer unsupported-feature warning coverage, and inspection contract review before moving to targeting/planning.
 
+## Checkpoint 2: Inspection Core, completion audit
+
+Requirement: `puppt inspect --json` returns stable JSON.
+
+Evidence:
+
+- `internal/cli/root.go` wires `puppt inspect <input.pptx> --json`.
+- `internal/cli/root_test.go` verifies JSON envelope fields and slide text through the CLI.
+- `internal/report.WriteJSON` emits deterministic indented JSON.
+
+Status: achieved for the Checkpoint 2 scope.
+
+Requirement: slide order is represented.
+
+Evidence:
+
+- `internal/pptx.Open` resolves presentation slide order through `presentation.xml` slide IDs and presentation relationships.
+- `internal/inspect.Inspect` emits ordered `slides`.
+- `TestInspectReturnsSlideOrderAndVisibleText` verifies order.
+
+Status: achieved.
+
+Requirement: titles and visible text are represented.
+
+Evidence:
+
+- `internal/inspect.shapeTextBlocks` extracts text by shape and stable object ID.
+- `internal/inspect.Inspect` derives simple titles from the first visible text block.
+- `TestInspectReturnsSlideOrderAndVisibleText` and `minimal.golden.json` verify shape-level visible text and titles.
+
+Status: achieved for text shapes. Advanced non-text object extraction remains a known later enhancement.
+
+Requirement: notes are represented.
+
+Evidence:
+
+- `internal/inspect.inspectSlideRelationships` resolves notes slide relationships.
+- `TestInspectReturnsMetadataNotesImagesAndLayout` verifies speaker-note text.
+
+Status: achieved.
+
+Requirement: media refs are represented.
+
+Evidence:
+
+- `internal/inspect.inspectSlideRelationships` classifies image, audio, video, and OLE object relationships.
+- `TestInspectReturnsMetadataNotesImagesAndLayout` verifies media refs and image content type/extension.
+
+Status: achieved for relationship-level media references. Rich media metadata remains a known later enhancement.
+
+Requirement: metadata is represented.
+
+Evidence:
+
+- `internal/inspect.inspectMetadata` reads core properties.
+- `TestInspectReturnsMetadataNotesImagesAndLayout` verifies title, author, and subject.
+
+Status: achieved for core metadata.
+
+Requirement: layouts are represented.
+
+Evidence:
+
+- `internal/inspect.inspectSlideRelationships` resolves slide layout refs.
+- `internal/inspect.parseCommonSlideName` extracts layout names.
+- `TestInspectReturnsMetadataNotesImagesAndLayout` verifies layout ref and name.
+
+Status: achieved.
+
+Requirement: repeated content is represented.
+
+Evidence:
+
+- `internal/inspect.repeatedText` emits repeated visible text counts.
+- `TestInspectReportsRepeatedVisibleText` verifies count.
+
+Status: achieved.
+
+Requirement: warnings are represented.
+
+Evidence:
+
+- Inspection emits `inspection_partial` while advanced object extraction remains incomplete.
+- `inspectPackageWarnings` emits warnings for macros, charts, and diagrams.
+- `inspectSlideRelationships` emits OLE object warnings.
+- `TestInspectWarnsForUnsupportedPreservedParts` verifies package warnings.
+
+Status: achieved for the current warning categories. Broader real-world warning detection remains a known later enhancement.
+
+Requirement: golden fixture tests exist.
+
+Evidence:
+
+- `internal/inspect/testdata/minimal.golden.json`
+- `TestInspectGoldenJSON`
+
+Status: achieved.
+
+Checkpoint 2 decision:
+
+- Complete enough to enter Checkpoint 3: Targeting and Edit Planning.
+- Remaining inspection improvements are tracked as known risks and should be added as fixtures reveal real-world gaps.
+
 ## Checkpoint 2: Inspection Core, progress 4
 
 Changed files:
