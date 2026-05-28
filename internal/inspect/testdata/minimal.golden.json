@@ -1,0 +1,44 @@
+{
+  "schema_version": "puppt.v1",
+  "command": "inspect",
+  "status": "ok",
+  "input": "testdata/minimal.pptx",
+  "output": null,
+  "warnings": [
+    {
+      "code": "inspection_partial",
+      "message": "inspection currently includes package structure, slide order, and visible slide text; notes, images, layouts, and metadata are represented but not populated yet"
+    }
+  ],
+  "errors": [],
+  "summary": {
+    "human": "Found 1 slides."
+  },
+  "inspection": {
+    "presentation_part": "ppt/presentation.xml",
+    "part_count": 5,
+    "slide_count": 1,
+    "metadata": {},
+    "slides": [
+      {
+        "number": 1,
+        "id": "ppt/slides/slide1.xml",
+        "part": "ppt/slides/slide1.xml",
+        "title": "Slide 1",
+        "visible_text": [
+          {
+            "object_id": "ppt/slides/slide1.xml#text-1",
+            "text": "Slide 1",
+            "runs": [
+              "Slide 1"
+            ]
+          }
+        ],
+        "notes": [],
+        "images": [],
+        "warnings": []
+      }
+    ],
+    "repeated_text": []
+  }
+}

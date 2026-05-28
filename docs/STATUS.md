@@ -2,7 +2,7 @@
 
 ## Current Checkpoint
 
-Checkpoint 1: `.pptx` Package Reader.
+Checkpoint 2: Inspection Core, in progress.
 
 ## Implemented
 
@@ -15,10 +15,14 @@ Checkpoint 1: `.pptx` Package Reader.
 - Official reference map exists for ECMA-376, ISO/IEC 29500, Microsoft PresentationML structure, and Microsoft Office implementation notes.
 - Puppt-owned `.pptx` package reader opens ZIP packages, reads content types, reads root relationships, resolves the presentation part, reads presentation relationships, and exposes slide part order.
 - Invalid extension, invalid ZIP, and missing required part cases fail explicitly.
+- `puppt inspect <input.pptx> --json` is wired.
+- Inspection JSON uses the `puppt.v1` envelope.
+- Inspection currently reports presentation part, package part count, slide count, slide order, simple titles, visible text runs, repeated visible text, represented metadata, notes, images, and warnings.
+- Golden JSON test exists for a deterministic minimal deck.
 
 ## Not Implemented Yet
 
-- Deck inspection.
+- Full deck inspection for notes, images, metadata values, layouts, masters, media references, and real-world warning detection.
 - Target resolution and edit planning.
 - Mutations.
 - Deck creation.
@@ -26,8 +30,8 @@ Checkpoint 1: `.pptx` Package Reader.
 - Review summaries.
 - Fixtures and acceptance suite.
 
-Commands other than `version` and `--help` currently fail explicitly with a repository-foundation message. The package reader is available internally but is not yet wired to `puppt inspect`.
+Commands other than `inspect`, `version`, and `--help` currently fail explicitly as unimplemented.
 
 ## Next Checkpoint
 
-Checkpoint 2: Inspection Core.
+Continue Checkpoint 2: Inspection Core.

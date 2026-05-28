@@ -119,3 +119,67 @@ Unsupported behavior encountered:
 Next checkpoint:
 
 - Checkpoint 2: Inspection Core.
+
+## Checkpoint 2: Inspection Core, progress 1
+
+Changed files:
+
+- `internal/model/doc.go`
+- `internal/model/result.go`
+- `internal/model/inspection.go`
+- `internal/report/doc.go`
+- `internal/report/json.go`
+- `internal/inspect/doc.go`
+- `internal/inspect/inspect.go`
+- `internal/inspect/inspect_test.go`
+- `internal/inspect/testdata/minimal.golden.json`
+- `internal/cli/root.go`
+- `internal/cli/root_test.go`
+- `docs/DOCTRINE_CHECKLIST.md`
+- `docs/STATUS.md`
+- `docs/CHECKPOINTS.md`
+
+Implemented behavior:
+
+- Added stable shared command-result and inspection models.
+- Added stable indented JSON report writer.
+- Implemented basic inspection workflow using the owned `.pptx` package reader.
+- Extracted slide order, slide part IDs, and visible text runs from slide XML.
+- Derived simple slide title from first visible text block.
+- Added repeated visible text representation.
+- Represented metadata, notes, images, layouts, slide warnings, top-level warnings, and errors in the JSON shape.
+- Added `puppt inspect <input.pptx> --json`.
+- Added focused inspect tests and a golden JSON test.
+- Added CLI JSON test for `inspect`.
+- Added a doctrine checklist mapping current code to the binding Puppt rules in `swe_skill.md`.
+
+Verification commands:
+
+```text
+go test ./internal/inspect ./internal/model ./internal/report ./cmd/puppt
+go test ./...
+```
+
+Verification result:
+
+- `go test ./internal/inspect ./internal/model ./internal/report ./cmd/puppt` passed.
+- `go test ./...` passed.
+
+Fixtures added or updated:
+
+- Added `internal/inspect/testdata/minimal.golden.json`.
+- Reused deterministic generated `.pptx` fixture from `internal/fixtures.WriteMinimalPPTX`.
+
+Known risks:
+
+- Notes, images, layout refs, and metadata fields are represented but not populated yet.
+- Visible text grouping is currently slide-level, not shape-level.
+- `inspect` emits a partial-inspection warning until the remaining inspection fields are populated.
+
+Unsupported behavior encountered:
+
+- Real-world rich slide constructs remain uninspected beyond raw visible `a:t` text.
+
+Next checkpoint:
+
+- Continue Checkpoint 2 by populating shape/object-level text, notes, image/media references, metadata, layouts, repeated content fixtures, and warning detection.

@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io"
 
+	inspectworkflow "github.com/artpar/puppt/internal/inspect"
+	"github.com/artpar/puppt/internal/report"
 	"github.com/spf13/cobra"
 )
 
@@ -35,7 +37,7 @@ func NewRootCommand() *cobra.Command {
 	}
 
 	cmd.AddCommand(newVersionCommand())
-	cmd.AddCommand(stubCommand("inspect", "Inspect a .pptx deck and return structured facts."))
+	cmd.AddCommand(newInspectCommand())
 	cmd.AddCommand(stubCommand("plan", "Plan a targeted deck edit without writing output."))
 	cmd.AddCommand(stubCommand("edit", "Apply targeted edits to a .pptx deck."))
 	cmd.AddCommand(stubCommand("create", "Create an editable .pptx deck from structured input."))
@@ -56,12 +58,34 @@ func newVersionCommand() *cobra.Command {
 	}
 }
 
+func newInspectCommand() *cobra.Command {
+	var emitJSON bool
+	cmd := &cobra.Command{
+		Use:   "inspect <input.pptx>",
+		Short: "Inspect a .pptx deck and return structured facts.",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			result, err := inspectworkflow.Inspect(cmd.Context(), args[0])
+			if err != nil {
+				return err
+			}
+			if emitJSON {
+				return report.WriteJSON(cmd.OutOrStdout(), result)
+			}
+			_, err = fmt.Fprintln(cmd.OutOrStdout(), result.Summary.Human)
+			return err
+		},
+	}
+	cmd.Flags().BoolVar(&emitJSON, "json", false, "emit stable machine-readable JSON")
+	return cmd
+}
+
 func stubCommand(name string, short string) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   name,
 		Short: short,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return fmt.Errorf("%s is not implemented yet; current checkpoint is repository foundation", name)
+			return fmt.Errorf("%s is not implemented yet", name)
 		},
 	}
 	cmd.Flags().Bool("json", false, "emit stable machine-readable JSON")
