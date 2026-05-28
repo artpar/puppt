@@ -20,6 +20,10 @@ const (
 	rootRelationshipsPart = "_rels/.rels"
 	officeDocumentRelType = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument"
 	slideRelType          = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide"
+	CorePropertiesRelType = "http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties"
+	SlideLayoutRelType    = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout"
+	NotesSlideRelType     = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/notesSlide"
+	ImageRelType          = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/image"
 )
 
 // Package is the initial structural view of a .pptx package.
@@ -43,10 +47,35 @@ func (p *Package) PartNames() []string {
 	return names
 }
 
+// RelationshipsForPart returns explicit relationships for a package part. A
+// part without a relationships item returns an empty slice.
+func (p *Package) RelationshipsForPart(partName string) ([]Relationship, error) {
+	relationshipsPart := RelationshipsPartFor(partName)
+	data, ok := p.Parts[relationshipsPart]
+	if !ok {
+		return []Relationship{}, nil
+	}
+	relationships, err := parseRelationships(data)
+	if err != nil {
+		return nil, packageError(ErrorInvalidXML, "parse", p.Path, relationshipsPart, err)
+	}
+	return relationships, nil
+}
+
 // ContentTypes contains parsed package content-type declarations.
 type ContentTypes struct {
 	Defaults  map[string]string
 	Overrides map[string]string
+}
+
+// ForPart returns the best known content type for a package part.
+func (c ContentTypes) ForPart(partName string) string {
+	normalized := normalizePartName(partName)
+	if contentType, ok := c.Overrides[normalized]; ok {
+		return contentType
+	}
+	extension := strings.TrimPrefix(strings.ToLower(path.Ext(normalized)), ".")
+	return c.Defaults[extension]
 }
 
 // Relationship is an Open Packaging Convention relationship.
@@ -246,13 +275,18 @@ func findOfficeDocumentPath(relationships []Relationship) (string, error) {
 	return "", errors.New("office document relationship not found")
 }
 
-func relationshipsPartFor(partName string) string {
+// RelationshipsPartFor returns the package relationships item name for a part.
+func RelationshipsPartFor(partName string) string {
 	dir := path.Dir(partName)
 	base := path.Base(partName)
 	if dir == "." {
 		return path.Join("_rels", base+".rels")
 	}
 	return path.Join(dir, "_rels", base+".rels")
+}
+
+func relationshipsPartFor(partName string) string {
+	return RelationshipsPartFor(partName)
 }
 
 type presentationXML struct {
@@ -340,6 +374,12 @@ func resolveSlideParts(presentationPath string, relationshipIDs []string, relati
 }
 
 func resolveTargetPart(sourcePart string, target string) string {
+	return ResolveTargetPart(sourcePart, target)
+}
+
+// ResolveTargetPart resolves an internal relationship target relative to its
+// source part.
+func ResolveTargetPart(sourcePart string, target string) string {
 	normalized := normalizePartName(target)
 	if strings.HasPrefix(target, "/") {
 		return normalized

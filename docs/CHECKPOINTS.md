@@ -183,3 +183,58 @@ Unsupported behavior encountered:
 Next checkpoint:
 
 - Continue Checkpoint 2 by populating shape/object-level text, notes, image/media references, metadata, layouts, repeated content fixtures, and warning detection.
+
+## Checkpoint 2: Inspection Core, progress 2
+
+Changed files:
+
+- `internal/pptx/reader.go`
+- `internal/fixtures/pptx.go`
+- `internal/inspect/inspect.go`
+- `internal/inspect/inspect_test.go`
+- `internal/inspect/testdata/minimal.golden.json`
+- `docs/STATUS.md`
+- `docs/DOCTRINE_CHECKLIST.md`
+- `docs/CHECKPOINTS.md`
+
+Implemented behavior:
+
+- Exposed Puppt-owned package helpers for relationship-part lookup, internal target resolution, per-part relationships, and content-type lookup.
+- Extended deterministic fixture generation to include core metadata, notes slides, image relationships, and slide layout relationships.
+- Populated core metadata from `docProps/core.xml`.
+- Populated speaker notes from notes slide relationships.
+- Populated image/media references from slide relationships with content type lookup.
+- Populated slide layout references from slide relationships.
+- Added repeated visible text test coverage.
+- Updated golden JSON warning text to reflect the narrower remaining inspection gap.
+
+Verification commands:
+
+```text
+go test ./internal/inspect ./internal/model ./internal/report ./cmd/puppt
+go test ./...
+```
+
+Verification result:
+
+- `go test ./internal/inspect ./internal/model ./internal/report ./cmd/puppt` passed.
+- `go test ./...` passed after the implementation change.
+
+Fixtures added or updated:
+
+- Extended `internal/fixtures.WritePPTX` for deterministic rich decks.
+- Updated `internal/inspect/testdata/minimal.golden.json`.
+
+Known risks:
+
+- Visible text is still grouped at slide level rather than shape/object level.
+- Slide master inspection is not populated yet.
+- Unsupported-feature warning detection is not complete.
+
+Unsupported behavior encountered:
+
+- Rich real-world package constructs beyond simple notes, images, layouts, and core metadata remain unclassified.
+
+Next checkpoint:
+
+- Continue Checkpoint 2 with shape/object-level text extraction, slide master/layout naming, and unsupported-feature warning detection.

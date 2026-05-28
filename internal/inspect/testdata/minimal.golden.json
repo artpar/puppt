@@ -7,7 +7,7 @@
   "warnings": [
     {
       "code": "inspection_partial",
-      "message": "inspection currently includes package structure, slide order, and visible slide text; notes, images, layouts, and metadata are represented but not populated yet"
+      "message": "inspection currently groups visible text at slide level; shape-level object extraction and advanced feature warnings are not complete yet"
     }
   ],
   "errors": [],
