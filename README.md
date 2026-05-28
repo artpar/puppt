@@ -12,7 +12,7 @@ The binding product and engineering documents are:
 
 ## Current State
 
-Puppt is at Checkpoint 5: Slide Operations. Inspection, edit planning, and first text/notes/metadata mutation workflows are implemented for deterministic `.pptx` fixtures, with post-edit validation.
+Puppt is at Checkpoint 6: Image Replacement and Simple Additions. Inspection, edit planning, text/notes/metadata mutations, and slide add/delete/move/duplicate workflows are implemented for deterministic `.pptx` fixtures, with post-edit validation.
 
 ## Development
 

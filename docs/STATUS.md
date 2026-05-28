@@ -2,7 +2,7 @@
 
 ## Current Checkpoint
 
-Checkpoint 5: Slide Operations.
+Checkpoint 6: Image Replacement and Simple Additions.
 
 ## Implemented
 
@@ -33,12 +33,15 @@ Checkpoint 5: Slide Operations.
 - Targeted text replacement, deck-wide text replacement, speaker-note update, and metadata update run through planning before mutation.
 - Edit output validation runs after writing and reports `validation.valid`.
 - Checkpoint 4 text, notes, metadata, and validation exit evidence is recorded in `docs/CHECKPOINTS.md`.
+- Slide add, delete, move, and duplicate mutations work on deterministic fixtures.
+- Slide operations update presentation slide order, presentation relationships, and slide content-type overrides where needed.
+- Slide operation outputs validate through relationship checks and round-trip inspection.
+- Checkpoint 5 slide-operation exit evidence is recorded in `docs/CHECKPOINTS.md`.
 
 ## Not Implemented Yet
 
 - Advanced non-text object extraction, richer media metadata, and broader real-world unsupported-feature warning detection beyond the current basic warning set.
 - Adding new notes parts when a slide has no notes relationship.
-- Slide add/delete/move/duplicate mutations.
 - Image replacement mutation.
 - Simple text/shape additions.
 - Deck creation.
@@ -49,4 +52,4 @@ Commands other than `inspect`, `plan`, `edit`, `version`, and `--help` currently
 
 ## Next Checkpoint
 
-Checkpoint 5: Slide Operations.
+Checkpoint 6: Image Replacement and Simple Additions.

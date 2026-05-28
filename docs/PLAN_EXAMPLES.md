@@ -91,6 +91,33 @@ Image targets use object IDs from `puppt inspect --json`.
 }
 ```
 
+## Add A Slide
+
+`replacement` is the editable text for the new fixture-safe slide. The slide is inserted after the target slide number.
+
+```json
+{
+  "operation": "slide_add",
+  "target": {
+    "type": "slide_number",
+    "slide_number": 2
+  },
+  "replacement": "New slide title"
+}
+```
+
+## Delete A Slide
+
+```json
+{
+  "operation": "slide_delete",
+  "target": {
+    "type": "slide_number",
+    "slide_number": 5
+  }
+}
+```
+
 ## Duplicate A Slide
 
 ```json

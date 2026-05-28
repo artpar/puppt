@@ -132,7 +132,7 @@ func planSpec(ctx context.Context, deckPath string, spec model.EditSpec) (*model
 
 func validateMutationSupport(operation string) string {
 	switch operation {
-	case "replace_text", "update_notes", "update_metadata":
+	case "replace_text", "update_notes", "update_metadata", "slide_add", "slide_delete", "slide_move", "slide_duplicate":
 		return ""
 	default:
 		return fmt.Sprintf("operation %q is planned but not implemented for mutation yet", operation)
@@ -147,6 +147,8 @@ func applyMutation(pkg *pptx.Package, spec model.EditSpec, matches []model.Targe
 		return applyNotesUpdate(pkg, spec, matches)
 	case "update_metadata":
 		return applyMetadataUpdate(pkg, spec)
+	case "slide_add", "slide_delete", "slide_move", "slide_duplicate":
+		return applySlideOperation(pkg, spec, matches)
 	default:
 		return nil, fmt.Errorf("unsupported mutation operation %q", spec.Operation)
 	}
@@ -436,6 +438,23 @@ func verifyApplied(ctx context.Context, outputPath string, spec model.EditSpec, 
 		if metadataValue(inspection.Metadata, spec.Target.Property) != spec.Replacement {
 			return fmt.Errorf("metadata property %q was not updated", spec.Target.Property)
 		}
+	case "slide_add":
+		if !slideTextAt(inspection, spec.Target.SlideNumber+1, spec.Replacement) {
+			return fmt.Errorf("added slide text not found at position %d", spec.Target.SlideNumber+1)
+		}
+	case "slide_delete":
+		if slideIDExists(inspection, matches[0].SlideID) {
+			return fmt.Errorf("deleted slide still exists: %s", matches[0].SlideID)
+		}
+	case "slide_move":
+		if !slideIDAt(inspection, spec.DestinationSlideNumber, matches[0].SlideID) {
+			return fmt.Errorf("slide %s not found at position %d", matches[0].SlideID, spec.DestinationSlideNumber)
+		}
+	case "slide_duplicate":
+		expectedPosition := spec.InsertAfterSlide + 1
+		if !slideTextAt(inspection, expectedPosition, matches[0].Text) {
+			return fmt.Errorf("duplicated slide text not found at position %d", expectedPosition)
+		}
 	}
 	return nil
 }
@@ -476,6 +495,38 @@ func metadataValue(metadata model.Metadata, property string) string {
 	default:
 		return ""
 	}
+}
+
+func slideIDExists(inspection *model.Inspection, slideID string) bool {
+	for _, slide := range inspection.Slides {
+		if slide.ID == slideID {
+			return true
+		}
+	}
+	return false
+}
+
+func slideIDAt(inspection *model.Inspection, slideNumber int, slideID string) bool {
+	for _, slide := range inspection.Slides {
+		if slide.Number == slideNumber {
+			return slide.ID == slideID
+		}
+	}
+	return false
+}
+
+func slideTextAt(inspection *model.Inspection, slideNumber int, text string) bool {
+	for _, slide := range inspection.Slides {
+		if slide.Number != slideNumber {
+			continue
+		}
+		for _, block := range slide.VisibleText {
+			if strings.Contains(block.Text, text) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func encodeTextElement(encoder *xml.Encoder, start xml.StartElement, value string) error {

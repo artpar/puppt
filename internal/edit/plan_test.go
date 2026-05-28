@@ -238,6 +238,31 @@ func TestPlanReadyForSlideMove(t *testing.T) {
 	}
 }
 
+func TestPlanRequiresDuplicateInsertAfterSlide(t *testing.T) {
+	deckPath := filepath.Join(t.TempDir(), "deck.pptx")
+	if err := fixtures.WriteMinimalPPTX(deckPath, []string{"ppt/slides/slide1.xml"}); err != nil {
+		t.Fatal(err)
+	}
+	specPath := writeSpec(t, `{
+  "operation": "slide_duplicate",
+  "target": {
+    "type": "slide_number",
+    "slide_number": 1
+  }
+}`)
+
+	result, err := Plan(context.Background(), deckPath, specPath)
+	if err != nil {
+		t.Fatalf("plan failed: %v", err)
+	}
+	if result.Status != "unsupported" {
+		t.Fatalf("unexpected status: %s", result.Status)
+	}
+	if result.Plan.Message != "slide_duplicate requires insert_after_slide" {
+		t.Fatalf("unexpected message: %s", result.Plan.Message)
+	}
+}
+
 func writeSpec(t *testing.T, data string) string {
 	t.Helper()
 	filePath := filepath.Join(t.TempDir(), "edit.json")

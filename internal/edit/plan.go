@@ -135,6 +135,12 @@ func validateOperationTarget(spec model.EditSpec) string {
 	if spec.Operation == "slide_move" && spec.DestinationSlideNumber == 0 {
 		return "slide_move requires destination_slide_number"
 	}
+	if spec.Operation == "slide_duplicate" && spec.InsertAfterSlide == 0 {
+		return "slide_duplicate requires insert_after_slide"
+	}
+	if spec.Operation == "slide_add" && spec.Replacement == "" {
+		return "slide_add requires replacement"
+	}
 	return ""
 }
 

@@ -674,6 +674,64 @@ Next checkpoint:
 
 - Continue Checkpoint 5 with slide add, delete, move, and duplicate mutation workflows plus relationship validation.
 
+## Checkpoint 5: Slide Operations, completion audit
+
+Changed files:
+
+- `internal/edit/apply.go`
+- `internal/edit/apply_test.go`
+- `internal/edit/plan.go`
+- `internal/edit/plan_test.go`
+- `internal/edit/slide.go`
+- `docs/STATUS.md`
+- `docs/DOCTRINE_CHECKLIST.md`
+- `docs/CHECKPOINTS.md`
+
+Implemented behavior:
+
+- Implemented `slide_add` by adding a new editable slide part, presentation relationship, slide ID entry, and content-type override.
+- Implemented `slide_delete` by removing the slide from presentation order, presentation relationships, slide part storage, slide relationships, and slide content-type overrides.
+- Implemented `slide_move` by reordering the presentation slide ID list without changing slide parts.
+- Implemented `slide_duplicate` by copying the slide part and slide relationships to a new slide part, then adding presentation relationship/order entries and a content-type override.
+- Kept all slide mutations behind the same planning and unambiguous target resolution path as other edits.
+- Added change summaries that identify touched slide positions and slide part IDs.
+
+Verification commands:
+
+```text
+go test ./internal/edit ./internal/inspect ./internal/validate ./cmd/puppt
+go test ./...
+git diff --check
+```
+
+Verification result:
+
+- `go test ./internal/edit ./internal/inspect ./internal/validate ./cmd/puppt` passed.
+- `go test ./...` passed.
+- `git diff --check` passed.
+
+Fixtures added or updated:
+
+- Added edit tests using deterministic fixture decks for slide add, delete, move, and duplicate.
+- Slide-operation tests verify output slide order/content through inspection and relationship validity through validation.
+- Added planning validation for missing `insert_after_slide` on slide duplication.
+
+Known risks:
+
+- Slide add currently creates a simple editable text slide from `replacement`; richer layout-aware slide creation is deferred to the creation checkpoint.
+- Slide duplicate copies slide relationships as-is, so duplicated slides may share media targets with the source slide.
+- Slide delete removes slide package parts and references but does not garbage-collect orphaned related media parts yet.
+- XML parts touched by slide ordering/content-type updates are re-encoded.
+
+Unsupported behavior encountered:
+
+- Image replacement mutation remains unsupported.
+- Simple shape/textbox additions remain unsupported.
+
+Next checkpoint:
+
+- Continue Checkpoint 6 with explicit image target replacement and simple editable additions.
+
 ## Checkpoint 2: Inspection Core, progress 4
 
 Changed files:
