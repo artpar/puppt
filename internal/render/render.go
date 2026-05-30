@@ -153,7 +153,8 @@ type themeFonts struct {
 }
 
 type themeFillStyles struct {
-	Styles []*xmlNode
+	Styles           []*xmlNode
+	BackgroundStyles []*xmlNode
 }
 
 type themeLineStyles struct {
@@ -4060,11 +4061,14 @@ func parseThemeFillStyles(data []byte) themeFillStyles {
 	if err != nil {
 		return themeFillStyles{}
 	}
-	list := firstDescendant(root, "fillStyleLst")
-	if list == nil {
-		return themeFillStyles{}
+	var styles themeFillStyles
+	if list := firstDescendant(root, "fillStyleLst"); list != nil {
+		styles.Styles = list.Children
 	}
-	return themeFillStyles{Styles: list.Children}
+	if list := firstDescendant(root, "bgFillStyleLst"); list != nil {
+		styles.BackgroundStyles = list.Children
+	}
+	return styles
 }
 
 func parseThemeLineStyles(data []byte) themeLineStyles {
@@ -4080,8 +4084,15 @@ func parseThemeLineStyles(data []byte) themeLineStyles {
 }
 
 func (styles themeFillStyles) Style(idx int64, theme themeColors) (backgroundPaint, bool) {
-	if idx <= 0 {
+	if idx <= 0 || idx == 1000 {
 		return backgroundPaint{}, false
+	}
+	if idx >= 1001 {
+		styleIndex := int(idx - 1001)
+		if styleIndex < 0 || styleIndex >= len(styles.BackgroundStyles) {
+			return backgroundPaint{}, false
+		}
+		return backgroundPaintFromFillNode(styles.BackgroundStyles[styleIndex], theme)
 	}
 	styleIndex := int(idx - 1)
 	if styleIndex < 0 || styleIndex >= len(styles.Styles) {
@@ -4167,20 +4178,7 @@ func parseThemeBackgroundFill(data []byte, idx int64, placeholderColor color.RGB
 	if idx < 1001 {
 		return backgroundPaint{}, false
 	}
-	root, err := parseXMLNode(data)
-	if err != nil {
-		return backgroundPaint{}, false
-	}
-	list := firstDescendant(root, "bgFillStyleLst")
-	if list == nil {
-		return backgroundPaint{}, false
-	}
-	styleIndex := int(idx - 1001)
-	if styleIndex < 0 || styleIndex >= len(list.Children) {
-		return backgroundPaint{}, false
-	}
-	styleTheme := themeWithPlaceholderColor(theme, placeholderColor)
-	return backgroundPaintFromFillNode(list.Children[styleIndex], styleTheme)
+	return parseThemeFillStyles(data).Style(idx, themeWithPlaceholderColor(theme, placeholderColor))
 }
 
 func themeWithPlaceholderColor(theme themeColors, placeholderColor color.RGBA) themeColors {

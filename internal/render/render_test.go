@@ -1770,6 +1770,28 @@ func TestParseTableStylesReadsTableBackgroundFillReference(t *testing.T) {
 	}
 }
 
+func TestThemeFillStylesResolveBackgroundFillReference(t *testing.T) {
+	fillStyles := parseThemeFillStyles([]byte(`<a:theme xmlns:a="a">
+		<a:themeElements><a:fmtScheme name="Office">
+			<a:fillStyleLst>
+				<a:solidFill><a:schemeClr val="phClr"/></a:solidFill>
+			</a:fillStyleLst>
+			<a:bgFillStyleLst>
+				<a:solidFill><a:srgbClr val="010203"/></a:solidFill>
+				<a:solidFill><a:schemeClr val="phClr"/></a:solidFill>
+			</a:bgFillStyleLst>
+		</a:fmtScheme></a:themeElements>
+	</a:theme>`))
+
+	paint, ok := fillStyles.Style(1002, themeWithPlaceholderColor(defaultThemeColors(), color.RGBA{R: 0x33, G: 0x44, B: 0x55, A: 0xff}))
+	if !ok || paint.Color != (color.RGBA{R: 0x33, G: 0x44, B: 0x55, A: 0xff}) {
+		t.Fatalf("expected background fillRef idx 1002 to resolve second bgFillStyleLst entry, got=%+v ok=%v", paint, ok)
+	}
+	if _, ok := fillStyles.Style(1000, defaultThemeColors()); ok {
+		t.Fatalf("expected fillRef idx 1000 to mean no fill")
+	}
+}
+
 func TestParseTableStylesReadsDirectTableTextFontAndItalic(t *testing.T) {
 	styles := parseTableStyles([]byte(`<a:tblStyleLst xmlns:a="a">
 		<a:tblStyle styleId="{STYLE-DIRECT}" styleName="Direct Font Style">
