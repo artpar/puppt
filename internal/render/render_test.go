@@ -2025,7 +2025,7 @@ func TestTextParagraphsFromNodeDetectsBulletsAndLevels(t *testing.T) {
 	}
 	expectedWingdingsSquare := "▪"
 	if exactFontFamilyAvailable("Wingdings") {
-		expectedWingdingsSquare = "§"
+		expectedWingdingsSquare = "\uf0a7"
 	}
 	if got[3].Text != "Wingdings square" || got[3].Bullet != expectedWingdingsSquare || got[3].Level != 1 {
 		t.Fatalf("unexpected Wingdings bullet paragraph: %+v", got[3])
@@ -2056,7 +2056,7 @@ func TestTextParagraphsFromNodeMapsWingdingsNotSignBullet(t *testing.T) {
 	}
 	expectedWingdingsNotSign := "¬"
 	if exactFontFamilyAvailable("Wingdings") {
-		expectedWingdingsNotSign = "Ø"
+		expectedWingdingsNotSign = "\uf0d8"
 	}
 	if got[0].Bullet != expectedWingdingsNotSign || got[0].BulletFontFamily != "Wingdings" {
 		t.Fatalf("expected Wingdings Ø bullet to map to Unicode not sign, got %+v", got[0])
@@ -3129,11 +3129,7 @@ func TestTextRenderLinesForElementAppliesBulletFontFamily(t *testing.T) {
 	}
 
 	wingdings := appendPrefixSegment("¬ ", textParagraph{Bullet: "¬", BulletFontFamily: "Wingdings", FontSize: 1800}, nil)
-	expectedFont := ""
-	if exactFontFamilyAvailable("Wingdings") {
-		expectedFont = "Wingdings"
-	}
-	if len(wingdings) < 1 || wingdings[0].FontFamily != expectedFont {
+	if len(wingdings) < 1 || wingdings[0].FontFamily != "" {
 		t.Fatalf("unexpected Wingdings bullet font family, got %+v", wingdings)
 	}
 }
@@ -3154,11 +3150,7 @@ func TestTextRenderLinesForElementUsesParagraphFontForBulletFontTx(t *testing.T)
 		FontFamily:       "Trebuchet MS",
 		FontSize:         1800,
 	}, nil)
-	expectedWingdingsFont := "Trebuchet MS"
-	if exactFontFamilyAvailable("Wingdings") {
-		expectedWingdingsFont = "Wingdings"
-	}
-	if len(wingdings) < 1 || wingdings[0].FontFamily != expectedWingdingsFont {
+	if len(wingdings) < 1 || wingdings[0].FontFamily != "Trebuchet MS" {
 		t.Fatalf("unexpected mapped symbol bullet font, got %+v", wingdings)
 	}
 }
@@ -5236,7 +5228,7 @@ func TestRenderShapeReportsUnsupportedRotatedShapeAutofit(t *testing.T) {
 	}
 }
 
-func TestRenderShapeReportsSymbolFontBulletSubstitutes(t *testing.T) {
+func TestRenderShapeTreatsKnownSymbolFontBulletMappingsAsSupported(t *testing.T) {
 	size := slideSize{CX: emuPerInch, CY: emuPerInch}
 	img := image.NewRGBA(image.Rect(0, 0, 96, 96))
 	element := slideElement{
@@ -5262,14 +5254,8 @@ func TestRenderShapeReportsSymbolFontBulletSubstitutes(t *testing.T) {
 		t.Fatalf("expected symbol-bullet text to still render best-effort, got rendered=%v", element.Rendered)
 	}
 	got := unsupportedMessages(unsupported)
-	if exactFontFamilyAvailable("Wingdings") {
-		if strings.Contains(got, "symbol font bullets were rendered with Unicode substitutes") {
-			t.Fatalf("exact Wingdings font should avoid symbol-font substitute diagnostic, got %s", got)
-		}
-		return
-	}
-	if !strings.Contains(got, "symbol font bullets were rendered with Unicode substitutes") {
-		t.Fatalf("expected symbol-font bullet diagnostic, got %s", got)
+	if strings.Contains(got, "symbol font bullets were rendered with Unicode substitutes") {
+		t.Fatalf("known symbol-font bullet mapping should not report unsupported content, got %s", got)
 	}
 }
 

@@ -2507,6 +2507,9 @@ func normalizeBulletChar(raw string) string {
 func normalizeBulletCharForFont(raw string, fontFamily string) string {
 	font := strings.ToLower(strings.TrimSpace(fontFamily))
 	if strings.Contains(font, "wingdings") && exactFontFamilyAvailable(fontFamily) {
+		if mapped := legacySymbolBulletPrivateUseChar(raw); mapped != "" {
+			return mapped
+		}
 		return raw
 	}
 	switch raw {
@@ -2522,6 +2525,14 @@ func normalizeBulletCharForFont(raw string, fontFamily string) string {
 	default:
 		return raw
 	}
+}
+
+func legacySymbolBulletPrivateUseChar(raw string) string {
+	runes := []rune(raw)
+	if len(runes) != 1 || runes[0] > 0xff {
+		return ""
+	}
+	return string(rune(0xf000) + runes[0])
 }
 
 func bulletFontFamilyFromProperties(node *xmlNode) string {
@@ -6409,9 +6420,6 @@ func symbolBulletRenderedAsUnicode(bullet string, fontFamily string) bool {
 	if !strings.Contains(font, "wingdings") {
 		return false
 	}
-	if exactFontFamilyAvailable(fontFamily) {
-		return false
-	}
 	switch bullet {
 	case "▪", "▶", "¬":
 		return true
@@ -8619,9 +8627,6 @@ func textLayoutUnsupportedMessagesForTarget(element slideElement, bounds image.R
 	if element.TextAnchorCenter {
 		messages = append(messages, "text body anchor-center was not rendered")
 	}
-	if textParagraphsUseSymbolFontBulletSubstitutes(element.TextParagraphs) {
-		messages = append(messages, "symbol font bullets were rendered with Unicode substitutes")
-	}
 	if normalAutofitRequiresSimplifiedSizing(element, bounds, dpi) {
 		messages = append(messages, "normal autofit was rendered with simplified sizing")
 	}
@@ -8649,15 +8654,6 @@ func shapeAutofitLayoutSupported(element slideElement) bool {
 		return true
 	}
 	return normalizedRotationDegrees(element.Rotation) == 0
-}
-
-func textParagraphsUseSymbolFontBulletSubstitutes(paragraphs []textParagraph) bool {
-	for _, paragraph := range paragraphs {
-		if symbolBulletRenderedAsUnicode(paragraph.Bullet, paragraph.BulletFontFamily) {
-			return true
-		}
-	}
-	return false
 }
 
 func fontResolutionUnsupportedMessageForFamily(fontFamily string, bold bool, italic bool) string {
