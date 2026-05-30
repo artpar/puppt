@@ -2070,18 +2070,19 @@ func TestTextParagraphsFromNodeNumbersAutoBullets(t *testing.T) {
 	root, err := parseXMLNode([]byte(`<p:txBody xmlns:p="p" xmlns:a="a">
   <a:p><a:pPr><a:buAutoNum type="alphaLcPeriod"/></a:pPr><a:r><a:t>First</a:t></a:r></a:p>
   <a:p><a:pPr><a:buAutoNum type="alphaLcPeriod"/></a:pPr><a:r><a:t>Second</a:t></a:r></a:p>
-  <a:p><a:pPr lvl="1"><a:buAutoNum type="arabicParenR"/></a:pPr><a:r><a:t>Nested</a:t></a:r></a:p>
-  <a:p><a:pPr><a:buAutoNum type="alphaLcPeriod"/></a:pPr><a:r><a:t>Third</a:t></a:r></a:p>
+  <a:p><a:pPr><a:buAutoNum type="alphaLcPeriod" startAt="4"/></a:pPr><a:r><a:t>Restarted</a:t></a:r></a:p>
+  <a:p><a:pPr lvl="1"><a:buAutoNum type="arabicParenR" startAt="2"/></a:pPr><a:r><a:t>Nested</a:t></a:r></a:p>
+  <a:p><a:pPr><a:buAutoNum type="alphaLcPeriod"/></a:pPr><a:r><a:t>Continued</a:t></a:r></a:p>
 </p:txBody>`))
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	got := textParagraphsFromNode(root)
-	if len(got) != 4 {
+	if len(got) != 5 {
 		t.Fatalf("unexpected paragraph count: %+v", got)
 	}
-	if got[0].Bullet != "a." || got[1].Bullet != "b." || got[2].Bullet != "1)" || got[3].Bullet != "c." {
+	if got[0].Bullet != "a." || got[1].Bullet != "b." || got[2].Bullet != "d." || got[3].Bullet != "2)" || got[4].Bullet != "e." {
 		t.Fatalf("unexpected auto-number bullets: %+v", got)
 	}
 }

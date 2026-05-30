@@ -2170,7 +2170,11 @@ func textParagraphsFromNodeWithTheme(node *xmlNode, theme themeColors) []textPar
 				paragraph.NoBullet = false
 			}
 			if autoNum := firstChild(pPr, "buAutoNum"); autoNum != nil {
-				autoCounters[paragraph.Level]++
+				if startAt := int(parseIntAttr(autoNum.Attrs, "startAt")); startAt > 0 {
+					autoCounters[paragraph.Level] = startAt
+				} else {
+					autoCounters[paragraph.Level]++
+				}
 				for level := paragraph.Level + 1; level < 9; level++ {
 					delete(autoCounters, level)
 				}
