@@ -4491,7 +4491,8 @@ func renderTableGraphicFrame(slidePart string, size slideSize, img *image.RGBA, 
 	style, hasStyle := tableStyleForTable(element.Table, tableStyles)
 	backgroundEffectRendered := true
 	if hasStyle {
-		if style.HasBackgroundEffect && style.BackgroundEffect.HasShadow {
+		backgroundFillRenderable := !style.HasBackground || !style.Background.HasGradient
+		if backgroundFillRenderable && style.HasBackgroundEffect && style.BackgroundEffect.HasShadow {
 			backgroundElement := slideElement{
 				PrstGeom:        "rect",
 				HasShadow:       true,
@@ -4502,7 +4503,7 @@ func renderTableGraphicFrame(slidePart string, size slideSize, img *image.RGBA, 
 			}
 			backgroundEffectRendered = drawShapeShadow(img, target, backgroundElement, size)
 		}
-		if style.HasBackground {
+		if backgroundFillRenderable && style.HasBackground {
 			drawTableBackgroundPaint(img, target, style.Background)
 		}
 	}
@@ -4575,6 +4576,9 @@ func renderTableGraphicFrame(slidePart string, size slideSize, img *image.RGBA, 
 	}
 	if hasStyle && style.HasBackgroundEffect && style.BackgroundEffect.HasShadow && !backgroundEffectRendered && style.BackgroundEffect.ShadowColor.A != 0 {
 		unsupported = append(unsupported, unsupportedItem(slidePart, partialUnsupportedCode, fmt.Sprintf("graphic frame object %q table background shadow geometry was not rendered", elementLabel(*element))))
+	}
+	if hasStyle && style.HasBackground && style.Background.HasGradient {
+		unsupported = append(unsupported, unsupportedItem(slidePart, partialUnsupportedCode, fmt.Sprintf("graphic frame object %q table background gradient fill was not rendered", elementLabel(*element))))
 	}
 	for _, message := range element.Table.UnsupportedFeatures {
 		unsupported = append(unsupported, unsupportedItem(slidePart, partialUnsupportedCode, fmt.Sprintf("graphic frame object %q table %s", elementLabel(*element), message)))

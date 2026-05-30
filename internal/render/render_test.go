@@ -1500,6 +1500,45 @@ func TestRenderGraphicFramePaintsTableStyleBackground(t *testing.T) {
 	}
 }
 
+func TestRenderGraphicFrameReportsTableStyleBackgroundGradientPartial(t *testing.T) {
+	size := slideSize{CX: emuPerInch, CY: emuPerInch}
+	img := image.NewRGBA(image.Rect(0, 0, 96, 96))
+	element := slideElement{
+		Kind:         "graphicFrame",
+		Name:         "Table 1",
+		HasTransform: true,
+		ExtCX:        emuPerInch,
+		ExtCY:        emuPerInch,
+		HasTable:     true,
+		Table: tableModel{
+			StyleID: "{STYLE-BG}",
+			Columns: []int64{1},
+			Rows:    []tableRow{{Height: 1, Cells: []tableCell{{}}}},
+		},
+	}
+	styles := tableStyleSet{Styles: map[string]tableStyle{
+		normalizedTableStyleID("{STYLE-BG}"): {
+			ID:            "{STYLE-BG}",
+			HasBackground: true,
+			Background: backgroundPaint{
+				HasGradient: true,
+				Gradient: gradientPaint{Stops: []gradientStop{
+					{Position: 0, Color: color.RGBA{R: 0x12, G: 0x34, B: 0x56, A: 0xff}},
+					{Position: 100000, Color: color.RGBA{R: 0xaa, G: 0xbb, B: 0xcc, A: 0xff}},
+				}},
+			},
+		},
+	}}
+
+	unsupported := renderGraphicFrame(&pptx.Package{}, "ppt/slides/slide1.xml", size, img, &element, nil, styles)
+	if len(unsupported) != 1 || unsupported[0].Code != partialUnsupportedCode || !strings.Contains(unsupported[0].Message, "table background gradient fill") || !element.Rendered {
+		t.Fatalf("unexpected table render result: unsupported=%+v rendered=%v", unsupported, element.Rendered)
+	}
+	if got := img.RGBAAt(48, 48); got.A != 0 {
+		t.Fatalf("unsupported table background gradient should not paint pixels, got %#v", got)
+	}
+}
+
 func TestRenderGraphicFramePaintsTableStyleBackgroundShadow(t *testing.T) {
 	size := slideSize{CX: emuPerInch, CY: emuPerInch}
 	img := image.NewRGBA(image.Rect(0, 0, 96, 96))
