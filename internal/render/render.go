@@ -1506,10 +1506,15 @@ func parseStyleProperties(style *xmlNode, element *slideElement, theme themeColo
 			}
 		}
 	}
-	if fontRef := firstChild(style, "fontRef"); fontRef != nil && !element.HasTextColor {
-		if textColor, ok := colorFromColorNodeWithTheme(fontRef, theme); ok {
-			element.HasTextColor = true
-			element.TextColor = textColor
+	if fontRef := firstChild(style, "fontRef"); fontRef != nil {
+		if element.FontFamily == "" {
+			element.FontFamily = fontRefTypeface(attrValue(fontRef.Attrs, "idx"))
+		}
+		if !element.HasTextColor {
+			if textColor, ok := colorFromColorNodeWithTheme(fontRef, theme); ok {
+				element.HasTextColor = true
+				element.TextColor = textColor
+			}
 		}
 	}
 	if effectRef := firstChild(style, "effectRef"); effectRef != nil && !element.HasShadow && !element.HasEffectProperties {
@@ -3368,6 +3373,9 @@ func applyThemeFontFamilies(elements []slideElement, fonts themeFonts) []slideEl
 			}
 		}
 		if elements[index].FontFamily != "" {
+			if family := resolveThemeTypeface(elements[index].FontFamily, fonts); family != "" {
+				elements[index].FontFamily = family
+			}
 			continue
 		}
 		if isTitleLikePlaceholder(elements[index]) && fonts.MajorLatin != "" {
@@ -3395,6 +3403,17 @@ func resolveThemeTypeface(typeface string, fonts themeFonts) string {
 		return fonts.MinorEA
 	case "+mn-cs":
 		return fonts.MinorCS
+	default:
+		return ""
+	}
+}
+
+func fontRefTypeface(idx string) string {
+	switch strings.ToLower(strings.TrimSpace(idx)) {
+	case "major":
+		return "+mj-lt"
+	case "minor":
+		return "+mn-lt"
 	default:
 		return ""
 	}
@@ -4564,7 +4583,7 @@ func renderDiagramGraphicFrame(pkg *pptx.Package, slidePart string, size slideSi
 	if !ok {
 		return nil
 	}
-	diagramElements := collectSlideElementsWithTheme(pkg.Parts[drawingPart], packageThemeColors(pkg))
+	diagramElements := diagramDrawingElements(pkg, drawingPart)
 	diagramElements = fitDiagramElementsToFrame(diagramElements, *element)
 	var unsupported []model.SkipItem
 	renderedSupportedElement := false
@@ -4582,6 +4601,11 @@ func renderDiagramGraphicFrame(pkg *pptx.Package, slidePart string, size slideSi
 	}
 	element.Rendered = renderedSupportedElement
 	return unsupported
+}
+
+func diagramDrawingElements(pkg *pptx.Package, drawingPart string) []slideElement {
+	elements := collectSlideElementsWithTheme(pkg.Parts[drawingPart], packageThemeColors(pkg))
+	return applyThemeFontFamilies(elements, packageThemeFonts(pkg))
 }
 
 func diagramDrawingPart(pkg *pptx.Package, slidePart string, diagramDataID string, relationships map[string]pptx.Relationship) (string, bool, error) {

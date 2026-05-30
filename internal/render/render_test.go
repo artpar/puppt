@@ -1925,6 +1925,21 @@ func TestRenderGraphicFrameUsesPackageThemeForDiagramDrawing(t *testing.T) {
 	}
 }
 
+func TestDiagramDrawingElementsResolvePackageThemeFonts(t *testing.T) {
+	pkg := &pptx.Package{Parts: map[string][]byte{
+		"ppt/theme/theme1.xml":      []byte(`<a:theme xmlns:a="a"><a:themeElements><a:fontScheme name="Custom"><a:majorFont><a:latin typeface="Trebuchet MS"/></a:majorFont><a:minorFont><a:latin typeface="Arial"/></a:minorFont></a:fontScheme></a:themeElements></a:theme>`),
+		"ppt/diagrams/drawing1.xml": []byte(`<dsp:drawing xmlns:dsp="dsp" xmlns:a="a"><dsp:spTree><dsp:sp><dsp:nvSpPr><dsp:cNvPr id="1" name="Diagram Shape"/></dsp:nvSpPr><dsp:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="914400" cy="914400"/></a:xfrm><a:prstGeom prst="rect"/></dsp:spPr><dsp:style><a:fontRef idx="minor"/></dsp:style><dsp:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:t>Diagram</a:t></a:r></a:p></dsp:txBody></dsp:sp></dsp:spTree></dsp:drawing>`),
+	}}
+
+	got := diagramDrawingElements(pkg, "ppt/diagrams/drawing1.xml")
+	if len(got) != 1 {
+		t.Fatalf("expected one diagram element, got %d", len(got))
+	}
+	if got[0].FontFamily != "Arial" {
+		t.Fatalf("expected diagram fontRef minor to resolve through package theme fonts, got %+v", got[0])
+	}
+}
+
 func TestRenderGraphicFrameReportsUnsupportedDiagramContent(t *testing.T) {
 	size := slideSize{CX: emuPerInch, CY: emuPerInch}
 	img := image.NewRGBA(image.Rect(0, 0, 96, 96))
@@ -4942,7 +4957,7 @@ func TestParseSlideElementAppliesStyleFillAndLineFallbacks(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := parseSlideElementNode(root, renderTransform{ScaleX: 1, ScaleY: 1})
-	if !got.HasFill || got.FillColor.A != 255 || !got.HasLine || got.LineColor.A != 255 || !got.HasTextColor || got.TextColor != (color.RGBA{R: 255, G: 255, B: 255, A: 255}) {
+	if !got.HasFill || got.FillColor.A != 255 || !got.HasLine || got.LineColor.A != 255 || got.FontFamily != "+mn-lt" || !got.HasTextColor || got.TextColor != (color.RGBA{R: 255, G: 255, B: 255, A: 255}) {
 		t.Fatalf("expected style fill, line, and font fallbacks, got %+v", got)
 	}
 }
@@ -6199,6 +6214,7 @@ func TestApplyThemeFontFamiliesUsesMajorForTitles(t *testing.T) {
 		{Text: "Title", IsPlaceholder: true, PlaceholderType: "title"},
 		{Text: "Body", IsPlaceholder: true, PlaceholderType: "body"},
 		{Text: "Fixed", FontFamily: "Existing"},
+		{Text: "ElementToken", FontFamily: "+mn-lt"},
 		{Text: "Runs", TextParagraphs: []textParagraph{{Runs: []textRun{
 			{Text: "Major", FontFamily: "+mj-lt"},
 			{Text: "Minor", FontFamily: "+mn-lt"},
@@ -6215,17 +6231,17 @@ func TestApplyThemeFontFamiliesUsesMajorForTitles(t *testing.T) {
 		MinorEA:    "MS Gothic",
 		MinorCS:    "Tahoma",
 	})
-	if got[0].FontFamily != "Trebuchet MS" || got[1].FontFamily != "Arial" || got[2].FontFamily != "Existing" {
+	if got[0].FontFamily != "Trebuchet MS" || got[1].FontFamily != "Arial" || got[2].FontFamily != "Existing" || got[3].FontFamily != "Arial" {
 		t.Fatalf("unexpected font family application: %+v", got)
 	}
-	if got[3].TextParagraphs[0].Runs[0].FontFamily != "Trebuchet MS" || got[3].TextParagraphs[0].Runs[1].FontFamily != "Arial" {
-		t.Fatalf("unexpected run font family application: %+v", got[3].TextParagraphs[0].Runs)
+	if got[4].TextParagraphs[0].Runs[0].FontFamily != "Trebuchet MS" || got[4].TextParagraphs[0].Runs[1].FontFamily != "Arial" {
+		t.Fatalf("unexpected run font family application: %+v", got[4].TextParagraphs[0].Runs)
 	}
-	if got[3].TextParagraphs[0].Runs[2].FontFamily != "Yu Gothic" || got[3].TextParagraphs[0].Runs[3].FontFamily != "Tahoma" {
-		t.Fatalf("unexpected non-Latin run font family application: %+v", got[3].TextParagraphs[0].Runs)
+	if got[4].TextParagraphs[0].Runs[2].FontFamily != "Yu Gothic" || got[4].TextParagraphs[0].Runs[3].FontFamily != "Tahoma" {
+		t.Fatalf("unexpected non-Latin run font family application: %+v", got[4].TextParagraphs[0].Runs)
 	}
-	if got[4].TextParagraphs[0].BulletFontFamily != "Times New Roman" {
-		t.Fatalf("unexpected bullet font family application: %+v", got[4].TextParagraphs[0])
+	if got[5].TextParagraphs[0].BulletFontFamily != "Times New Roman" {
+		t.Fatalf("unexpected bullet font family application: %+v", got[5].TextParagraphs[0])
 	}
 }
 
