@@ -9888,6 +9888,8 @@ func exactFontCandidatesForFamily(fontFamily string, bold bool, italic bool) []s
 		return append(configured, timesNewRomanFontCandidates(bold, italic)...)
 	case "wingdings", "wingdings 2", "wingdings 3":
 		return append(configured, wingdingsFontCandidates(fontFamily)...)
+	case "segoe ui symbol":
+		return append(configured, segoeUISymbolFontCandidates()...)
 	case "segoe ui historic":
 		return append(configured, segoeUIHistoricFontCandidates()...)
 	case "arial":
@@ -10043,16 +10045,6 @@ func substituteFontSourceForFamily(fontFamily string, bold bool, italic bool) (f
 			return fontSource{}, false
 		}
 		return source, true
-	case "segoe ui symbol":
-		fontPath := firstExistingPath(symbolFontSubstituteCandidates())
-		if fontPath == "" {
-			return fontSource{}, false
-		}
-		source, err := readFontPath(fontPath)
-		if err != nil {
-			return fontSource{}, false
-		}
-		return source, true
 	default:
 		return fontSource{}, false
 	}
@@ -10105,7 +10097,7 @@ func exactFontFamilyStyleAvailable(fontFamily string, bold bool, italic bool) bo
 		return true
 	}
 	switch normalizedFontFamily(fontFamily) {
-	case "arial", "calibri", "calibri light", "times new roman", "trebuchet ms", "wingdings", "wingdings 2", "wingdings 3", "segoe ui historic":
+	case "arial", "calibri", "calibri light", "times new roman", "trebuchet ms", "wingdings", "wingdings 2", "wingdings 3", "segoe ui symbol", "segoe ui historic":
 		return firstExistingPath(exactFontCandidatesForFamily(fontFamily, bold, italic)) != ""
 	default:
 		return firstExistingPath(configuredFontCandidatesForFamily(fontFamily, bold, italic)) != ""
@@ -10137,12 +10129,16 @@ func carlitoAssetPath(bold bool, italic bool) string {
 	return path.Join("assets/fonts/carlito", name)
 }
 
-func symbolFontSubstituteCandidates() []string {
+func segoeUISymbolFontCandidates() []string {
 	return []string{
-		"/System/Library/Fonts/Apple Symbols.ttf",
-		"/System/Library/Fonts/Symbol.ttf",
-		"/Library/Fonts/Apple Symbols.ttf",
-		"/Library/Fonts/Symbol.ttf",
+		`C:\Windows\Fonts\seguisym.ttf`,
+		`C:\Windows\Fonts\Seguisym.ttf`,
+		"/Windows/Fonts/seguisym.ttf",
+		"/Windows/Fonts/Seguisym.ttf",
+		"/Library/Fonts/Microsoft/Seguisym.ttf",
+		"/Library/Fonts/Microsoft/seguisym.ttf",
+		filepath.Join(os.Getenv("HOME"), "Library", "Fonts", "Seguisym.ttf"),
+		filepath.Join(os.Getenv("HOME"), "Library", "Fonts", "seguisym.ttf"),
 	}
 }
 
