@@ -23,6 +23,9 @@ import (
 	"github.com/artpar/puppt/internal/fixtures"
 	"github.com/artpar/puppt/internal/model"
 	"github.com/artpar/puppt/internal/pptx"
+	"golang.org/x/image/font"
+	"golang.org/x/image/font/basicfont"
+	"golang.org/x/image/math/fixed"
 )
 
 func TestRenderWritesPNGAndReportsUnsupportedTextShape(t *testing.T) {
@@ -3188,6 +3191,44 @@ func TestTextCharacterSpacingUsesDrawingMLTextPointUnits(t *testing.T) {
 	}
 	if got := textCharacterSpacingAdvance("ABC", 2); got != 4 {
 		t.Fatalf("expected spacing between characters only, got %d", got)
+	}
+}
+
+type testKerningFace struct {
+	font.Face
+}
+
+func (face testKerningFace) Kern(r0 rune, r1 rune) fixed.Int26_6 {
+	return fixed.I(4)
+}
+
+func TestFaceWithSegmentKerningHonorsDrawingMLKernThreshold(t *testing.T) {
+	base := basicfont.Face7x13
+	kerned := testKerningFace{Face: base}
+	unrestricted := textLineSegment{Text: "AV", FontSize: 1100}
+	disabled := textLineSegment{Text: "AV", FontSize: 1100, HasKern: true, KernMinFontSize: 1200}
+	enabled := textLineSegment{Text: "AV", FontSize: 1200, HasKern: true, KernMinFontSize: 1200}
+
+	baseWidth := measureString(base, "AV")
+	if got := measureString(faceWithSegmentKerning(kerned, unrestricted), "AV"); got == baseWidth {
+		t.Fatalf("expected default font kerning to remain active, got width %d", got)
+	}
+	if got := measureString(faceWithSegmentKerning(kerned, disabled), "AV"); got != baseWidth {
+		t.Fatalf("expected DrawingML kern threshold to disable kerning below 12pt, got width %d want %d", got, baseWidth)
+	}
+	if got := measureString(faceWithSegmentKerning(kerned, enabled), "AV"); got == baseWidth {
+		t.Fatalf("expected DrawingML kern threshold to allow kerning at 12pt, got width %d", got)
+	}
+}
+
+func TestTextRunFromNodeReadsDrawingMLKernThreshold(t *testing.T) {
+	root, err := parseXMLNode([]byte(`<a:r xmlns:a="a"><a:rPr kern="1200"/><a:t>AV</a:t></a:r>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := textRunFromNode(root, "AV")
+	if !got.HasKern || got.KernMinFontSize != 1200 {
+		t.Fatalf("expected run kern threshold to be parsed, got %+v", got)
 	}
 }
 

@@ -315,6 +315,8 @@ type textRun struct {
 	Baseline          int
 	HasCharSpacing    bool
 	CharSpacing       int
+	HasKern           bool
+	KernMinFontSize   int
 	HasTextColor      bool
 	TextColor         color.RGBA
 	HasHighlightColor bool
@@ -2813,6 +2815,10 @@ func applyRunPropertiesToRun(run *textRun, rPr *xmlNode, text string, theme them
 	}
 	run.Underline = isUnderlineStyle(attrValue(rPr.Attrs, "u"))
 	run.Baseline = int(parseIntAttr(rPr.Attrs, "baseline"))
+	if value := attrValue(rPr.Attrs, "kern"); value != "" {
+		run.HasKern = true
+		run.KernMinFontSize = int(parseIntAttr(rPr.Attrs, "kern"))
+	}
 	if value := attrValue(rPr.Attrs, "spc"); value != "" {
 		run.HasCharSpacing = true
 		run.CharSpacing = int(parseIntAttr(rPr.Attrs, "spc"))
@@ -2888,7 +2894,7 @@ func textParagraphsHaveRunColor(paragraphs []textParagraph) bool {
 
 func textRunsHaveRunMetricProperties(runs []textRun) bool {
 	for _, run := range runs {
-		if run.FontSize != 0 || strings.TrimSpace(run.FontFamily) != "" || run.HasBold || run.HasItalic || run.Underline || run.Baseline != 0 || run.HasCharSpacing {
+		if run.FontSize != 0 || strings.TrimSpace(run.FontFamily) != "" || run.HasBold || run.HasItalic || run.Underline || run.Baseline != 0 || run.HasCharSpacing || run.HasKern {
 			return true
 		}
 	}
@@ -5937,6 +5943,7 @@ func drawShapeTextLayerWithDPI(img *image.RGBA, bounds image.Rectangle, element 
 				if err != nil {
 					return err
 				}
+				segmentFace = faceWithSegmentKerning(segmentFace, segment)
 				if segment.HasTextColor {
 					drawer.Src = image.NewUniform(segment.TextColor)
 				} else {
@@ -6612,6 +6619,8 @@ func runToSegment(run textRun, paragraph textParagraph) textLineSegment {
 		Baseline:          run.Baseline,
 		BaselineFontSize:  baselineFontSize,
 		CharSpacing:       resolvedRunCharSpacing(run, paragraph),
+		HasKern:           run.HasKern,
+		KernMinFontSize:   run.KernMinFontSize,
 		HasTextColor:      run.HasTextColor,
 		TextColor:         run.TextColor,
 		HasHighlightColor: run.HasHighlightColor,
@@ -6979,9 +6988,30 @@ func measureStyledSegmentsAtDPI(faces *fontFaceCache, face font.Face, boldFace f
 				return 0, err
 			}
 		}
-		width = measureTextSegmentWithTabsAndSpacingAtDPI(segmentFace, segment.Text, width, dpi, tabStops, segment.CharSpacing)
+		width = measureTextSegmentWithTabsAndSpacingAtDPI(faceWithSegmentKerning(segmentFace, segment), segment.Text, width, dpi, tabStops, segment.CharSpacing)
 	}
 	return width, nil
+}
+
+type noKerningFace struct {
+	font.Face
+}
+
+func (face noKerningFace) Kern(r0 rune, r1 rune) fixed.Int26_6 {
+	return 0
+}
+
+func faceWithSegmentKerning(face font.Face, segment textLineSegment) font.Face {
+	if face == nil || !segment.HasKern {
+		return face
+	}
+	if segment.KernMinFontSize <= 0 {
+		return face
+	}
+	if segment.FontSize > 0 && segment.FontSize < segment.KernMinFontSize {
+		return noKerningFace{Face: face}
+	}
+	return face
 }
 
 func measureTextSegmentWithTabs(face font.Face, text string, currentWidth int) int {
@@ -7185,6 +7215,8 @@ type textLineSegment struct {
 	Baseline          int
 	BaselineFontSize  int
 	CharSpacing       int
+	HasKern           bool
+	KernMinFontSize   int
 	HasTextColor      bool
 	TextColor         color.RGBA
 	HasHighlightColor bool
