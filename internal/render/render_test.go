@@ -1748,6 +1748,30 @@ func TestRenderGraphicFrameUsesParsedTableStyleBorders(t *testing.T) {
 	}
 }
 
+func TestRenderTableCellBorderPaintsDoubleCompoundLine(t *testing.T) {
+	size := slideSize{CX: emuPerInch, CY: emuPerInch}
+	img := image.NewRGBA(image.Rect(0, 0, 96, 96))
+	border := tableCellBorder{
+		Specified: true,
+		HasLine:   true,
+		Color:     color.RGBA{R: 0xff, A: 0xff},
+		Width:     57150,
+		Compound:  "dbl",
+	}
+
+	drawTableCellBorder(img, size, image.Rect(0, 0, 96, 96), image.Rect(12, 40, 84, 56), border, tableEdgeTop)
+
+	if got := img.RGBAAt(48, 37); got != (color.RGBA{R: 0xff, A: 0xff}) {
+		t.Fatalf("expected first double-line stroke, got %#v", got)
+	}
+	if _, _, _, a := img.At(48, 40).RGBA(); a != 0 {
+		t.Fatalf("expected double-line gap to remain transparent, got alpha=%04x", a)
+	}
+	if got := img.RGBAAt(48, 43); got != (color.RGBA{R: 0xff, A: 0xff}) {
+		t.Fatalf("expected second double-line stroke, got %#v", got)
+	}
+}
+
 func TestTableCellFillDirectNoFillSuppressesStyleFill(t *testing.T) {
 	style := tableStyleRegion{HasFill: true, FillColor: color.RGBA{R: 0x11, G: 0x22, B: 0x33, A: 0xff}}
 	if _, ok := tableCellFill(style, tableCell{NoFill: true}); ok {
@@ -1762,7 +1786,7 @@ func TestParseTableModelRecordsUnsupportedVisibleFeatures(t *testing.T) {
 				<a:tcPr>
 					<a:gradFill><a:gsLst><a:gs pos="0"><a:srgbClr val="FFFFFF"/></a:gs><a:gs pos="100000"><a:srgbClr val="000000"/></a:gs></a:gsLst></a:gradFill>
 					<a:effectLst><a:outerShdw blurRad="12700" dist="12700" dir="5400000"><a:srgbClr val="000000"/></a:outerShdw></a:effectLst>
-					<a:lnB cmpd="dbl" cap="rnd"><a:solidFill><a:srgbClr val="FF0000"/></a:solidFill><a:round/><a:tailEnd type="triangle"/></a:lnB>
+					<a:lnB cmpd="thickThin" cap="rnd"><a:solidFill><a:srgbClr val="FF0000"/></a:solidFill><a:round/><a:tailEnd type="triangle"/></a:lnB>
 			</a:tcPr>
 		</a:tc></a:tr>
 	</a:tbl>`))
@@ -1784,6 +1808,27 @@ func TestParseTableModelRecordsUnsupportedVisibleFeatures(t *testing.T) {
 	}
 	if slices.Contains(table.UnsupportedFeatures, "uses merged cells rendered with simplified layout") {
 		t.Fatalf("merged cells are rendered through table span geometry and should not be reported partial: %+v", table.UnsupportedFeatures)
+	}
+}
+
+func TestParseTableModelTreatsDoubleCompoundBorderAsSupported(t *testing.T) {
+	root, err := parseXMLNode([]byte(`<a:tbl xmlns:a="a">
+		<a:tblGrid><a:gridCol w="914400"/></a:tblGrid>
+		<a:tr h="914400"><a:tc><a:txBody><a:bodyPr/><a:p><a:r><a:t>Cell</a:t></a:r></a:p></a:txBody>
+			<a:tcPr><a:lnB cmpd="dbl"><a:solidFill><a:srgbClr val="FF0000"/></a:solidFill></a:lnB></a:tcPr>
+		</a:tc></a:tr>
+	</a:tbl>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	table := parseTableModel(root, defaultThemeColors())
+	if len(table.UnsupportedFeatures) != 0 {
+		t.Fatalf("double compound table border should be supported, got %+v", table.UnsupportedFeatures)
+	}
+	border := table.Rows[0].Cells[0].BorderBottom
+	if !border.Specified || !border.HasLine || border.Compound != "dbl" {
+		t.Fatalf("expected parsed double compound border, got %+v", border)
 	}
 }
 

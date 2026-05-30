@@ -379,6 +379,7 @@ type tableCellBorder struct {
 	Cap       string
 	Align     string
 	Join      string
+	Compound  string
 }
 
 type tableStyleSet struct {
@@ -1100,7 +1101,7 @@ func collectTableLineUnsupportedFeatureMessages(line *xmlNode, messages map[stri
 	if cap := attrValue(line.Attrs, "cap"); cap != "" && cap != "flat" && cap != "sq" {
 		messages["uses border line caps that were not rendered"] = true
 	}
-	if cmpd := attrValue(line.Attrs, "cmpd"); cmpd != "" && cmpd != "sng" {
+	if cmpd := attrValue(line.Attrs, "cmpd"); !isSupportedTableCompoundLine(cmpd) {
 		messages["uses compound border lines that were not rendered"] = true
 	}
 	for _, name := range []string{"headEnd", "tailEnd"} {
@@ -1192,6 +1193,7 @@ func parseTableLineNode(line *xmlNode, theme themeColors, specified bool) tableC
 		Width:     parseIntAttr(line.Attrs, "w"),
 		Cap:       attrValue(line.Attrs, "cap"),
 		Align:     attrValue(line.Attrs, "algn"),
+		Compound:  attrValue(line.Attrs, "cmpd"),
 	}
 	if border.Width == 0 {
 		border.Width = 9525
@@ -4357,22 +4359,62 @@ func drawTableCellBorder(img *image.RGBA, size slideSize, tableRect image.Rectan
 	width := emuLineWidthToPixels(border.Width, size.CX, img.Bounds().Dx())
 	switch edge {
 	case tableEdgeTop:
-		drawStyledLine(img, rect.Min.X, rect.Min.Y, rect.Max.X-1, rect.Min.Y, border.Color, width, border.Dash, "")
+		drawTableBorderLine(img, rect.Min.X, rect.Min.Y, rect.Max.X-1, rect.Min.Y, border.Color, width, border.Dash, border.Compound, true)
 	case tableEdgeBottom:
 		y := rect.Max.Y
 		if y >= tableRect.Max.Y {
 			y = rect.Max.Y - 1
 		}
-		drawStyledLine(img, rect.Min.X, y, rect.Max.X-1, y, border.Color, width, border.Dash, "")
+		drawTableBorderLine(img, rect.Min.X, y, rect.Max.X-1, y, border.Color, width, border.Dash, border.Compound, true)
 	case tableEdgeLeft:
-		drawStyledLine(img, rect.Min.X, rect.Min.Y, rect.Min.X, rect.Max.Y-1, border.Color, width, border.Dash, "")
+		drawTableBorderLine(img, rect.Min.X, rect.Min.Y, rect.Min.X, rect.Max.Y-1, border.Color, width, border.Dash, border.Compound, false)
 	case tableEdgeRight:
 		x := rect.Max.X
 		if x >= tableRect.Max.X {
 			x = rect.Max.X - 1
 		}
-		drawStyledLine(img, x, rect.Min.Y, x, rect.Max.Y-1, border.Color, width, border.Dash, "")
+		drawTableBorderLine(img, x, rect.Min.Y, x, rect.Max.Y-1, border.Color, width, border.Dash, border.Compound, false)
 	}
+}
+
+func isSupportedTableCompoundLine(compound string) bool {
+	return compound == "" || compound == "sng" || compound == "dbl"
+}
+
+func drawTableBorderLine(img *image.RGBA, x0 int, y0 int, x1 int, y1 int, c color.RGBA, width int, dash string, compound string, horizontal bool) {
+	if compound != "dbl" {
+		drawStyledLine(img, x0, y0, x1, y1, c, width, dash, "")
+		return
+	}
+	strokeWidth, firstOffset, secondOffset := doubleCompoundLineMetrics(width)
+	if horizontal {
+		drawStyledLine(img, x0, y0+firstOffset, x1, y1+firstOffset, c, strokeWidth, dash, "")
+		drawStyledLine(img, x0, y0+secondOffset, x1, y1+secondOffset, c, strokeWidth, dash, "")
+		return
+	}
+	drawStyledLine(img, x0+firstOffset, y0, x1+firstOffset, y1, c, strokeWidth, dash, "")
+	drawStyledLine(img, x0+secondOffset, y0, x1+secondOffset, y1, c, strokeWidth, dash, "")
+}
+
+func doubleCompoundLineMetrics(width int) (int, int, int) {
+	if width < 1 {
+		width = 1
+	}
+	strokeWidth := width / 3
+	if strokeWidth < 1 {
+		strokeWidth = 1
+	}
+	gap := width - (2 * strokeWidth)
+	if gap < 1 {
+		gap = 1
+	}
+	separation := strokeWidth + gap
+	firstOffset := -(separation / 2)
+	secondOffset := firstOffset + separation
+	if firstOffset == secondOffset {
+		secondOffset++
+	}
+	return strokeWidth, firstOffset, secondOffset
 }
 
 func drawTableCellBorderWithDefault(img *image.RGBA, size slideSize, tableRect image.Rectangle, rect image.Rectangle, border tableCellBorder, edge int, defaultBorder tableCellBorder, hasDefaultBorder bool) {
