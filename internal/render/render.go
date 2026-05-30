@@ -10826,6 +10826,14 @@ type svgViewBox struct {
 	Height float64
 }
 
+type svgPaintStyle struct {
+	Fill        color.RGBA
+	HasFill     bool
+	NoFill      bool
+	FillOpacity float64
+	HasOpacity  bool
+}
+
 func decodeSVGImage(data []byte) (image.Image, error) {
 	root, err := parseXMLNode(data)
 	if err != nil {
@@ -10841,7 +10849,7 @@ func decodeSVGImage(data []byte) (image.Image, error) {
 	width := svgRasterDimension(viewBox.Width)
 	height := svgRasterDimension(viewBox.Height)
 	img := image.NewRGBA(image.Rect(0, 0, width, height))
-	if err := drawSVGNode(img, img.Bounds(), viewBox, root); err != nil {
+	if err := drawSVGNode(img, img.Bounds(), viewBox, root, parseSVGStyleRules(root), svgPaintStyle{}); err != nil {
 		return nil, err
 	}
 	return img, nil
@@ -10894,15 +10902,16 @@ func svgRasterDimension(value float64) int {
 	return dimension
 }
 
-func drawSVGNode(img *image.RGBA, bounds image.Rectangle, viewBox svgViewBox, node *xmlNode) error {
+func drawSVGNode(img *image.RGBA, bounds image.Rectangle, viewBox svgViewBox, node *xmlNode, styles map[string]svgPaintStyle, inherited svgPaintStyle) error {
+	inherited = resolveSVGPaintStyle(node, styles, inherited, true)
 	for _, child := range node.Children {
 		switch child.Name {
 		case "g", "svg":
-			if err := drawSVGNode(img, bounds, viewBox, child); err != nil {
+			if err := drawSVGNode(img, bounds, viewBox, child, styles, inherited); err != nil {
 				return err
 			}
 		case "path":
-			c, ok := svgNodeFill(child)
+			c, ok := svgNodeFill(child, styles, inherited)
 			if !ok {
 				continue
 			}
@@ -10914,7 +10923,7 @@ func drawSVGNode(img *image.RGBA, bounds image.Rectangle, viewBox svgViewBox, no
 				drawPolygon(img, bounds, points, c)
 			}
 		case "rect":
-			c, ok := svgNodeFill(child)
+			c, ok := svgNodeFill(child, styles, inherited)
 			if !ok {
 				continue
 			}
@@ -10923,7 +10932,7 @@ func drawSVGNode(img *image.RGBA, bounds image.Rectangle, viewBox svgViewBox, no
 				draw.Draw(img, rect, &image.Uniform{C: c}, image.Point{}, draw.Src)
 			}
 		case "circle", "ellipse":
-			c, ok := svgNodeFill(child)
+			c, ok := svgNodeFill(child, styles, inherited)
 			if !ok {
 				continue
 			}
@@ -10936,13 +10945,112 @@ func drawSVGNode(img *image.RGBA, bounds image.Rectangle, viewBox svgViewBox, no
 	return nil
 }
 
-func svgNodeFill(node *xmlNode) (color.RGBA, bool) {
-	raw := strings.TrimSpace(attrValue(node.Attrs, "fill"))
+func svgNodeFill(node *xmlNode, styles map[string]svgPaintStyle, inherited svgPaintStyle) (color.RGBA, bool) {
+	style := resolveSVGPaintStyle(node, styles, inherited, true)
+	if style.NoFill {
+		return color.RGBA{}, false
+	}
+	if !style.HasFill {
+		style.Fill = color.RGBA{A: 255}
+	}
+	if style.HasOpacity {
+		opacity := style.FillOpacity
+		if opacity < 0 {
+			opacity = 0
+		}
+		if opacity > 1 {
+			opacity = 1
+		}
+		style.Fill.A = uint8(math.Round(float64(style.Fill.A) * opacity))
+	}
+	return style.Fill, true
+}
+
+func resolveSVGPaintStyle(node *xmlNode, styles map[string]svgPaintStyle, inherited svgPaintStyle, includePresentationAttrs bool) svgPaintStyle {
+	resolved := inherited
+	if includePresentationAttrs {
+		mergeSVGPaintStyle(&resolved, parseSVGPaintDeclarations("fill:"+attrValue(node.Attrs, "fill")+";fill-opacity:"+attrValue(node.Attrs, "fill-opacity")))
+	}
+	for _, className := range strings.Fields(attrValue(node.Attrs, "class")) {
+		if style, ok := styles[className]; ok {
+			mergeSVGPaintStyle(&resolved, style)
+		}
+	}
+	mergeSVGPaintStyle(&resolved, parseSVGPaintDeclarations(attrValue(node.Attrs, "style")))
+	return resolved
+}
+
+func mergeSVGPaintStyle(base *svgPaintStyle, override svgPaintStyle) {
+	if override.HasFill || override.NoFill {
+		base.Fill = override.Fill
+		base.HasFill = override.HasFill
+		base.NoFill = override.NoFill
+	}
+	if override.HasOpacity {
+		base.FillOpacity = override.FillOpacity
+		base.HasOpacity = true
+	}
+}
+
+func parseSVGStyleRules(root *xmlNode) map[string]svgPaintStyle {
+	styles := map[string]svgPaintStyle{}
+	for _, node := range descendantsByName(root, "style") {
+		for _, block := range strings.Split(node.Text, "}") {
+			selectorText, declarationText, ok := strings.Cut(block, "{")
+			if !ok {
+				continue
+			}
+			style := parseSVGPaintDeclarations(declarationText)
+			if !style.HasFill && !style.NoFill && !style.HasOpacity {
+				continue
+			}
+			for _, selector := range strings.Split(selectorText, ",") {
+				selector = strings.TrimSpace(selector)
+				if !strings.HasPrefix(selector, ".") {
+					continue
+				}
+				className := strings.TrimSpace(strings.TrimPrefix(selector, "."))
+				if className != "" {
+					styles[className] = style
+				}
+			}
+		}
+	}
+	return styles
+}
+
+func parseSVGPaintDeclarations(raw string) svgPaintStyle {
+	var style svgPaintStyle
+	for _, declaration := range strings.Split(raw, ";") {
+		name, value, ok := strings.Cut(declaration, ":")
+		if !ok {
+			continue
+		}
+		name = strings.ToLower(strings.TrimSpace(name))
+		value = strings.TrimSpace(value)
+		switch name {
+		case "fill":
+			c, hasFill, noFill := parseSVGFillValue(value)
+			style.Fill = c
+			style.HasFill = hasFill
+			style.NoFill = noFill
+		case "fill-opacity":
+			if opacity, ok := parseSVGOpacity(value); ok {
+				style.FillOpacity = opacity
+				style.HasOpacity = true
+			}
+		}
+	}
+	return style
+}
+
+func parseSVGFillValue(raw string) (color.RGBA, bool, bool) {
+	raw = strings.TrimSpace(raw)
 	if raw == "" {
-		raw = "black"
+		return color.RGBA{}, false, false
 	}
 	if strings.EqualFold(raw, "none") {
-		return color.RGBA{}, false
+		return color.RGBA{}, false, true
 	}
 	var c color.RGBA
 	var ok bool
@@ -10955,20 +11063,14 @@ func svgNodeFill(node *xmlNode) (color.RGBA, bool) {
 		c, ok = parseHexColor(raw)
 	}
 	if !ok {
-		return color.RGBA{}, false
+		return color.RGBA{}, false, false
 	}
-	if opacity := strings.TrimSpace(attrValue(node.Attrs, "fill-opacity")); opacity != "" {
-		if value, err := strconv.ParseFloat(opacity, 64); err == nil {
-			if value < 0 {
-				value = 0
-			}
-			if value > 1 {
-				value = 1
-			}
-			c.A = uint8(math.Round(float64(c.A) * value))
-		}
-	}
-	return c, true
+	return c, true, false
+}
+
+func parseSVGOpacity(raw string) (float64, bool) {
+	value, err := strconv.ParseFloat(strings.TrimSpace(raw), 64)
+	return value, err == nil
 }
 
 func svgRectBounds(node *xmlNode, bounds image.Rectangle, viewBox svgViewBox) (image.Rectangle, bool) {

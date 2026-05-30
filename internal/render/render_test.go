@@ -5115,6 +5115,33 @@ func TestDecodeSVGImagePaintsBasicShapes(t *testing.T) {
 	}
 }
 
+func TestDecodeSVGImageResolvesClassAndInlineFillStyles(t *testing.T) {
+	source, err := decodeImage("ppt/media/icon.svg", "image/svg+xml", []byte(`<svg viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg">
+		<style>
+			.IconFill { fill: #0070C0; fill-opacity: 0.5; }
+			.HiddenFill { fill: none; }
+		</style>
+		<rect x="2" y="2" width="6" height="6" class="IconFill" fill="#ff0000"/>
+		<rect x="10" y="2" width="6" height="6" class="HiddenFill" fill="#00ff00"/>
+		<rect x="2" y="10" width="6" height="6" class="IconFill" style="fill:#ff0000;fill-opacity:1"/>
+	</svg>`))
+	if err != nil {
+		t.Fatalf("decode svg failed: %v", err)
+	}
+	r, g, b, a := source.At(3, 3).RGBA()
+	if r != 0 || g != 0x7070 || b != 0xc0c0 || a != 0x8080 {
+		t.Fatalf("expected class fill to override presentation fill, got rgba=%04x,%04x,%04x,%04x", r, g, b, a)
+	}
+	_, _, _, a = source.At(11, 3).RGBA()
+	if a != 0 {
+		t.Fatalf("expected class fill:none to suppress presentation fill, got alpha=%04x", a)
+	}
+	r, g, b, a = source.At(3, 11).RGBA()
+	if r != 0xffff || g != 0 || b != 0 || a != 0xffff {
+		t.Fatalf("expected inline style fill to override class fill, got rgba=%04x,%04x,%04x,%04x", r, g, b, a)
+	}
+}
+
 func TestJPEGAdobeRGBProfileDetection(t *testing.T) {
 	payload := append([]byte("ICC_PROFILE\x00\x01\x01"), []byte("Adobe RGB (1998)")...)
 	length := len(payload) + 2
