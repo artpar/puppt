@@ -5275,7 +5275,31 @@ func renderShape(slidePart string, size slideSize, img *image.RGBA, element *sli
 			drawGradientRect(img, target, element.FillGradient, false)
 			rendered = true
 			gradientFillRendered = true
+		case "roundRect":
+			drawGradientRoundRect(img, target, roundRectRadius(target, element.PrstGeomAdjustments), roundedCorners{TopLeft: true, TopRight: true, BottomLeft: true, BottomRight: true}, element.FillGradient)
+			rendered = true
+			gradientFillRendered = true
+		case "round1Rect":
+			drawGradientRoundRect(img, target, roundRectRadius(target, element.PrstGeomAdjustments), roundedCorners{TopRight: true}, element.FillGradient)
+			rendered = true
+			gradientFillRendered = true
+		case "ellipse":
+			drawGradientEllipse(img, target, element.FillGradient)
+			rendered = true
+			gradientFillRendered = true
 		}
+	}
+	if element.HasFillGradient && !gradientFillRendered && !element.NoFill {
+		if points, ok := presetPolygonPointsForElement(*element); ok {
+			drawGradientPolygon(img, target, points, element.FillGradient)
+			rendered = true
+			gradientFillRendered = true
+		}
+	}
+	if element.HasFillGradient && !gradientFillRendered && !element.NoFill && len(element.CustomPath) >= 3 {
+		drawGradientPolygon(img, target, transformedPathPoints(element.CustomPath, *element), element.FillGradient)
+		rendered = true
+		gradientFillRendered = true
 	}
 	if element.HasFill && !element.NoFill && !gradientFillRendered {
 		switch element.PrstGeom {
@@ -5897,6 +5921,88 @@ func drawGradientRect(img *image.RGBA, bounds image.Rectangle, gradient gradient
 			} else {
 				blendPixel(img, x, y, c)
 			}
+		}
+	}
+}
+
+func drawGradientEllipse(img *image.RGBA, bounds image.Rectangle, gradient gradientPaint) {
+	bounds = bounds.Intersect(img.Bounds())
+	if bounds.Empty() || len(gradient.Stops) == 0 {
+		return
+	}
+	radiusX := float64(bounds.Dx()) / 2
+	radiusY := float64(bounds.Dy()) / 2
+	if radiusX <= 0 || radiusY <= 0 {
+		return
+	}
+	centerX := float64(bounds.Min.X) + radiusX
+	centerY := float64(bounds.Min.Y) + radiusY
+	drawGradientWithCoverage(img, bounds, bounds, gradient, func(x int, y int) int {
+		coverage := 0
+		for _, offset := range coverageSampleOffsets {
+			dx := (float64(x) + offset.x - centerX) / radiusX
+			dy := (float64(y) + offset.y - centerY) / radiusY
+			if dx*dx+dy*dy <= 1 {
+				coverage++
+			}
+		}
+		return coverage
+	})
+}
+
+func drawGradientRoundRect(img *image.RGBA, bounds image.Rectangle, radius int, corners roundedCorners, gradient gradientPaint) {
+	bounds = bounds.Intersect(img.Bounds())
+	if bounds.Empty() || len(gradient.Stops) == 0 {
+		return
+	}
+	if radius <= 0 {
+		drawGradientRect(img, bounds, gradient, false)
+		return
+	}
+	drawGradientWithCoverage(img, bounds, bounds, gradient, func(x int, y int) int {
+		return roundRectCoverage(float64(x), float64(y), bounds, radius, corners)
+	})
+}
+
+func drawGradientPolygon(img *image.RGBA, bounds image.Rectangle, points []pathPoint, gradient gradientPaint) {
+	bounds = bounds.Intersect(img.Bounds())
+	if bounds.Empty() || len(points) < 3 || len(gradient.Stops) == 0 {
+		return
+	}
+	polygon := polygonImagePoints(bounds, points)
+	gradientBounds := pathPointBoundsRect(bounds, points).Intersect(img.Bounds())
+	if gradientBounds.Empty() {
+		return
+	}
+	drawGradientWithCoverage(img, bounds, gradientBounds, gradient, func(x int, y int) int {
+		return polygonCoverage(float64(x), float64(y), polygon)
+	})
+}
+
+func drawGradientWithCoverage(img *image.RGBA, paintBounds image.Rectangle, gradientBounds image.Rectangle, gradient gradientPaint, coverageAt func(x int, y int) int) {
+	paintBounds = paintBounds.Intersect(img.Bounds())
+	if paintBounds.Empty() || gradientBounds.Empty() || len(gradient.Stops) == 0 {
+		return
+	}
+	for y := paintBounds.Min.Y; y < paintBounds.Max.Y; y++ {
+		for x := paintBounds.Min.X; x < paintBounds.Max.X; x++ {
+			coverage := coverageAt(x, y)
+			if coverage <= 0 {
+				continue
+			}
+			var position int64
+			if gradient.Path == "circle" {
+				position = radialGradientPosition(gradientBounds, x, y, gradient)
+			} else {
+				position = linearGradientPosition(gradientBounds, x, y, gradient)
+			}
+			c := colorAtGradientPositionForPath(gradient.Stops, position, gradient.Path)
+			if coverage >= 4 && c.A == 255 {
+				img.SetRGBA(x, y, c)
+				continue
+			}
+			c.A = coverageAlpha(c.A, coverage)
+			blendPixel(img, x, y, c)
 		}
 	}
 }
@@ -8125,13 +8231,7 @@ func drawPolygon(img *image.RGBA, bounds image.Rectangle, points []pathPoint, c 
 	if len(points) < 3 || bounds.Empty() {
 		return
 	}
-	polygon := make([]image.Point, 0, len(points))
-	for _, point := range points {
-		polygon = append(polygon, image.Point{
-			X: bounds.Min.X + int(math.Round(point.X*float64(bounds.Dx()))),
-			Y: bounds.Min.Y + int(math.Round(point.Y*float64(bounds.Dy()))),
-		})
-	}
+	polygon := polygonImagePoints(bounds, points)
 	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
 		for x := bounds.Min.X; x < bounds.Max.X; x++ {
 			coverage := polygonCoverage(float64(x), float64(y), polygon)
@@ -8150,6 +8250,14 @@ func drawPolygonOutline(img *image.RGBA, bounds image.Rectangle, points []pathPo
 	if len(points) < 2 || bounds.Empty() {
 		return
 	}
+	polygon := polygonImagePoints(bounds, points)
+	for index := range polygon {
+		next := (index + 1) % len(polygon)
+		drawLine(img, polygon[index].X, polygon[index].Y, polygon[next].X, polygon[next].Y, c, width)
+	}
+}
+
+func polygonImagePoints(bounds image.Rectangle, points []pathPoint) []image.Point {
 	polygon := make([]image.Point, 0, len(points))
 	for _, point := range points {
 		polygon = append(polygon, image.Point{
@@ -8157,23 +8265,54 @@ func drawPolygonOutline(img *image.RGBA, bounds image.Rectangle, points []pathPo
 			Y: bounds.Min.Y + int(math.Round(point.Y*float64(bounds.Dy()))),
 		})
 	}
-	for index := range polygon {
-		next := (index + 1) % len(polygon)
-		drawLine(img, polygon[index].X, polygon[index].Y, polygon[next].X, polygon[next].Y, c, width)
+	return polygon
+}
+
+func pathPointBoundsRect(bounds image.Rectangle, points []pathPoint) image.Rectangle {
+	if bounds.Empty() || len(points) == 0 {
+		return image.Rectangle{}
 	}
+	minX := math.Inf(1)
+	minY := math.Inf(1)
+	maxX := math.Inf(-1)
+	maxY := math.Inf(-1)
+	for _, point := range points {
+		x := float64(bounds.Min.X) + point.X*float64(bounds.Dx())
+		y := float64(bounds.Min.Y) + point.Y*float64(bounds.Dy())
+		if x < minX {
+			minX = x
+		}
+		if y < minY {
+			minY = y
+		}
+		if x > maxX {
+			maxX = x
+		}
+		if y > maxY {
+			maxY = y
+		}
+	}
+	return image.Rect(
+		int(math.Floor(minX)),
+		int(math.Floor(minY)),
+		int(math.Ceil(maxX)),
+		int(math.Ceil(maxY)),
+	)
+}
+
+var coverageSampleOffsets = []struct {
+	x float64
+	y float64
+}{
+	{x: 0.25, y: 0.25},
+	{x: 0.75, y: 0.25},
+	{x: 0.25, y: 0.75},
+	{x: 0.75, y: 0.75},
 }
 
 func polygonCoverage(x float64, y float64, polygon []image.Point) int {
 	coverage := 0
-	for _, offset := range []struct {
-		x float64
-		y float64
-	}{
-		{x: 0.25, y: 0.25},
-		{x: 0.75, y: 0.25},
-		{x: 0.25, y: 0.75},
-		{x: 0.75, y: 0.75},
-	} {
+	for _, offset := range coverageSampleOffsets {
 		if pointInPolygonFloat(x+offset.x, y+offset.y, polygon) {
 			coverage++
 		}
@@ -8314,15 +8453,7 @@ func fillRoundRect(img *image.RGBA, bounds image.Rectangle, radius int, corners 
 
 func roundRectCoverage(x float64, y float64, bounds image.Rectangle, radius int, corners roundedCorners) int {
 	coverage := 0
-	for _, offset := range []struct {
-		x float64
-		y float64
-	}{
-		{x: 0.25, y: 0.25},
-		{x: 0.75, y: 0.25},
-		{x: 0.25, y: 0.75},
-		{x: 0.75, y: 0.75},
-	} {
+	for _, offset := range coverageSampleOffsets {
 		if pointInRoundRectAt(x+offset.x, y+offset.y, bounds, radius, corners) {
 			coverage++
 		}

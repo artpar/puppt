@@ -7790,6 +7790,63 @@ func TestRenderShapeSupportsCircleGradientFill(t *testing.T) {
 	}
 }
 
+func TestRenderShapeSupportsEllipseGradientFill(t *testing.T) {
+	img := image.NewRGBA(image.Rect(0, 0, 12, 12))
+	unsupported := renderShape("ppt/slides/slide1.xml", slideSize{CX: emuPerInch, CY: emuPerInch}, img, &slideElement{
+		Kind:            "sp",
+		Name:            "Gradient Ellipse",
+		HasTransform:    true,
+		ExtCX:           emuPerInch,
+		ExtCY:           emuPerInch,
+		PrstGeom:        "ellipse",
+		HasFill:         true,
+		HasFillGradient: true,
+		FillGradient: gradientPaint{
+			Path:           "circle",
+			FullySupported: true,
+			Stops: []gradientStop{
+				{Position: 0, Color: color.RGBA{R: 255, A: 255}},
+				{Position: 100000, Color: color.RGBA{B: 255, A: 255}},
+			},
+		},
+	})
+	if len(unsupported) != 0 {
+		t.Fatalf("expected supported ellipse gradient fill, got %+v", unsupported)
+	}
+	if got := img.RGBAAt(0, 0); got.A != 0 {
+		t.Fatalf("expected ellipse gradient to stay clipped to ellipse, got corner=%#v", got)
+	}
+	if got := img.RGBAAt(6, 6); got.A == 0 {
+		t.Fatalf("expected ellipse center to be painted")
+	}
+}
+
+func TestDrawGradientPolygonUsesPathBounds(t *testing.T) {
+	img := image.NewRGBA(image.Rect(0, 0, 20, 10))
+	drawGradientPolygon(img, img.Bounds(), []pathPoint{
+		{X: 0.5, Y: 0},
+		{X: 1, Y: 0},
+		{X: 1, Y: 1},
+		{X: 0.5, Y: 1},
+	}, gradientPaint{
+		HasAngle: true,
+		Angle:    0,
+		Stops: []gradientStop{
+			{Position: 0, Color: color.RGBA{R: 255, A: 255}},
+			{Position: 100000, Color: color.RGBA{B: 255, A: 255}},
+		},
+	})
+	if got := img.RGBAAt(9, 5); got.A != 0 {
+		t.Fatalf("expected gradient polygon to stay clipped to path, got left pixel=%#v", got)
+	}
+	if got := img.RGBAAt(10, 5); got.R <= got.B {
+		t.Fatalf("expected left edge of path-bounded gradient to start near first stop, got %#v", got)
+	}
+	if got := img.RGBAAt(19, 5); got.B <= got.R {
+		t.Fatalf("expected right edge of path-bounded gradient to end near last stop, got %#v", got)
+	}
+}
+
 func TestLinearGradientPositionHonorsScaledAngle(t *testing.T) {
 	bounds := image.Rect(0, 0, 20, 10)
 	unscaled := linearGradientPosition(bounds, 10, 0, gradientPaint{HasAngle: true, Angle: 2700000})
