@@ -4495,8 +4495,8 @@ func TestResolveSlidePlaceholdersKeepsLocalBodyProperties(t *testing.T) {
 	}
 
 	got := resolveSlidePlaceholders(elements, sources)
-	if got[0].TextAnchor != "" || !got[0].HasInsets || got[0].InsetLeft != 10 {
-		t.Fatalf("local bodyPr should block inherited anchor while preserving inherited insets: %+v", got[0])
+	if got[0].TextAnchor != "b" || !got[0].HasInsets || got[0].InsetLeft != 10 {
+		t.Fatalf("missing local anchor should inherit placeholder anchor while preserving inherited insets: %+v", got[0])
 	}
 	if got[0].HasShapeAutofit || got[0].FontScalePct != 0 || got[0].LineSpacingReductionPct != 0 {
 		t.Fatalf("local bodyPr should block inherited body properties: %+v", got[0])
@@ -4528,8 +4528,8 @@ func TestResolveSlidePlaceholdersDefaultsLocalCenterTitleBodyAnchor(t *testing.T
 	}
 
 	got := resolveSlidePlaceholders(elements, sources)
-	if got[0].TextAnchor != "ctr" {
-		t.Fatalf("local center-title bodyPr should use centered default anchor instead of inherited anchor: %+v", got[0])
+	if got[0].TextAnchor != "b" {
+		t.Fatalf("missing local center-title anchor should inherit placeholder anchor: %+v", got[0])
 	}
 	if got[0].HasShapeAutofit || got[0].FontScalePct != 90000 {
 		t.Fatalf("local center title bodyPr should still block inherited autofit properties: %+v", got[0])

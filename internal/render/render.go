@@ -2849,7 +2849,7 @@ func mergePlaceholderSource(base slideElement, override slideElement) slideEleme
 	if merged.TextAlign == "" {
 		merged.TextAlign = base.TextAlign
 	}
-	if shouldInheritPlaceholderTextAnchor(merged) {
+	if shouldInheritPlaceholderTextAnchor(merged) && base.TextAnchor != "" {
 		merged.TextAnchor = base.TextAnchor
 	} else if shouldDefaultCenterTitleTextAnchor(merged) {
 		merged.TextAnchor = "ctr"
@@ -2994,7 +2994,7 @@ func resolveSlidePlaceholders(elements []slideElement, sources map[string]slideE
 		if element.TextAlign == "" {
 			element.TextAlign = source.TextAlign
 		}
-		if shouldInheritPlaceholderTextAnchor(*element) {
+		if shouldInheritPlaceholderTextAnchor(*element) && source.TextAnchor != "" {
 			element.TextAnchor = source.TextAnchor
 		} else if shouldDefaultCenterTitleTextAnchor(*element) {
 			element.TextAnchor = "ctr"
@@ -3130,13 +3130,7 @@ func applyInheritedBodyBullets(element *slideElement) {
 }
 
 func shouldInheritPlaceholderTextAnchor(element slideElement) bool {
-	if element.TextAnchor != "" {
-		return false
-	}
-	if !element.HasBodyProperties {
-		return true
-	}
-	return element.PlaceholderType == "ctrTitle" && element.FontScalePct == 0
+	return element.TextAnchor == ""
 }
 
 func shouldDefaultCenterTitleTextAnchor(element slideElement) bool {
