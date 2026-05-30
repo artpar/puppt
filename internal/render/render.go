@@ -1848,6 +1848,14 @@ func applyColorModifiers(c color.RGBA, node *xmlNode) color.RGBA {
 			flushLuminance()
 			value := parseIntAttr(child.Attrs, "val")
 			c.A = scaleColorChannel(c.A, value)
+		case "alphaOff":
+			flushLuminance()
+			value := parseIntAttr(child.Attrs, "val")
+			c.A = offsetColorChannel(c.A, value)
+		case "hueOff":
+			flushLuminance()
+			value := parseIntAttr(child.Attrs, "val")
+			c = applyHueOffset(c, value)
 		case "tint":
 			flushLuminance()
 			value := parseIntAttr(child.Attrs, "val")
@@ -1858,6 +1866,10 @@ func applyColorModifiers(c color.RGBA, node *xmlNode) color.RGBA {
 			flushLuminance()
 			value := parseIntAttr(child.Attrs, "val")
 			c = applySaturationModifier(c, value)
+		case "satOff":
+			flushLuminance()
+			value := parseIntAttr(child.Attrs, "val")
+			c = applySaturationOffset(c, value)
 		}
 	}
 	flushLuminance()
@@ -1884,6 +1896,10 @@ func applyLuminanceModifier(c color.RGBA, mod int64, off int64) color.RGBA {
 
 func scaleColorChannel(channel uint8, value int64) uint8 {
 	return clampColor(int64(channel) * value / 100000)
+}
+
+func offsetColorChannel(channel uint8, value int64) uint8 {
+	return clampColor(int64(math.Round(float64(channel) + float64(value)*255/100000)))
 }
 
 func tintChannel(channel uint8, value int64) uint8 {
@@ -1915,6 +1931,40 @@ func applySaturationModifier(c color.RGBA, value int64) color.RGBA {
 		s = 0
 	} else if s > 1 {
 		s = 1
+	}
+	r, g, b := hslToRGB(h, s, l)
+	c.R = r
+	c.G = g
+	c.B = b
+	return c
+}
+
+func applySaturationOffset(c color.RGBA, value int64) color.RGBA {
+	if value == 0 {
+		return c
+	}
+	h, s, l := rgbToHSL(c)
+	s += float64(value) / 100000
+	if s < 0 {
+		s = 0
+	} else if s > 1 {
+		s = 1
+	}
+	r, g, b := hslToRGB(h, s, l)
+	c.R = r
+	c.G = g
+	c.B = b
+	return c
+}
+
+func applyHueOffset(c color.RGBA, value int64) color.RGBA {
+	if value == 0 {
+		return c
+	}
+	h, s, l := rgbToHSL(c)
+	h = math.Mod(h+float64(value)/60000, 360)
+	if h < 0 {
+		h += 360
 	}
 	r, g, b := hslToRGB(h, s, l)
 	c.R = r

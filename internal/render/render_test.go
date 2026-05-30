@@ -6035,6 +6035,20 @@ func TestColorFromColorNodeAppliesAlphaModifier(t *testing.T) {
 	}
 }
 
+func TestColorFromColorNodeAppliesAlphaOffset(t *testing.T) {
+	root, err := parseXMLNode([]byte(`<a:solidFill xmlns:a="a"><a:srgbClr val="804020"><a:alphaOff val="-10000"/></a:srgbClr></a:solidFill>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, ok := colorFromColorNode(root)
+	if !ok {
+		t.Fatal("color was not parsed")
+	}
+	if got.R != 0x80 || got.G != 0x40 || got.B != 0x20 || got.A != 230 {
+		t.Fatalf("unexpected alpha-offset color: %#v", got)
+	}
+}
+
 func TestColorFromColorNodeAppliesSaturationModifier(t *testing.T) {
 	root, err := parseXMLNode([]byte(`<a:solidFill xmlns:a="a"><a:srgbClr val="806060"><a:satMod val="200000"/></a:srgbClr></a:solidFill>`))
 	if err != nil {
@@ -6046,6 +6060,34 @@ func TestColorFromColorNodeAppliesSaturationModifier(t *testing.T) {
 	}
 	if got.R <= 0x80 || got.G >= 0x60 || got.B >= 0x60 || got.A != 255 {
 		t.Fatalf("expected saturation modifier to widen channel contrast, got %#v", got)
+	}
+}
+
+func TestColorFromColorNodeAppliesSaturationOffset(t *testing.T) {
+	root, err := parseXMLNode([]byte(`<a:solidFill xmlns:a="a"><a:srgbClr val="806060"><a:satOff val="-50000"/></a:srgbClr></a:solidFill>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, ok := colorFromColorNode(root)
+	if !ok {
+		t.Fatal("color was not parsed")
+	}
+	if got.R >= 0x80 || got.G <= 0x60 || got.B <= 0x60 || got.A != 255 {
+		t.Fatalf("expected saturation offset to narrow channel contrast, got %#v", got)
+	}
+}
+
+func TestColorFromColorNodeAppliesHueOffset(t *testing.T) {
+	root, err := parseXMLNode([]byte(`<a:solidFill xmlns:a="a"><a:srgbClr val="FF0000"><a:hueOff val="7200000"/></a:srgbClr></a:solidFill>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, ok := colorFromColorNode(root)
+	if !ok {
+		t.Fatal("color was not parsed")
+	}
+	if got.R != 0 || got.G != 255 || got.B != 0 || got.A != 255 {
+		t.Fatalf("unexpected hue-offset color: %#v", got)
 	}
 }
 
