@@ -5107,6 +5107,37 @@ func TestJPEGAdobeRGBProfileDetection(t *testing.T) {
 	}
 }
 
+func TestJPEGICCProfileReassemblesOutOfOrderAPP2Chunks(t *testing.T) {
+	profile := []byte("split-profile-data")
+	data := []byte{0xff, 0xd8}
+	data = append(data, testJPEGAPP2ICCChunk(2, 3, profile[5:12])...)
+	data = append(data, testJPEGAPP2ICCChunk(1, 3, profile[:5])...)
+	data = append(data, testJPEGAPP2ICCChunk(3, 3, profile[12:])...)
+	data = append(data, 0xff, 0xd9)
+
+	got, ok := jpegICCProfile(data)
+	if !ok || string(got) != string(profile) {
+		t.Fatalf("expected reassembled JPEG ICC profile, got %q ok=%v", got, ok)
+	}
+}
+
+func TestJPEGICCProfileRejectsMissingOrDuplicateChunks(t *testing.T) {
+	missing := []byte{0xff, 0xd8}
+	missing = append(missing, testJPEGAPP2ICCChunk(1, 2, []byte("first"))...)
+	missing = append(missing, 0xff, 0xd9)
+	if _, ok := jpegICCProfile(missing); ok {
+		t.Fatal("expected missing JPEG ICC chunk to be rejected")
+	}
+
+	duplicate := []byte{0xff, 0xd8}
+	duplicate = append(duplicate, testJPEGAPP2ICCChunk(1, 2, []byte("first"))...)
+	duplicate = append(duplicate, testJPEGAPP2ICCChunk(1, 2, []byte("again"))...)
+	duplicate = append(duplicate, 0xff, 0xd9)
+	if _, ok := jpegICCProfile(duplicate); ok {
+		t.Fatal("expected duplicate JPEG ICC chunk to be rejected")
+	}
+}
+
 func TestConvertAdobeRGBImageToSRGB(t *testing.T) {
 	source := image.NewRGBA(image.Rect(0, 0, 1, 1))
 	source.SetRGBA(0, 0, color.RGBA{R: 128, G: 64, B: 32, A: 200})
@@ -8816,6 +8847,15 @@ func testPNGChunk(chunkType string, payload []byte) []byte {
 	data = append(data, []byte(chunkType)...)
 	data = append(data, payload...)
 	data = appendTestUint32(data, 0)
+	return data
+}
+
+func testJPEGAPP2ICCChunk(sequenceNumber int, sequenceTotal int, payload []byte) []byte {
+	chunkPayload := append([]byte("ICC_PROFILE\x00"), byte(sequenceNumber), byte(sequenceTotal))
+	chunkPayload = append(chunkPayload, payload...)
+	length := len(chunkPayload) + 2
+	data := []byte{0xff, 0xe2, byte(length >> 8), byte(length)}
+	data = append(data, chunkPayload...)
 	return data
 }
 

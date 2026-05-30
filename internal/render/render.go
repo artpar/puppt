@@ -10498,14 +10498,26 @@ func decodeJPEGImage(data []byte) (image.Image, error) {
 	if err != nil {
 		return nil, err
 	}
-	if jpegHasAdobeRGBProfile(data) {
-		return convertAdobeRGBImageToSRGB(source), nil
+	if profileData, ok := jpegICCProfile(data); ok {
+		if bytes.Contains(profileData, []byte("Adobe RGB (1998)")) || bytes.Contains(profileData, []byte("Adobe RGB")) {
+			return convertAdobeRGBImageToSRGB(source), nil
+		}
+		if profile, ok := parseICCRGBToSRGBProfile(profileData); ok {
+			return convertICCImageToSRGB(source, profile), nil
+		}
 	}
 	return source, nil
 }
 
 func jpegHasAdobeRGBProfile(data []byte) bool {
+	profileData, ok := jpegICCProfile(data)
+	return ok && (bytes.Contains(profileData, []byte("Adobe RGB (1998)")) || bytes.Contains(profileData, []byte("Adobe RGB")))
+}
+
+func jpegICCProfile(data []byte) ([]byte, bool) {
 	const markerPrefix = "ICC_PROFILE\x00"
+	chunks := map[int][]byte{}
+	totalChunks := 0
 	for offset := 0; offset+4 <= len(data); {
 		if data[offset] != 0xFF {
 			offset++
@@ -10515,34 +10527,59 @@ func jpegHasAdobeRGBProfile(data []byte) bool {
 			offset++
 		}
 		if offset >= len(data) {
-			return false
+			break
 		}
 		marker := data[offset]
 		offset++
 		if marker == 0xDA || marker == 0xD9 {
-			return false
+			break
 		}
 		if marker == 0xD8 || (marker >= 0xD0 && marker <= 0xD7) {
 			continue
 		}
 		if offset+2 > len(data) {
-			return false
+			return nil, false
 		}
 		length := int(data[offset])<<8 | int(data[offset+1])
 		offset += 2
 		if length < 2 || offset+length-2 > len(data) {
-			return false
+			return nil, false
 		}
 		segment := data[offset : offset+length-2]
 		offset += length - 2
 		if marker != 0xE2 || !bytes.HasPrefix(segment, []byte(markerPrefix)) {
 			continue
 		}
-		if bytes.Contains(segment, []byte("Adobe RGB (1998)")) || bytes.Contains(segment, []byte("Adobe RGB")) {
-			return true
+		if len(segment) < len(markerPrefix)+2 {
+			return nil, false
 		}
+		sequenceNumber := int(segment[len(markerPrefix)])
+		sequenceTotal := int(segment[len(markerPrefix)+1])
+		if sequenceNumber == 0 || sequenceTotal == 0 || sequenceNumber > sequenceTotal {
+			return nil, false
+		}
+		if totalChunks == 0 {
+			totalChunks = sequenceTotal
+		} else if totalChunks != sequenceTotal {
+			return nil, false
+		}
+		if _, exists := chunks[sequenceNumber]; exists {
+			return nil, false
+		}
+		chunks[sequenceNumber] = segment[len(markerPrefix)+2:]
 	}
-	return false
+	if totalChunks == 0 || len(chunks) != totalChunks {
+		return nil, false
+	}
+	var profile []byte
+	for index := 1; index <= totalChunks; index++ {
+		chunk, ok := chunks[index]
+		if !ok {
+			return nil, false
+		}
+		profile = append(profile, chunk...)
+	}
+	return profile, true
 }
 
 func pngICCProfile(data []byte) ([]byte, bool) {
