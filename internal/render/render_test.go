@@ -2353,6 +2353,41 @@ func TestTextFromNodePreservesTabs(t *testing.T) {
 	}
 }
 
+func TestResolveTextFieldsUpdatesSlideNumberFieldRuns(t *testing.T) {
+	root, err := parseXMLNode([]byte(`<p:sp xmlns:p="p" xmlns:a="a">
+	  <p:txBody><a:bodyPr/><a:lstStyle/><a:p>
+	    <a:fld id="{424CEEAC-8F67-4238-9622-1B74DC6E8318}" type="slidenum"><a:rPr sz="1200"/><a:t>‹#›</a:t></a:fld>
+	  </a:p></p:txBody>
+	</p:sp>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	element := parseSlideElementNode(root, renderTransform{ScaleX: 1, ScaleY: 1})
+	if len(element.TextParagraphs) != 1 || len(element.TextParagraphs[0].Runs) != 1 || element.TextParagraphs[0].Runs[0].FieldType != "slidenum" {
+		t.Fatalf("expected slide-number field metadata to be preserved, got %+v", element.TextParagraphs)
+	}
+
+	got := resolveTextFields([]slideElement{element}, 12)
+	if got[0].Text != "12" || got[0].TextParagraphs[0].Text != "12" || got[0].TextParagraphs[0].Runs[0].Text != "12" {
+		t.Fatalf("expected slide-number field to resolve from render options, got %+v", got[0])
+	}
+}
+
+func TestResolveTextFieldsLeavesCachedDateFieldsStable(t *testing.T) {
+	paragraphs := []textParagraph{{
+		Text: "8/18/2021",
+		Runs: []textRun{{
+			Text:      "8/18/2021",
+			FieldType: "datetimeFigureOut",
+		}},
+	}}
+
+	got := resolveTextFields([]slideElement{{Text: "8/18/2021", TextParagraphs: paragraphs}}, 7)
+	if got[0].Text != "8/18/2021" || got[0].TextParagraphs[0].Runs[0].Text != "8/18/2021" {
+		t.Fatalf("non-slide-number fields should keep cached package text, got %+v", got[0])
+	}
+}
+
 func TestTextParagraphsFromNodeParsesTabStops(t *testing.T) {
 	root, err := parseXMLNode([]byte(`<p:txBody xmlns:p="p" xmlns:a="a">
   <a:p><a:pPr><a:tabLst><a:tab pos="1074738" algn="l"/></a:tabLst></a:pPr><a:r><a:t>Cost</a:t><a:tab/><a:t>Total</a:t></a:r></a:p>
@@ -7770,6 +7805,76 @@ func TestUnsupportedItemsSkipsEmptyPlaceholders(t *testing.T) {
 	})
 	if len(got) != 1 || !strings.Contains(got[0].Message, "Rectangle 1") {
 		t.Fatalf("unexpected unsupported items: %+v", got)
+	}
+}
+
+func TestFilterInheritedPlaceholdersKeepsEnabledSlideNumberPlaceholder(t *testing.T) {
+	elements := []slideElement{{
+		Kind:            "sp",
+		Name:            "Slide Number Placeholder",
+		Text:            "‹#›",
+		IsPlaceholder:   true,
+		PlaceholderType: "sldNum",
+		TextParagraphs: []textParagraph{{
+			Text: "‹#›",
+			Runs: []textRun{{Text: "‹#›", FieldType: "slidenum"}},
+		}},
+	}}
+	sources := map[string]slideElement{
+		"type:sldNum": {
+			IsPlaceholder:   true,
+			PlaceholderType: "sldNum",
+			HasTransform:    true,
+			OffX:            10,
+			OffY:            20,
+			ExtCX:           30,
+			ExtCY:           40,
+		},
+	}
+
+	settings := defaultHeaderFooterSettings()
+	settings.SlideNumber = true
+	got := filterInheritedPlaceholdersForRender(elements, sources, settings, true)
+	if len(got) != 1 || !got[0].HasTransform || got[0].OffX != 10 || got[0].Text != "‹#›" {
+		t.Fatalf("expected inherited slide-number placeholder to be resolved and kept, got %+v", got)
+	}
+	resolved := resolveTextFields(got, 9)
+	if resolved[0].Text != "9" || resolved[0].TextParagraphs[0].Runs[0].Text != "9" {
+		t.Fatalf("expected kept slide-number placeholder to resolve its field, got %+v", resolved)
+	}
+}
+
+func TestFilterInheritedPlaceholdersDropsDisabledSlideNumberPlaceholder(t *testing.T) {
+	settings := defaultHeaderFooterSettings()
+	settings.SlideNumber = false
+	got := filterInheritedPlaceholdersForRender([]slideElement{{
+		Kind:            "sp",
+		Text:            "‹#›",
+		IsPlaceholder:   true,
+		PlaceholderType: "sldNum",
+	}}, nil, settings, true)
+	if len(got) != 0 {
+		t.Fatalf("disabled slide-number placeholder should not render, got %+v", got)
+	}
+}
+
+func TestInheritedHeaderFooterSettingsHonorsExplicitFalse(t *testing.T) {
+	pkg := &pptx.Package{Parts: map[string][]byte{
+		"ppt/slideMasters/slideMaster1.xml": []byte(`<p:sldMaster xmlns:p="p"><p:hf sldNum="0" dt="0"/></p:sldMaster>`),
+	}}
+	got := inheritedHeaderFooterSettings(pkg, []string{"ppt/slideMasters/slideMaster1.xml"})
+	if got.SlideNumber || got.DateTime || !got.Footer || !got.Header {
+		t.Fatalf("unexpected inherited header/footer settings: %+v", got)
+	}
+}
+
+func TestInheritedHeaderFooterSettingsTreatsMissingElementAsDisabled(t *testing.T) {
+	pkg := &pptx.Package{Parts: map[string][]byte{
+		"ppt/slideMasters/slideMaster1.xml": []byte(`<p:sldMaster xmlns:p="p"/>`),
+	}}
+	got := inheritedHeaderFooterSettings(pkg, []string{"ppt/slideMasters/slideMaster1.xml"})
+	if got.SlideNumber || got.DateTime || got.Footer || got.Header {
+		t.Fatalf("missing hf element should not enable inherited placeholders, got %+v", got)
 	}
 }
 

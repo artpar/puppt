@@ -310,6 +310,7 @@ type textParagraph struct {
 
 type textRun struct {
 	Text              string
+	FieldType         string
 	FontFamily        string
 	FontSize          int
 	HasBold           bool
@@ -372,6 +373,17 @@ type tableCell struct {
 	BorderRight    tableCellBorder
 	BorderTop      tableCellBorder
 	BorderBottom   tableCellBorder
+}
+
+type headerFooterSettings struct {
+	SlideNumber    bool
+	HasSlideNumber bool
+	DateTime       bool
+	HasDateTime    bool
+	Footer         bool
+	HasFooter      bool
+	Header         bool
+	HasHeader      bool
 }
 
 type tableCellBorder struct {
@@ -506,6 +518,8 @@ func Render(ctx context.Context, inputPath string, options Options) (model.Comma
 	placeholderSources := inheritedPlaceholderSourcesWithThemeResolver(pkg, renderParts, slidePart, themeForPart)
 	textStyles := inheritedTextStylesWithThemeResolver(pkg, renderParts, slidePart, themeForPart)
 	background := inheritedBackgroundWithThemeResolver(pkg, renderParts, themeForPart)
+	headerFooter := inheritedHeaderFooterSettings(pkg, renderParts)
+	inheritedHeaderFooterPart := inheritedHeaderFooterRenderPart(pkg, paintParts, slidePart, headerFooter)
 	img := image.NewRGBA(image.Rect(0, 0, width, height))
 	var unsupported []model.SkipItem
 	if background.HasGradient {
@@ -525,12 +539,13 @@ func Render(ctx context.Context, inputPath string, options Options) (model.Comma
 		fillStyles := themeFillStylesForPart(pkg, renderPart)
 		elements := collectSlideElementsWithThemeEffectsAndFills(pkg.Parts[renderPart], partTheme, effectStyles, fillStyles, partLineStyles)
 		if renderPart != slidePart {
-			elements = filterInheritedPlaceholders(elements)
+			elements = filterInheritedPlaceholdersForRender(elements, placeholderSources, headerFooter, renderPart == inheritedHeaderFooterPart)
 		} else {
 			elements = resolveSlidePlaceholders(elements, placeholderSources)
 			elements = applyInheritedTextStyles(elements, textStyles)
 		}
 		elements = applyThemeFontFamilies(elements, partFonts)
+		elements = resolveTextFields(elements, options.SlideNumber)
 		unsupported = append(unsupported, renderElements(pkg, renderPart, size, img, elements, tableStyles)...)
 		unsupported = append(unsupported, unsupportedItems(renderPart, elements)...)
 	}
@@ -2780,10 +2795,81 @@ func textRunFromNode(node *xmlNode, text string) textRun {
 
 func textRunFromNodeWithTheme(node *xmlNode, text string, theme themeColors) textRun {
 	run := textRun{Text: text}
+	if node.Name == "fld" {
+		run.FieldType = attrValue(node.Attrs, "type")
+	}
 	if rPr := firstChild(node, "rPr"); rPr != nil {
 		applyRunPropertiesToRun(&run, rPr, text, theme)
 	}
 	return run
+}
+
+func resolveTextFields(elements []slideElement, slideNumber int) []slideElement {
+	if slideNumber <= 0 {
+		return elements
+	}
+	for index := range elements {
+		if textParagraphsContainFields(elements[index].TextParagraphs) {
+			elements[index].TextParagraphs = resolveTextParagraphFields(elements[index].TextParagraphs, slideNumber)
+			elements[index].Text = textFromParagraphs(elements[index].TextParagraphs)
+		}
+		if elements[index].HasTable {
+			for rowIndex := range elements[index].Table.Rows {
+				for cellIndex := range elements[index].Table.Rows[rowIndex].Cells {
+					cell := &elements[index].Table.Rows[rowIndex].Cells[cellIndex]
+					if textParagraphsContainFields(cell.TextParagraphs) {
+						cell.TextParagraphs = resolveTextParagraphFields(cell.TextParagraphs, slideNumber)
+						cell.Text = textFromParagraphs(cell.TextParagraphs)
+					}
+				}
+			}
+		}
+	}
+	return elements
+}
+
+func textParagraphsContainFields(paragraphs []textParagraph) bool {
+	for _, paragraph := range paragraphs {
+		for _, run := range paragraph.Runs {
+			if run.FieldType != "" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func resolveTextParagraphFields(paragraphs []textParagraph, slideNumber int) []textParagraph {
+	for paragraphIndex := range paragraphs {
+		for runIndex := range paragraphs[paragraphIndex].Runs {
+			run := &paragraphs[paragraphIndex].Runs[runIndex]
+			if strings.EqualFold(run.FieldType, "slidenum") {
+				run.Text = strconv.Itoa(slideNumber)
+			}
+		}
+		paragraphs[paragraphIndex].Text = textFromRuns(paragraphs[paragraphIndex].Runs)
+	}
+	return paragraphs
+}
+
+func textFromParagraphs(paragraphs []textParagraph) string {
+	var parts []string
+	for _, paragraph := range paragraphs {
+		text := strings.TrimSpace(paragraph.Text)
+		if text == "" {
+			continue
+		}
+		parts = append(parts, text)
+	}
+	return strings.Join(parts, "\n")
+}
+
+func textFromRuns(runs []textRun) string {
+	var builder strings.Builder
+	for _, run := range runs {
+		builder.WriteString(run.Text)
+	}
+	return strings.TrimSpace(builder.String())
 }
 
 func applyRunPropertiesToParagraph(paragraph *textParagraph, rPr *xmlNode, theme themeColors) {
@@ -3095,14 +3181,128 @@ func attrValue(attrs []xml.Attr, name string) string {
 }
 
 func filterInheritedPlaceholders(elements []slideElement) []slideElement {
+	return filterInheritedPlaceholdersForRender(elements, nil, defaultHeaderFooterSettings(), false)
+}
+
+func filterInheritedPlaceholdersForRender(elements []slideElement, sources map[string]slideElement, settings headerFooterSettings, keepHeaderFooter bool) []slideElement {
 	filtered := make([]slideElement, 0, len(elements))
 	for _, element := range elements {
 		if element.IsPlaceholder {
+			if keepHeaderFooter && headerFooterPlaceholderEnabled(element.PlaceholderType, settings) {
+				filtered = append(filtered, resolveInheritedHeaderFooterPlaceholder(element, sources))
+			}
 			continue
 		}
 		filtered = append(filtered, element)
 	}
 	return filtered
+}
+
+func resolveInheritedHeaderFooterPlaceholder(element slideElement, sources map[string]slideElement) slideElement {
+	if source, ok := placeholderSource(element, sources); ok {
+		if strings.TrimSpace(element.Text) == "" {
+			element.Text = source.Text
+			element.TextParagraphs = cloneTextParagraphs(source.TextParagraphs)
+		}
+		merged := mergePlaceholderSource(source, element)
+		applyParagraphStylesToElement(&merged, source.PlaceholderParagraphStyles)
+		applyInheritedBodyBullets(&merged)
+		return merged
+	}
+	return element
+}
+
+func inheritedHeaderFooterRenderPart(pkg *pptx.Package, paintParts []string, slidePart string, settings headerFooterSettings) string {
+	for index := len(paintParts) - 1; index >= 0; index-- {
+		part := paintParts[index]
+		if part == slidePart {
+			continue
+		}
+		elements := collectSlideElements(pkg.Parts[part])
+		for _, element := range elements {
+			if element.IsPlaceholder && headerFooterPlaceholderEnabled(element.PlaceholderType, settings) {
+				return part
+			}
+		}
+	}
+	return ""
+}
+
+func defaultHeaderFooterSettings() headerFooterSettings {
+	return headerFooterSettings{}
+}
+
+func inheritedHeaderFooterSettings(pkg *pptx.Package, renderParts []string) headerFooterSettings {
+	settings := defaultHeaderFooterSettings()
+	for _, part := range renderParts {
+		partSettings := parseHeaderFooterSettings(pkg.Parts[part])
+		if partSettings.HasSlideNumber {
+			settings.HasSlideNumber = true
+			settings.SlideNumber = partSettings.SlideNumber
+		}
+		if partSettings.HasDateTime {
+			settings.HasDateTime = true
+			settings.DateTime = partSettings.DateTime
+		}
+		if partSettings.HasFooter {
+			settings.HasFooter = true
+			settings.Footer = partSettings.Footer
+		}
+		if partSettings.HasHeader {
+			settings.HasHeader = true
+			settings.Header = partSettings.Header
+		}
+	}
+	return settings
+}
+
+func parseHeaderFooterSettings(data []byte) headerFooterSettings {
+	root, err := parseXMLNode(data)
+	if err != nil {
+		return headerFooterSettings{}
+	}
+	hf := firstDescendant(root, "hf")
+	if hf == nil {
+		return headerFooterSettings{}
+	}
+	settings := headerFooterSettings{
+		SlideNumber:    true,
+		HasSlideNumber: true,
+		DateTime:       true,
+		HasDateTime:    true,
+		Footer:         true,
+		HasFooter:      true,
+		Header:         true,
+		HasHeader:      true,
+	}
+	if value := attrValue(hf.Attrs, "sldNum"); value != "" {
+		settings.SlideNumber = boolAttrOn(value)
+	}
+	if value := attrValue(hf.Attrs, "dt"); value != "" {
+		settings.DateTime = boolAttrOn(value)
+	}
+	if value := attrValue(hf.Attrs, "ftr"); value != "" {
+		settings.Footer = boolAttrOn(value)
+	}
+	if value := attrValue(hf.Attrs, "hdr"); value != "" {
+		settings.Header = boolAttrOn(value)
+	}
+	return settings
+}
+
+func headerFooterPlaceholderEnabled(placeholderType string, settings headerFooterSettings) bool {
+	switch placeholderType {
+	case "sldNum":
+		return settings.SlideNumber
+	case "dt":
+		return settings.DateTime
+	case "ftr":
+		return settings.Footer
+	case "hdr":
+		return settings.Header
+	default:
+		return false
+	}
 }
 
 func inheritedPlaceholderSources(pkg *pptx.Package, renderParts []string, slidePart string, theme themeColors) map[string]slideElement {
