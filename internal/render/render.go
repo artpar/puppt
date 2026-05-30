@@ -9888,6 +9888,8 @@ func exactFontCandidatesForFamily(fontFamily string, bold bool, italic bool) []s
 		return append(configured, timesNewRomanFontCandidates(bold, italic)...)
 	case "wingdings", "wingdings 2", "wingdings 3":
 		return append(configured, wingdingsFontCandidates(fontFamily)...)
+	case "segoe ui historic":
+		return append(configured, segoeUIHistoricFontCandidates()...)
 	case "arial":
 		var candidates []string
 		switch {
@@ -10041,7 +10043,7 @@ func substituteFontSourceForFamily(fontFamily string, bold bool, italic bool) (f
 			return fontSource{}, false
 		}
 		return source, true
-	case "segoe ui historic", "segoe ui symbol":
+	case "segoe ui symbol":
 		fontPath := firstExistingPath(symbolFontSubstituteCandidates())
 		if fontPath == "" {
 			return fontSource{}, false
@@ -10103,7 +10105,7 @@ func exactFontFamilyStyleAvailable(fontFamily string, bold bool, italic bool) bo
 		return true
 	}
 	switch normalizedFontFamily(fontFamily) {
-	case "arial", "calibri", "calibri light", "times new roman", "trebuchet ms", "wingdings", "wingdings 2", "wingdings 3":
+	case "arial", "calibri", "calibri light", "times new roman", "trebuchet ms", "wingdings", "wingdings 2", "wingdings 3", "segoe ui historic":
 		return firstExistingPath(exactFontCandidatesForFamily(fontFamily, bold, italic)) != ""
 	default:
 		return firstExistingPath(configuredFontCandidatesForFamily(fontFamily, bold, italic)) != ""
@@ -10141,6 +10143,19 @@ func symbolFontSubstituteCandidates() []string {
 		"/System/Library/Fonts/Symbol.ttf",
 		"/Library/Fonts/Apple Symbols.ttf",
 		"/Library/Fonts/Symbol.ttf",
+	}
+}
+
+func segoeUIHistoricFontCandidates() []string {
+	return []string{
+		`C:\Windows\Fonts\seguihis.ttf`,
+		`C:\Windows\Fonts\Seguihis.ttf`,
+		"/Windows/Fonts/seguihis.ttf",
+		"/Windows/Fonts/Seguihis.ttf",
+		"/Library/Fonts/Microsoft/Seguihis.ttf",
+		"/Library/Fonts/Microsoft/seguihis.ttf",
+		filepath.Join(os.Getenv("HOME"), "Library", "Fonts", "Seguihis.ttf"),
+		filepath.Join(os.Getenv("HOME"), "Library", "Fonts", "seguihis.ttf"),
 	}
 }
 

@@ -4421,6 +4421,12 @@ func TestFontResolutionUnsupportedMessageReportsFallback(t *testing.T) {
 			t.Fatalf("supported symbol substitute should not be reported as fallback: %q", message)
 		}
 	}
+	if !exactFontFamilyAvailable("Segoe UI Historic") {
+		message := fontResolutionUnsupportedMessage(slideElement{FontFamily: "Segoe UI Historic"})
+		if !strings.Contains(message, "generic fallback font") {
+			t.Fatalf("missing Segoe UI Historic exact font should be reported as fallback, got %q", message)
+		}
+	}
 	if exactFontFamilyAvailable("Arial") {
 		if message := fontResolutionUnsupportedMessage(slideElement{FontFamily: "Arial"}); message != "" {
 			t.Fatalf("exact font should not be reported as fallback: %q", message)
@@ -4476,6 +4482,14 @@ func TestSupportedFontSubstitutesAreResolvedButNotUnsupported(t *testing.T) {
 	if firstExistingPath(symbolFontSubstituteCandidates()) != "" {
 		if message := fontResolutionUnsupportedMessage(slideElement{FontFamily: "Segoe UI Symbol"}); message != "" {
 			t.Fatalf("supported symbol substitute should not be reported: %q", message)
+		}
+	}
+	if !exactFontFamilyAvailable("Segoe UI Historic") {
+		if source, ok := substituteFontSourceForFamily("Segoe UI Historic", false, false); ok {
+			t.Fatalf("Segoe UI Historic should not use the symbol substitute, got %q", source.Label)
+		}
+		if message := fontResolutionUnsupportedMessage(slideElement{FontFamily: "Segoe UI Historic"}); !strings.Contains(message, "generic fallback font") {
+			t.Fatalf("missing Segoe UI Historic should be an honest generic fallback report, got %q", message)
 		}
 	}
 }
