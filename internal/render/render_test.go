@@ -129,6 +129,43 @@ func TestRenderPaintsEmbeddedPNGPicture(t *testing.T) {
 	}
 }
 
+func TestRenderElementsPaintsShapeLevelBlipFill(t *testing.T) {
+	source := image.NewRGBA(image.Rect(0, 0, 2, 2))
+	draw.Draw(source, source.Bounds(), &image.Uniform{C: color.RGBA{R: 255, A: 255}}, image.Point{}, draw.Src)
+	var imageData bytes.Buffer
+	if err := png.Encode(&imageData, source); err != nil {
+		t.Fatal(err)
+	}
+	pkg := &pptx.Package{
+		Parts: map[string][]byte{
+			"ppt/slides/_rels/slide1.xml.rels": []byte(`<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rIdImage" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/image1.png"/></Relationships>`),
+			"ppt/media/image1.png":             imageData.Bytes(),
+		},
+		ContentTypes: pptx.ContentTypes{Defaults: map[string]string{"png": "image/png"}},
+	}
+	slideXML := []byte(`<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+<p:cSld><p:spTree>
+<p:sp>
+  <p:nvSpPr><p:cNvPr id="2" name="Shape Image Fill"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>
+  <p:spPr>
+    <a:xfrm><a:off x="0" y="0"/><a:ext cx="914400" cy="914400"/></a:xfrm>
+    <a:prstGeom prst="rect"><a:avLst/></a:prstGeom>
+    <a:blipFill><a:blip r:embed="rIdImage"/><a:stretch><a:fillRect/></a:stretch></a:blipFill>
+  </p:spPr>
+</p:sp>
+</p:spTree></p:cSld>
+</p:sld>`)
+	elements := collectSlideElements(slideXML)
+	img := image.NewRGBA(image.Rect(0, 0, 96, 96))
+	unsupported := renderElements(pkg, "ppt/slides/slide1.xml", slideSize{CX: emuPerInch, CY: emuPerInch}, img, elements, tableStyleSet{})
+	if len(unsupported) != 0 {
+		t.Fatalf("expected supported shape blip fill render, got %+v", unsupported)
+	}
+	if got := img.RGBAAt(48, 48); got != (color.RGBA{R: 255, A: 255}) {
+		t.Fatalf("expected shape-level blip fill to paint image pixels, got %#v", got)
+	}
+}
+
 func TestDisplayP3OutputTransformMatchesColorSyncReferenceColors(t *testing.T) {
 	cases := []struct {
 		name string
