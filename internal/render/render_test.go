@@ -3148,6 +3148,25 @@ func TestApplyLineSpacingUsesDrawingMLFontSizeForPercentSpacing(t *testing.T) {
 	}
 }
 
+func TestParseSpacingPercentAcceptsDrawingMLPercentString(t *testing.T) {
+	root, err := parseXMLNode([]byte(`<a:lnSpc xmlns:a="a"><a:spcPct val="92.5%"/></a:lnSpc>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := parseSpacingPercent(root); got != 92500 {
+		t.Fatalf("expected DrawingML percent string to parse as thousandths, got %d", got)
+	}
+
+	root, err = parseXMLNode([]byte(`<a:spcBef xmlns:a="a"><a:spcPct val="110%"/></a:spcBef>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, pct := parseSpacingValue(root)
+	if pct != 110000 {
+		t.Fatalf("expected paragraph spacing percent string to parse as thousandths, got %d", pct)
+	}
+}
+
 func TestParagraphSpacingPercentPixelsScalesFontSize(t *testing.T) {
 	if got := paragraphSpacingPercentPixels(90000, 2000); got != 18 {
 		t.Fatalf("expected 90%% paragraph spacing from 20pt text, got %d", got)
@@ -5371,6 +5390,21 @@ func TestParseBodyPropertiesReadsTextAnchor(t *testing.T) {
 	}
 	if !element.HasLineSpacingReductionPct || element.LineSpacingReductionPct != 20000 {
 		t.Fatalf("unexpected autofit line spacing reduction: %+v", element)
+	}
+}
+
+func TestParseBodyPropertiesReadsNormalAutofitPercentStrings(t *testing.T) {
+	root, err := parseXMLNode([]byte(`<a:bodyPr xmlns:a="a"><a:normAutofit fontScale="92.000%" lnSpcReduction="20%"/></a:bodyPr>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var element slideElement
+	parseBodyProperties(root, &element)
+	if !element.HasNormAutofit || !element.HasFontScalePct || element.FontScalePct != 92000 {
+		t.Fatalf("expected normal-autofit fontScale percent string to parse, got %+v", element)
+	}
+	if !element.HasLineSpacingReductionPct || element.LineSpacingReductionPct != 20000 {
+		t.Fatalf("expected normal-autofit line-spacing reduction percent string to parse, got %+v", element)
 	}
 }
 

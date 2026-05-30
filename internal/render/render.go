@@ -1809,7 +1809,7 @@ func parseBodyProperties(node *xmlNode, element *slideElement) {
 		element.HasNormAutofit = true
 		if attrValue(autofit.Attrs, "fontScale") != "" {
 			element.HasFontScalePct = true
-			fontScale := int(parseIntAttr(autofit.Attrs, "fontScale"))
+			fontScale := int(parsePercentAttr(autofit.Attrs, "fontScale"))
 			if fontScale > 0 {
 				element.FontScalePct = fontScale
 			} else {
@@ -1818,7 +1818,7 @@ func parseBodyProperties(node *xmlNode, element *slideElement) {
 		}
 		if attrValue(autofit.Attrs, "lnSpcReduction") != "" {
 			element.HasLineSpacingReductionPct = true
-			if lineSpacingReduction := int(parseIntAttr(autofit.Attrs, "lnSpcReduction")); lineSpacingReduction > 0 {
+			if lineSpacingReduction := int(parsePercentAttr(autofit.Attrs, "lnSpcReduction")); lineSpacingReduction > 0 {
 				element.LineSpacingReductionPct = lineSpacingReduction
 			}
 		}
@@ -2705,7 +2705,7 @@ func parseSpacingValue(node *xmlNode) (int, int) {
 		return int(math.Round(float64(points100) / 100 * defaultOutputDPI / 72)), 0
 	}
 	if spcPct := firstChild(node, "spcPct"); spcPct != nil {
-		pct := int(parseIntAttr(spcPct.Attrs, "val"))
+		pct := int(parsePercentAttr(spcPct.Attrs, "val"))
 		if pct <= 0 {
 			return 0, 0
 		}
@@ -2716,7 +2716,7 @@ func parseSpacingValue(node *xmlNode) (int, int) {
 
 func parseSpacingPercent(node *xmlNode) int {
 	if spcPct := firstChild(node, "spcPct"); spcPct != nil {
-		value := int(parseIntAttr(spcPct.Attrs, "val"))
+		value := int(parsePercentAttr(spcPct.Attrs, "val"))
 		if value > 0 {
 			return value
 		}
@@ -4062,6 +4062,28 @@ func parseIntAttr(attrs []xml.Attr, name string) int64 {
 		}
 	}
 	return 0
+}
+
+func parsePercentAttr(attrs []xml.Attr, name string) int64 {
+	for _, attr := range attrs {
+		if attr.Name.Local == name {
+			return parsePercentValue(attr.Value)
+		}
+	}
+	return 0
+}
+
+func parsePercentValue(value string) int64 {
+	trimmed := strings.TrimSpace(value)
+	if !strings.HasSuffix(trimmed, "%") {
+		parsed, _ := strconv.ParseInt(trimmed, 10, 64)
+		return parsed
+	}
+	parsed, err := strconv.ParseFloat(strings.TrimSpace(strings.TrimSuffix(trimmed, "%")), 64)
+	if err != nil {
+		return 0
+	}
+	return int64(math.Round(parsed * 1000))
 }
 
 func parentElement(stack []string) string {
