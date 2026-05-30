@@ -5752,6 +5752,9 @@ func renderShape(slidePart string, size slideSize, img *image.RGBA, element *sli
 	for _, message := range shape3DUnsupportedMessages(*element) {
 		unsupported = append(unsupported, unsupportedItem(slidePart, partialUnsupportedCode, fmt.Sprintf("shape object %q %s", elementLabel(*element), message)))
 	}
+	for _, message := range shapeSoftEdgeUnsupportedMessages(*element) {
+		unsupported = append(unsupported, unsupportedItem(slidePart, partialUnsupportedCode, fmt.Sprintf("shape object %q %s", elementLabel(*element), message)))
+	}
 	gradientFillRendered := false
 	if element.HasFillGradient && !element.NoFill {
 		switch element.PrstGeom {
@@ -6368,6 +6371,13 @@ func shape3DUnsupportedMessages(element slideElement) []string {
 	features := append([]string{}, element.Shape3DFeatures...)
 	sort.Strings(features)
 	return []string{fmt.Sprintf("%s were not rendered", strings.Join(features, ", "))}
+}
+
+func shapeSoftEdgeUnsupportedMessages(element slideElement) []string {
+	if !element.HasSoftEdge || element.SoftEdgeRadius <= 0 {
+		return nil
+	}
+	return []string{"soft edge effect was not rendered"}
 }
 
 func shadowIntersectsCanvas(bounds image.Rectangle, blur int, canvas image.Rectangle) bool {

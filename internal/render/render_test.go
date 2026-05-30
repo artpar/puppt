@@ -912,6 +912,28 @@ func TestRenderShapeReportsUnsupportedVisibleShape3DProperties(t *testing.T) {
 	}
 }
 
+func TestRenderShapeReportsUnsupportedSoftEdgeEffect(t *testing.T) {
+	size := slideSize{CX: emuPerInch, CY: emuPerInch}
+	img := image.NewRGBA(image.Rect(0, 0, 96, 96))
+	element := slideElement{
+		Kind:           "sp",
+		Name:           "Soft Shape",
+		PrstGeom:       "rect",
+		HasTransform:   true,
+		ExtCX:          emuPerInch / 2,
+		ExtCY:          emuPerInch / 2,
+		HasFill:        true,
+		FillColor:      color.RGBA{R: 255, A: 255},
+		HasSoftEdge:    true,
+		SoftEdgeRadius: 203200,
+	}
+
+	unsupported := renderShape("ppt/slides/slide1.xml", size, img, &element)
+	if len(unsupported) != 1 || unsupported[0].Code != partialUnsupportedCode || !strings.Contains(unsupported[0].Message, "soft edge effect") || !element.Rendered {
+		t.Fatalf("expected unsupported soft edge report with flat render, got unsupported=%+v rendered=%v", unsupported, element.Rendered)
+	}
+}
+
 func TestRenderShapePaintsCurvedArrowPresetGeometry(t *testing.T) {
 	size := slideSize{CX: emuPerInch, CY: emuPerInch}
 	img := image.NewRGBA(image.Rect(0, 0, 96, 96))
