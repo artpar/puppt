@@ -23,6 +23,7 @@ import (
 	"strconv"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/artpar/puppt/internal/model"
 	"github.com/artpar/puppt/internal/pptx"
@@ -133,6 +134,8 @@ type paragraphStyle struct {
 	BulletColorTx    bool
 	Bold             bool
 	Italic           bool
+	HasCharSpacing   bool
+	CharSpacing      int
 	TextAlign        string
 	HasTextColor     bool
 	TextColor        color.RGBA
@@ -270,6 +273,8 @@ type textParagraph struct {
 	FontSize         int
 	Bold             bool
 	Italic           bool
+	HasCharSpacing   bool
+	CharSpacing      int
 	HasTextColor     bool
 	TextColor        color.RGBA
 	NoBullet         bool
@@ -308,6 +313,8 @@ type textRun struct {
 	Italic            bool
 	Underline         bool
 	Baseline          int
+	HasCharSpacing    bool
+	CharSpacing       int
 	HasTextColor      bool
 	TextColor         color.RGBA
 	HasHighlightColor bool
@@ -2466,6 +2473,10 @@ func applyParagraphStyle(paragraph *textParagraph, style paragraphStyle) {
 	if !paragraph.Italic {
 		paragraph.Italic = style.Italic
 	}
+	if !paragraph.HasCharSpacing && style.HasCharSpacing {
+		paragraph.HasCharSpacing = true
+		paragraph.CharSpacing = style.CharSpacing
+	}
 	if paragraph.TextAlign == "" {
 		paragraph.TextAlign = style.TextAlign
 	}
@@ -2595,6 +2606,10 @@ func parseParagraphStyle(node *xmlNode, theme themeColors) paragraphStyle {
 		}
 		style.Bold = attrValue(defRPr.Attrs, "b") == "1"
 		style.Italic = attrValue(defRPr.Attrs, "i") == "1"
+		if value := attrValue(defRPr.Attrs, "spc"); value != "" {
+			style.HasCharSpacing = true
+			style.CharSpacing = int(parseIntAttr(defRPr.Attrs, "spc"))
+		}
 		if solidFill := firstChild(defRPr, "solidFill"); solidFill != nil {
 			if textColor, ok := colorFromSolidFillWithTheme(solidFill, theme); ok {
 				style.HasTextColor = true
@@ -2749,6 +2764,8 @@ func applyRunPropertiesToParagraph(paragraph *textParagraph, rPr *xmlNode, theme
 	paragraph.FontSize = run.FontSize
 	paragraph.Bold = run.Bold
 	paragraph.Italic = run.Italic
+	paragraph.HasCharSpacing = run.HasCharSpacing
+	paragraph.CharSpacing = run.CharSpacing
 	paragraph.HasTextColor = run.HasTextColor
 	paragraph.TextColor = run.TextColor
 }
@@ -2767,6 +2784,10 @@ func applyRunPropertiesToParagraphDefaults(paragraph *textParagraph, rPr *xmlNod
 	}
 	if !paragraph.Italic {
 		paragraph.Italic = run.Italic
+	}
+	if !paragraph.HasCharSpacing && run.HasCharSpacing {
+		paragraph.HasCharSpacing = true
+		paragraph.CharSpacing = run.CharSpacing
 	}
 	if !paragraph.HasTextColor && run.HasTextColor {
 		paragraph.HasTextColor = true
@@ -2792,6 +2813,10 @@ func applyRunPropertiesToRun(run *textRun, rPr *xmlNode, text string, theme them
 	}
 	run.Underline = isUnderlineStyle(attrValue(rPr.Attrs, "u"))
 	run.Baseline = int(parseIntAttr(rPr.Attrs, "baseline"))
+	if value := attrValue(rPr.Attrs, "spc"); value != "" {
+		run.HasCharSpacing = true
+		run.CharSpacing = int(parseIntAttr(rPr.Attrs, "spc"))
+	}
 	if solidFill := firstChild(rPr, "solidFill"); solidFill != nil {
 		if textColor, ok := colorFromSolidFillWithTheme(solidFill, theme); ok {
 			run.HasTextColor = true
@@ -2863,7 +2888,7 @@ func textParagraphsHaveRunColor(paragraphs []textParagraph) bool {
 
 func textRunsHaveRunMetricProperties(runs []textRun) bool {
 	for _, run := range runs {
-		if run.FontSize != 0 || strings.TrimSpace(run.FontFamily) != "" || run.HasBold || run.HasItalic || run.Underline || run.Baseline != 0 {
+		if run.FontSize != 0 || strings.TrimSpace(run.FontFamily) != "" || run.HasBold || run.HasItalic || run.Underline || run.Baseline != 0 || run.HasCharSpacing {
 			return true
 		}
 	}
@@ -3355,6 +3380,10 @@ func mergeParagraphStyle(base paragraphStyle, override paragraphStyle) paragraph
 	}
 	if !merged.Italic {
 		merged.Italic = base.Italic
+	}
+	if !merged.HasCharSpacing {
+		merged.HasCharSpacing = base.HasCharSpacing
+		merged.CharSpacing = base.CharSpacing
 	}
 	if merged.TextAlign == "" {
 		merged.TextAlign = base.TextAlign
@@ -5901,7 +5930,7 @@ func drawShapeTextLayerWithDPI(img *image.RGBA, bounds image.Rectangle, element 
 					continue
 				}
 				drawer.Face = segmentFace
-				segmentWidth := measureTextSegmentWithTabsAtDPI(segmentFace, segment.Text, 0, dpi, line.TabStops)
+				segmentWidth := measureTextSegmentWithTabsAndSpacingAtDPI(segmentFace, segment.Text, 0, dpi, line.TabStops, segment.CharSpacing)
 				if justifyExtra > 0 || justifyRemainder > 0 {
 					segmentSpaces := textSpaceCount(segment.Text)
 					segmentWidth += segmentSpaces * justifyExtra
@@ -5913,9 +5942,9 @@ func drawShapeTextLayerWithDPI(img *image.RGBA, bounds image.Rectangle, element 
 				}
 				segmentStart := x
 				if justifyExtra > 0 || justifyRemainder > 0 {
-					x = drawJustifiedTextSegment(drawer, segmentFace, segment.Text, x, segmentBaseline, justifyExtra, &justifyRemainder)
+					x = drawJustifiedTextSegment(drawer, segmentFace, segment.Text, x, segmentBaseline, justifyExtra, &justifyRemainder, segment.CharSpacing, dpi)
 				} else {
-					x = drawTextSegmentWithTabsAtDPI(drawer, segmentFace, segment.Text, x, lineStart, segmentBaseline, dpi, line.TabStops)
+					x = drawTextSegmentWithTabsAndSpacingAtDPI(drawer, segmentFace, segment.Text, x, lineStart, segmentBaseline, dpi, line.TabStops, segment.CharSpacing)
 				}
 				if segment.Underline {
 					drawTextUnderline(img, segmentFace, segmentStart, segmentBaseline, x-segmentStart, textColorForSegment(segment, textColor))
@@ -6070,17 +6099,18 @@ func drawTextSegmentWithTabs(drawer *font.Drawer, face font.Face, text string, x
 }
 
 func drawTextSegmentWithTabsAtDPI(drawer *font.Drawer, face font.Face, text string, x int, lineStart int, baseline int, dpi int, tabStops []int) int {
+	return drawTextSegmentWithTabsAndSpacingAtDPI(drawer, face, text, x, lineStart, baseline, dpi, tabStops, 0)
+}
+
+func drawTextSegmentWithTabsAndSpacingAtDPI(drawer *font.Drawer, face font.Face, text string, x int, lineStart int, baseline int, dpi int, tabStops []int, charSpacing int) int {
+	spacingPixels := textCharacterSpacingPixelsAtDPI(charSpacing, dpi)
 	if !strings.Contains(text, "\t") {
-		drawer.Dot = fixed.Point26_6{X: fixed.I(x), Y: fixed.I(baseline)}
-		drawer.DrawString(text)
-		return x + measureString(face, text)
+		return drawTextWithCharacterSpacing(drawer, face, text, x, baseline, spacingPixels)
 	}
 	parts := strings.Split(text, "\t")
 	for index, part := range parts {
 		if part != "" {
-			drawer.Dot = fixed.Point26_6{X: fixed.I(x), Y: fixed.I(baseline)}
-			drawer.DrawString(part)
-			x += measureString(face, part)
+			x = drawTextWithCharacterSpacing(drawer, face, part, x, baseline, spacingPixels)
 		}
 		if index < len(parts)-1 {
 			x += textTabAdvanceAtDPI(x-lineStart, dpi, tabStops)
@@ -6089,30 +6119,43 @@ func drawTextSegmentWithTabsAtDPI(drawer *font.Drawer, face font.Face, text stri
 	return x
 }
 
-func drawJustifiedTextSegment(drawer *font.Drawer, face font.Face, text string, x int, baseline int, extraPerSpace int, extraRemainder *int) int {
-	start := 0
-	for index, value := range text {
-		if value != ' ' {
-			continue
-		}
-		if index > start {
-			chunk := text[start:index]
-			drawer.Dot = fixed.Point26_6{X: fixed.I(x), Y: fixed.I(baseline)}
-			drawer.DrawString(chunk)
-			x += measureString(face, chunk)
-		}
-		x += measureString(face, " ") + extraPerSpace
-		if extraRemainder != nil && *extraRemainder > 0 {
-			x++
-			*extraRemainder--
-		}
-		start = index + len(string(value))
+func drawTextWithCharacterSpacing(drawer *font.Drawer, face font.Face, text string, x int, baseline int, spacingPixels int) int {
+	if spacingPixels == 0 || utf8.RuneCountInString(text) <= 1 {
+		drawer.Dot = fixed.Point26_6{X: fixed.I(x), Y: fixed.I(baseline)}
+		drawer.DrawString(text)
+		return x + measureString(face, text)
 	}
-	if start < len(text) {
-		chunk := text[start:]
+	runes := []rune(text)
+	for index, value := range runes {
+		chunk := string(value)
 		drawer.Dot = fixed.Point26_6{X: fixed.I(x), Y: fixed.I(baseline)}
 		drawer.DrawString(chunk)
 		x += measureString(face, chunk)
+		if index < len(runes)-1 {
+			x += spacingPixels
+		}
+	}
+	return x
+}
+
+func drawJustifiedTextSegment(drawer *font.Drawer, face font.Face, text string, x int, baseline int, extraPerSpace int, extraRemainder *int, charSpacing int, dpi int) int {
+	spacingPixels := textCharacterSpacingPixelsAtDPI(charSpacing, dpi)
+	runes := []rune(text)
+	for index, value := range runes {
+		chunk := string(value)
+		drawer.Dot = fixed.Point26_6{X: fixed.I(x), Y: fixed.I(baseline)}
+		drawer.DrawString(chunk)
+		x += measureString(face, chunk)
+		if index < len(runes)-1 {
+			x += spacingPixels
+		}
+		if value == ' ' {
+			x += extraPerSpace
+			if extraRemainder != nil && *extraRemainder > 0 {
+				x++
+				*extraRemainder--
+			}
+		}
 	}
 	return x
 }
@@ -6546,6 +6589,7 @@ func runToSegment(run textRun, paragraph textParagraph) textLineSegment {
 		FontSize:          fontSize,
 		Baseline:          run.Baseline,
 		BaselineFontSize:  baselineFontSize,
+		CharSpacing:       resolvedRunCharSpacing(run, paragraph),
 		HasTextColor:      run.HasTextColor,
 		TextColor:         run.TextColor,
 		HasHighlightColor: run.HasHighlightColor,
@@ -6576,6 +6620,16 @@ func resolvedRunItalic(run textRun, paragraph textParagraph) bool {
 		return true
 	}
 	return paragraph.Italic
+}
+
+func resolvedRunCharSpacing(run textRun, paragraph textParagraph) int {
+	if run.HasCharSpacing {
+		return run.CharSpacing
+	}
+	if paragraph.HasCharSpacing {
+		return paragraph.CharSpacing
+	}
+	return 0
 }
 
 func paragraphFontFamily(run textRun, paragraph textParagraph) string {
@@ -6903,7 +6957,7 @@ func measureStyledSegmentsAtDPI(faces *fontFaceCache, face font.Face, boldFace f
 				return 0, err
 			}
 		}
-		width = measureTextSegmentWithTabsAtDPI(segmentFace, segment.Text, width, dpi, tabStops)
+		width = measureTextSegmentWithTabsAndSpacingAtDPI(segmentFace, segment.Text, width, dpi, tabStops, segment.CharSpacing)
 	}
 	return width, nil
 }
@@ -6913,22 +6967,48 @@ func measureTextSegmentWithTabs(face font.Face, text string, currentWidth int) i
 }
 
 func measureTextSegmentWithTabsAtDPI(face font.Face, text string, currentWidth int, dpi int, tabStopsOverride ...[]int) int {
-	var tabStops []int
-	if len(tabStopsOverride) > 0 {
-		tabStops = tabStopsOverride[0]
-	}
+	return measureTextSegmentWithTabsAndSpacingAtDPI(face, text, currentWidth, dpi, firstTabStopsOverride(tabStopsOverride), 0)
+}
+
+func measureTextSegmentWithTabsAndSpacingAtDPI(face font.Face, text string, currentWidth int, dpi int, tabStops []int, charSpacing int) int {
+	spacingPixels := textCharacterSpacingPixelsAtDPI(charSpacing, dpi)
 	if !strings.Contains(text, "\t") {
-		return currentWidth + measureString(face, text)
+		return currentWidth + measureString(face, text) + textCharacterSpacingAdvance(text, spacingPixels)
 	}
 	width := currentWidth
 	parts := strings.Split(text, "\t")
 	for index, part := range parts {
-		width += measureString(face, part)
+		width += measureString(face, part) + textCharacterSpacingAdvance(part, spacingPixels)
 		if index < len(parts)-1 {
 			width += textTabAdvanceAtDPI(width, dpi, tabStops)
 		}
 	}
 	return width
+}
+
+func firstTabStopsOverride(overrides [][]int) []int {
+	if len(overrides) == 0 {
+		return nil
+	}
+	return overrides[0]
+}
+
+func textCharacterSpacingPixelsAtDPI(charSpacing int, dpi int) int {
+	if charSpacing == 0 {
+		return 0
+	}
+	return int(math.Round(float64(charSpacing) / 100 * float64(normalizeOutputDPI(dpi)) / 72))
+}
+
+func textCharacterSpacingAdvance(text string, spacingPixels int) int {
+	if spacingPixels == 0 {
+		return 0
+	}
+	count := utf8.RuneCountInString(text)
+	if count <= 1 {
+		return 0
+	}
+	return (count - 1) * spacingPixels
 }
 
 func textTabAdvance(currentWidth int) int {
@@ -7082,6 +7162,7 @@ type textLineSegment struct {
 	FontSize          int
 	Baseline          int
 	BaselineFontSize  int
+	CharSpacing       int
 	HasTextColor      bool
 	TextColor         color.RGBA
 	HasHighlightColor bool

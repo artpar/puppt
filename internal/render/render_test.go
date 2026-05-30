@@ -2437,6 +2437,26 @@ func TestTextParagraphsFromNodeParsesPercentParagraphSpacing(t *testing.T) {
 	}
 }
 
+func TestTextParagraphsFromNodeParsesRunCharacterSpacing(t *testing.T) {
+	root, err := parseXMLNode([]byte(`<p:txBody xmlns:p="p" xmlns:a="a">
+  <a:p><a:pPr><a:defRPr spc="150"/></a:pPr><a:r><a:rPr spc="250"/><a:t>Wide</a:t></a:r><a:r><a:rPr/><a:t>Default</a:t></a:r></a:p>
+</p:txBody>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got := textParagraphsFromNode(root)
+	if len(got) != 1 || !got[0].HasCharSpacing || got[0].CharSpacing != 150 {
+		t.Fatalf("expected paragraph default character spacing, got %+v", got)
+	}
+	if len(got[0].Runs) != 2 || !got[0].Runs[0].HasCharSpacing || got[0].Runs[0].CharSpacing != 250 {
+		t.Fatalf("expected run character spacing, got %+v", got[0].Runs)
+	}
+	if segment := runToSegment(got[0].Runs[1], got[0]); segment.CharSpacing != 150 {
+		t.Fatalf("expected unstyled run to inherit paragraph character spacing, got %+v", segment)
+	}
+}
+
 func TestTextParagraphsFromNodePreservesEmptyParagraphs(t *testing.T) {
 	root, err := parseXMLNode([]byte(`<p:txBody xmlns:p="p" xmlns:a="a">
   <a:p><a:r><a:rPr sz="2400"/><a:t>Before</a:t></a:r></a:p>
@@ -3137,6 +3157,35 @@ func TestParagraphSpacingPercentPixelsScalesFontSize(t *testing.T) {
 	}
 	if got := paragraphSpacingPercentPixels(0, 2000); got != 0 {
 		t.Fatalf("expected zero paragraph spacing, got %d", got)
+	}
+}
+
+func TestTextCharacterSpacingUsesDrawingMLTextPointUnits(t *testing.T) {
+	if got := textCharacterSpacingPixelsAtDPI(100, 72); got != 1 {
+		t.Fatalf("expected one point of character spacing to equal one pixel at 72 DPI, got %d", got)
+	}
+	if got := textCharacterSpacingPixelsAtDPI(150, 96); got != 2 {
+		t.Fatalf("expected 1.5 points of character spacing to round at 96 DPI, got %d", got)
+	}
+	if got := textCharacterSpacingAdvance("ABC", 2); got != 4 {
+		t.Fatalf("expected spacing between characters only, got %d", got)
+	}
+}
+
+func TestMeasureStyledSegmentsIncludesCharacterSpacing(t *testing.T) {
+	faces := newFontFaceCache(false, "Carlito")
+	defer faces.Close()
+	face, err := faces.Get(1800, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := measureString(face, "ABC")
+	got, err := measureStyledSegmentsAtDPI(faces, face, face, []textLineSegment{{Text: "ABC", FontSize: 1800, CharSpacing: 100}}, 72)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != base+2 {
+		t.Fatalf("expected two character-spacing advances for three characters, got %d want %d", got, base+2)
 	}
 }
 
