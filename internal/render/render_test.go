@@ -1935,6 +1935,31 @@ func TestTableRowOffsetsScaleOrdinaryFirstRowWithTableFrame(t *testing.T) {
 	}
 }
 
+func TestTableTextParagraphsWithColorOverridesParagraphDefaultsButPreservesRuns(t *testing.T) {
+	styleColor := color.RGBA{R: 0xee, G: 0xee, B: 0xee, A: 0xff}
+	paragraphs := []textParagraph{{
+		HasTextColor: true,
+		TextColor:    color.RGBA{A: 0xff},
+		Runs: []textRun{
+			{Text: "Styled"},
+			{Text: "Direct", HasTextColor: true, TextColor: color.RGBA{R: 0xff, A: 0xff}},
+		},
+	}}
+
+	got := tableTextParagraphsWithColor(paragraphs, "", styleColor)
+	if len(got) != 1 || !got[0].HasTextColor || got[0].TextColor != styleColor {
+		t.Fatalf("expected table style color to override paragraph default, got %+v", got)
+	}
+	defaultSegment := runToSegment(got[0].Runs[0], got[0])
+	if !defaultSegment.HasTextColor || defaultSegment.TextColor != styleColor {
+		t.Fatalf("expected uncolored run to inherit table style color, got %+v", defaultSegment)
+	}
+	directSegment := runToSegment(got[0].Runs[1], got[0])
+	if !directSegment.HasTextColor || directSegment.TextColor != (color.RGBA{R: 0xff, A: 0xff}) {
+		t.Fatalf("expected explicit run color to win over table style color, got %+v", directSegment)
+	}
+}
+
 func TestTableRowWeightsPreserveExplicitZeroHeightRows(t *testing.T) {
 	table := tableModel{Rows: []tableRow{
 		{HasHeight: true, Height: 300},

@@ -5038,6 +5038,9 @@ func renderTableGraphicFrame(slidePart string, size slideSize, img *image.RGBA, 
 				textColor = color
 			}
 			textParagraphs := cell.TextParagraphs
+			if color, ok := tableCellTextColor(style); ok {
+				textParagraphs = tableTextParagraphsWithColor(textParagraphs, cell.Text, color)
+			}
 			if tableCellTextBold(style) {
 				textParagraphs = tableTextParagraphsWithBold(textParagraphs, cell.Text)
 			}
@@ -5497,6 +5500,25 @@ func tableTextParagraphsWithBold(paragraphs []textParagraph, fallbackText string
 		for runIndex := range runs {
 			runs[runIndex].Bold = true
 		}
+		output[paragraphIndex].Runs = runs
+	}
+	return output
+}
+
+func tableTextParagraphsWithColor(paragraphs []textParagraph, fallbackText string, textColor color.RGBA) []textParagraph {
+	if len(paragraphs) == 0 {
+		if strings.TrimSpace(fallbackText) == "" {
+			return nil
+		}
+		return []textParagraph{{Text: strings.TrimSpace(fallbackText), HasTextColor: true, TextColor: textColor}}
+	}
+	output := make([]textParagraph, len(paragraphs))
+	copy(output, paragraphs)
+	for paragraphIndex := range output {
+		output[paragraphIndex].HasTextColor = true
+		output[paragraphIndex].TextColor = textColor
+		runs := make([]textRun, len(output[paragraphIndex].Runs))
+		copy(runs, output[paragraphIndex].Runs)
 		output[paragraphIndex].Runs = runs
 	}
 	return output
