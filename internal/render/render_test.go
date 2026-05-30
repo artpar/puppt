@@ -4749,6 +4749,55 @@ func TestTextRenderLinesForElementUsesParagraphDefaultTabSize(t *testing.T) {
 	}
 }
 
+func TestTextRenderLinesForElementUsesHangingBulletTabStop(t *testing.T) {
+	faces := newFontFaceCache(false, "")
+	defer faces.Close()
+	face, err := faces.Get(2000, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	boldFace, err := faces.Get(2000, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines, err := textRenderLinesForElement(faces, face, boldFace, slideElement{
+		FontSize: 2000,
+		TextParagraphs: []textParagraph{{
+			Text:          "Identify the products",
+			FontSize:      2000,
+			Bullet:        "1.",
+			HasAutoNumber: true,
+			HasMarginLeft: true,
+			MarginLeft:    emuPerInch / 2,
+			HasIndent:     true,
+			Indent:        -emuPerInch / 2,
+			Runs:          []textRun{{Text: "Identify the products", FontSize: 2000}},
+		}},
+	}, 300)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(lines) != 1 || len(lines[0].Segments) < 3 {
+		t.Fatalf("expected one segmented numbered line, got %+v", lines)
+	}
+	if lines[0].XOffset != 0 || !lines[0].HasXOffset {
+		t.Fatalf("expected bullet to start at first-line offset, got %+v", lines[0])
+	}
+	if lines[0].Segments[0].Text != "1." || lines[0].Segments[1].Text != "\t" {
+		t.Fatalf("expected numbered bullet followed by a tab spacer, got %+v", lines[0].Segments[:2])
+	}
+	if len(lines[0].TabStops) == 0 || lines[0].TabStops[0] != 36 {
+		t.Fatalf("expected text margin tab stop at half inch, got %+v", lines[0].TabStops)
+	}
+	prefixWidth, err := measureStyledSegmentsAtDPI(faces, face, boldFace, lines[0].Segments[:2], defaultOutputDPI, lines[0].TabStops)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if prefixWidth != 36 {
+		t.Fatalf("expected bullet prefix to advance to hanging text margin, got %d", prefixWidth)
+	}
+}
+
 func TestTextRenderLinesForElementUsesRightMarginForWrapping(t *testing.T) {
 	faces := newFontFaceCache(false, "")
 	defer faces.Close()

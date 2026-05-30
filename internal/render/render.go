@@ -300,6 +300,7 @@ type slideElement struct {
 type textParagraph struct {
 	Text             string
 	Bullet           string
+	HasAutoNumber    bool
 	Level            int
 	TextAlign        string
 	FontFamily       string
@@ -2636,6 +2637,7 @@ func textParagraphsFromNodeWithTheme(node *xmlNode, theme themeColors) []textPar
 			if autoNum := firstChild(pPr, "buAutoNum"); autoNum != nil {
 				hasLocalBulletChoice = true
 				localAutoNumberApplied = true
+				paragraph.HasAutoNumber = true
 				if startAt := int(parseIntAttr(autoNum.Attrs, "startAt")); startAt > 0 {
 					autoCounters[paragraph.Level] = startAt
 				} else {
@@ -2676,6 +2678,7 @@ func textParagraphsFromNodeWithTheme(node *xmlNode, theme themeColors) []textPar
 				delete(autoCounters, level)
 			}
 			paragraph.Bullet = autoNumberBullet(style.AutoNumberType, autoCounters[paragraph.Level])
+			paragraph.HasAutoNumber = true
 		}
 		if endParaRPr := firstChild(paragraphNode, "endParaRPr"); endParaRPr != nil && !textRunsHaveRunMetricProperties(paragraph.Runs) {
 			applyRunPropertiesToParagraphDefaults(&paragraph, endParaRPr, theme)
@@ -7632,19 +7635,23 @@ func textRenderLinesForStyledParagraph(faces *fontFaceCache, face font.Face, bol
 	for index, chunk := range chunks {
 		linePrefix := prefix
 		lineOffset := firstOffset
+		lineTabStops := tabStops
 		if index > 0 {
 			linePrefix = hangingPrefix
 			lineOffset = hangingOffset
+		} else if tabStop, ok := hangingBulletTabStop(paragraph, firstOffset, hangingOffset); ok {
+			linePrefix = paragraph.Bullet + "\t"
+			lineTabStops = withAdditionalTabStop(tabStops, tabStop)
 		}
 		if wrap == "none" {
-			output = append(output, textRenderLineWithOffsets(textRenderLineFromSegmentsWithTabs(appendPrefixSegment(linePrefix, paragraph, runsToSegments(chunk, paragraph)), tabStops), lineOffset, rightOffset, hasOffset))
+			output = append(output, textRenderLineWithOffsets(textRenderLineFromSegmentsWithTabs(appendPrefixSegment(linePrefix, paragraph, runsToSegments(chunk, paragraph)), lineTabStops), lineOffset, rightOffset, hasOffset))
 			continue
 		}
 		if runsContainTabs(chunk) {
-			output = append(output, textRenderLineWithOffsets(textRenderLineFromSegmentsWithTabs(appendPrefixSegment(linePrefix, paragraph, runsToSegments(chunk, paragraph)), tabStops), lineOffset, rightOffset, hasOffset))
+			output = append(output, textRenderLineWithOffsets(textRenderLineFromSegmentsWithTabs(appendPrefixSegment(linePrefix, paragraph, runsToSegments(chunk, paragraph)), lineTabStops), lineOffset, rightOffset, hasOffset))
 			continue
 		}
-		lines, err := wrapStyledRuns(faces, face, boldFace, chunk, paragraph, linePrefix, hangingPrefix, maxWidth, firstOffset, hangingOffset, rightOffset, hasOffset, dpi)
+		lines, err := wrapStyledRuns(faces, face, boldFace, chunk, paragraph, linePrefix, hangingPrefix, maxWidth, firstOffset, hangingOffset, rightOffset, hasOffset, dpi, lineTabStops)
 		if err != nil {
 			return nil, err
 		}
@@ -7659,6 +7666,30 @@ func textRenderLinesForStyledParagraph(faces *fontFaceCache, face font.Face, bol
 		}
 	}
 	return output, nil
+}
+
+func hangingBulletTabStop(paragraph textParagraph, firstOffset int, hangingOffset int) (int, bool) {
+	if !paragraph.HasAutoNumber || paragraph.Bullet == "" || hangingOffset <= firstOffset {
+		return 0, false
+	}
+	if !paragraph.HasMarginLeft && !paragraph.HasIndent {
+		return 0, false
+	}
+	return hangingOffset - firstOffset, true
+}
+
+func withAdditionalTabStop(stops []int, stop int) []int {
+	if stop <= 0 {
+		return stops
+	}
+	for _, existing := range stops {
+		if existing == stop {
+			return stops
+		}
+	}
+	output := append(append([]int{}, stops...), stop)
+	sort.Ints(output)
+	return output
 }
 
 func paragraphPixelOffsets(paragraph textParagraph) (int, int, bool) {
@@ -8007,9 +8038,12 @@ func textLineBounds(bounds image.Rectangle, line textRenderLine) image.Rectangle
 	return adjusted
 }
 
-func wrapStyledRuns(faces *fontFaceCache, face font.Face, boldFace font.Face, runs []textRun, paragraph textParagraph, firstPrefix string, hangingPrefix string, maxWidth int, firstOffset int, hangingOffset int, rightOffset int, hasOffset bool, dpi int) ([]textRenderLine, error) {
+func wrapStyledRuns(faces *fontFaceCache, face font.Face, boldFace font.Face, runs []textRun, paragraph textParagraph, firstPrefix string, hangingPrefix string, maxWidth int, firstOffset int, hangingOffset int, rightOffset int, hasOffset bool, dpi int, tabStopsOverride ...[]int) ([]textRenderLine, error) {
 	fullLine := appendPrefixSegment(firstPrefix, paragraph, runsToSegments(runs, paragraph))
 	tabStops := paragraphTabStopsAtDPI(paragraph, dpi, maxWidth)
+	if len(tabStopsOverride) > 0 {
+		tabStops = tabStopsOverride[0]
+	}
 	fullLineWidth, err := measureStyledSegmentsAtDPI(faces, face, boldFace, fullLine, dpi, tabStops)
 	if err != nil {
 		return nil, err
