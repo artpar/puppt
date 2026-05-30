@@ -474,6 +474,38 @@ func TestRenderShapePaintsDashedRectOutline(t *testing.T) {
 	}
 }
 
+func TestRenderShapeUsesStrokeWidthForSystemDotRectOutline(t *testing.T) {
+	size := slideSize{CX: emuPerInch, CY: emuPerInch}
+	img := image.NewRGBA(image.Rect(0, 0, 96, 96))
+	element := slideElement{
+		Kind:         "sp",
+		Name:         "System Dot Rectangle",
+		PrstGeom:     "rect",
+		HasTransform: true,
+		ExtCX:        emuPerInch,
+		ExtCY:        emuPerInch,
+		HasLine:      true,
+		LineColor:    color.RGBA{B: 255, A: 255},
+		LineWidth:    19050,
+		LineDash:     "sysDot",
+	}
+
+	unsupported := renderShape("ppt/slides/slide1.xml", size, img, &element)
+	if len(unsupported) != 0 || !element.Rendered {
+		t.Fatalf("unexpected system-dot outline render result: unsupported=%+v rendered=%v", unsupported, element.Rendered)
+	}
+	for _, x := range []int{0, 1, 4, 5} {
+		if _, _, _, a := img.At(x, 0).RGBA(); a == 0 {
+			t.Fatalf("expected system-dot dash at x=%d", x)
+		}
+	}
+	for _, x := range []int{3, 7} {
+		if _, _, _, a := img.At(x, 0).RGBA(); a != 0 {
+			t.Fatalf("expected system-dot gap at x=%d, got alpha=%04x", x, a)
+		}
+	}
+}
+
 func TestRenderShapeHonorsCenteredRectLineAlignment(t *testing.T) {
 	size := slideSize{CX: emuPerInch, CY: emuPerInch}
 	img := image.NewRGBA(image.Rect(0, 0, 96, 96))

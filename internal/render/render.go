@@ -9606,10 +9606,10 @@ func drawStyledRectOutlineAligned(img *image.RGBA, rect image.Rectangle, c color
 		return
 	}
 	for i := 0; i < width; i++ {
-		drawStyledLine(img, rect.Min.X, rect.Min.Y+i, rect.Max.X-1, rect.Min.Y+i, c, 1, dash, "flat")
-		drawStyledLine(img, rect.Min.X, rect.Max.Y-1-i, rect.Max.X-1, rect.Max.Y-1-i, c, 1, dash, "flat")
-		drawStyledLine(img, rect.Min.X+i, rect.Min.Y, rect.Min.X+i, rect.Max.Y-1, c, 1, dash, "flat")
-		drawStyledLine(img, rect.Max.X-1-i, rect.Min.Y, rect.Max.X-1-i, rect.Max.Y-1, c, 1, dash, "flat")
+		drawStyledLineWithPatternWidth(img, rect.Min.X, rect.Min.Y+i, rect.Max.X-1, rect.Min.Y+i, c, 1, dash, "flat", width)
+		drawStyledLineWithPatternWidth(img, rect.Min.X, rect.Max.Y-1-i, rect.Max.X-1, rect.Max.Y-1-i, c, 1, dash, "flat", width)
+		drawStyledLineWithPatternWidth(img, rect.Min.X+i, rect.Min.Y, rect.Min.X+i, rect.Max.Y-1, c, 1, dash, "flat", width)
+		drawStyledLineWithPatternWidth(img, rect.Max.X-1-i, rect.Min.Y, rect.Max.X-1-i, rect.Max.Y-1, c, 1, dash, "flat", width)
 	}
 }
 
@@ -9904,22 +9904,30 @@ func drawLine(img *image.RGBA, x0 int, y0 int, x1 int, y1 int, c color.RGBA, wid
 }
 
 func drawStyledLine(img *image.RGBA, x0 int, y0 int, x1 int, y1 int, c color.RGBA, width int, dash string, cap string) {
+	drawStyledLineWithPatternWidth(img, x0, y0, x1, y1, c, width, dash, cap, width)
+}
+
+func drawStyledLineWithPatternWidth(img *image.RGBA, x0 int, y0 int, x1 int, y1 int, c color.RGBA, width int, dash string, cap string, patternWidth int) {
 	if cap == "" || cap == "sq" {
 		if dash == "" {
 			drawLine(img, x0, y0, x1, y1, c, width)
 			return
 		}
-		drawDashedLineLegacy(img, x0, y0, x1, y1, c, width, dash)
+		drawDashedLineLegacyWithPatternWidth(img, x0, y0, x1, y1, c, width, dash, patternWidth)
 		return
 	}
 	if dash == "" {
 		drawLineWithCap(img, x0, y0, x1, y1, c, width, cap)
 		return
 	}
-	drawDashedLine(img, x0, y0, x1, y1, c, width, dash, cap)
+	drawDashedLineWithPatternWidth(img, x0, y0, x1, y1, c, width, dash, cap, patternWidth)
 }
 
 func drawDashedLineLegacy(img *image.RGBA, x0 int, y0 int, x1 int, y1 int, c color.RGBA, width int, dash string) {
+	drawDashedLineLegacyWithPatternWidth(img, x0, y0, x1, y1, c, width, dash, width)
+}
+
+func drawDashedLineLegacyWithPatternWidth(img *image.RGBA, x0 int, y0 int, x1 int, y1 int, c color.RGBA, width int, dash string, patternWidth int) {
 	if width < 1 {
 		width = 1
 	}
@@ -9928,7 +9936,7 @@ func drawDashedLineLegacy(img *image.RGBA, x0 int, y0 int, x1 int, y1 int, c col
 		setThickPixel(img, x0, y0, c, width)
 		return
 	}
-	pattern := lineDashPatternPixels(dash, width)
+	pattern := lineDashPatternPixels(dash, patternWidth)
 	if len(pattern) == 0 {
 		drawLine(img, x0, y0, x1, y1, c, width)
 		return
@@ -9953,6 +9961,10 @@ func drawDashedLineLegacy(img *image.RGBA, x0 int, y0 int, x1 int, y1 int, c col
 }
 
 func drawDashedLine(img *image.RGBA, x0 int, y0 int, x1 int, y1 int, c color.RGBA, width int, dash string, cap string) {
+	drawDashedLineWithPatternWidth(img, x0, y0, x1, y1, c, width, dash, cap, width)
+}
+
+func drawDashedLineWithPatternWidth(img *image.RGBA, x0 int, y0 int, x1 int, y1 int, c color.RGBA, width int, dash string, cap string, patternWidth int) {
 	if width < 1 {
 		width = 1
 	}
@@ -9961,7 +9973,7 @@ func drawDashedLine(img *image.RGBA, x0 int, y0 int, x1 int, y1 int, c color.RGB
 		drawLineWithCap(img, x0, y0, x1, y1, c, width, cap)
 		return
 	}
-	pattern := lineDashPatternPixels(dash, width)
+	pattern := lineDashPatternPixels(dash, patternWidth)
 	if len(pattern) == 0 {
 		drawLineWithCap(img, x0, y0, x1, y1, c, width, cap)
 		return
