@@ -5584,6 +5584,15 @@ func fitNormalAutofitElement(element slideElement, bounds image.Rectangle, dpiOv
 	}
 	bestScale := startScale
 	maxLines := normalAutofitMaxSoftLines(element)
+	if element.LineSpacingReductionPct > 0 {
+		withoutLineSpacingReduction := element
+		withoutLineSpacingReduction.LineSpacingReductionPct = 0
+		withoutLineSpacingReduction.HasLineSpacingReductionPct = false
+		if textHeightFitsAtScale(withoutLineSpacingReduction, bounds, startScale, maxLines, dpi) {
+			element.LineSpacingReductionPct = 0
+			element.HasLineSpacingReductionPct = false
+		}
+	}
 	for _, scale := range normalAutofitProbeScales(startScale) {
 		if textFitsAtScale(element, bounds, scale, maxLines, dpi) {
 			bestScale = scale
@@ -5706,6 +5715,34 @@ func drawJustifiedTextSegment(drawer *font.Drawer, face font.Face, text string, 
 		x += measureString(face, chunk)
 	}
 	return x
+}
+
+func textHeightFitsAtScale(element slideElement, bounds image.Rectangle, scale int, maxLines int, dpi int) bool {
+	candidate := element
+	candidate.FontScalePct = scale
+	candidate = scaledTextElement(candidate, dpi)
+	faces := newFontFaceCacheWithDPI(candidate.Italic, candidate.FontFamily, dpi, candidate.FontPointScale)
+	defer faces.Close()
+	face, err := faces.Get(candidate.FontSize, false)
+	if err != nil {
+		return false
+	}
+	boldFace, err := faces.Get(candidate.FontSize, true)
+	if err != nil {
+		return false
+	}
+	lines, err := textRenderLinesForElement(faces, face, boldFace, candidate, bounds.Dx(), dpi)
+	if err != nil {
+		return false
+	}
+	if maxLines > 0 && len(lines) > maxLines {
+		return false
+	}
+	measured, err := measureTextRenderLines(faces, lines, candidate.FontSize)
+	if err != nil {
+		return false
+	}
+	return measuredTextHeight(measured) <= bounds.Dy()
 }
 
 func textFitsAtScale(element slideElement, bounds image.Rectangle, scale int, maxLines int, dpi int) bool {

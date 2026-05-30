@@ -5309,6 +5309,29 @@ func TestFitNormalAutofitElementCanScaleBelowFiftyPercent(t *testing.T) {
 	}
 }
 
+func TestFitNormalAutofitElementSkipsLineSpacingReductionWhenTextFitsVertically(t *testing.T) {
+	got := fitNormalAutofitElement(slideElement{
+		HasNormAutofit:             true,
+		HasLineSpacingReductionPct: true,
+		LineSpacingReductionPct:    10000,
+		FontFamily:                 "Carlito",
+		FontSize:                   2400,
+		TextWrap:                   "square",
+		TextParagraphs: []textParagraph{{
+			Text:           "Short body",
+			FontSize:       2400,
+			LineSpacingPct: 90000,
+			Runs: []textRun{{
+				Text:     "Short body",
+				FontSize: 2400,
+			}},
+		}},
+	}, image.Rect(0, 0, 500, 100))
+	if got.HasLineSpacingReductionPct || got.LineSpacingReductionPct != 0 {
+		t.Fatalf("line spacing reduction should be unused when text already fits vertically: %+v", got)
+	}
+}
+
 func TestNormalAutofitMaxSoftLinesHonorsWrapNoneAndHardBreaks(t *testing.T) {
 	if got := normalAutofitMaxSoftLines(slideElement{
 		TextWrap: "square",
