@@ -4359,21 +4359,21 @@ func drawTableCellBorder(img *image.RGBA, size slideSize, tableRect image.Rectan
 	width := emuLineWidthToPixels(border.Width, size.CX, img.Bounds().Dx())
 	switch edge {
 	case tableEdgeTop:
-		drawTableBorderLine(img, rect.Min.X, rect.Min.Y, rect.Max.X-1, rect.Min.Y, border.Color, width, border.Dash, border.Compound, true)
+		drawTableBorderLine(img, rect.Min.X, rect.Min.Y, rect.Max.X-1, rect.Min.Y, border.Color, width, border.Dash, border.Compound, border.Cap, true)
 	case tableEdgeBottom:
 		y := rect.Max.Y
 		if y >= tableRect.Max.Y {
 			y = rect.Max.Y - 1
 		}
-		drawTableBorderLine(img, rect.Min.X, y, rect.Max.X-1, y, border.Color, width, border.Dash, border.Compound, true)
+		drawTableBorderLine(img, rect.Min.X, y, rect.Max.X-1, y, border.Color, width, border.Dash, border.Compound, border.Cap, true)
 	case tableEdgeLeft:
-		drawTableBorderLine(img, rect.Min.X, rect.Min.Y, rect.Min.X, rect.Max.Y-1, border.Color, width, border.Dash, border.Compound, false)
+		drawTableBorderLine(img, rect.Min.X, rect.Min.Y, rect.Min.X, rect.Max.Y-1, border.Color, width, border.Dash, border.Compound, border.Cap, false)
 	case tableEdgeRight:
 		x := rect.Max.X
 		if x >= tableRect.Max.X {
 			x = rect.Max.X - 1
 		}
-		drawTableBorderLine(img, x, rect.Min.Y, x, rect.Max.Y-1, border.Color, width, border.Dash, border.Compound, false)
+		drawTableBorderLine(img, x, rect.Min.Y, x, rect.Max.Y-1, border.Color, width, border.Dash, border.Compound, border.Cap, false)
 	}
 }
 
@@ -4381,19 +4381,19 @@ func isSupportedTableCompoundLine(compound string) bool {
 	return compound == "" || compound == "sng" || compound == "dbl"
 }
 
-func drawTableBorderLine(img *image.RGBA, x0 int, y0 int, x1 int, y1 int, c color.RGBA, width int, dash string, compound string, horizontal bool) {
+func drawTableBorderLine(img *image.RGBA, x0 int, y0 int, x1 int, y1 int, c color.RGBA, width int, dash string, compound string, cap string, horizontal bool) {
 	if compound != "dbl" {
-		drawStyledLine(img, x0, y0, x1, y1, c, width, dash, "")
+		drawStyledLine(img, x0, y0, x1, y1, c, width, dash, cap)
 		return
 	}
 	strokeWidth, firstOffset, secondOffset := doubleCompoundLineMetrics(width)
 	if horizontal {
-		drawStyledLine(img, x0, y0+firstOffset, x1, y1+firstOffset, c, strokeWidth, dash, "")
-		drawStyledLine(img, x0, y0+secondOffset, x1, y1+secondOffset, c, strokeWidth, dash, "")
+		drawStyledLine(img, x0, y0+firstOffset, x1, y1+firstOffset, c, strokeWidth, dash, cap)
+		drawStyledLine(img, x0, y0+secondOffset, x1, y1+secondOffset, c, strokeWidth, dash, cap)
 		return
 	}
-	drawStyledLine(img, x0+firstOffset, y0, x1+firstOffset, y1, c, strokeWidth, dash, "")
-	drawStyledLine(img, x0+secondOffset, y0, x1+secondOffset, y1, c, strokeWidth, dash, "")
+	drawStyledLine(img, x0+firstOffset, y0, x1+firstOffset, y1, c, strokeWidth, dash, cap)
+	drawStyledLine(img, x0+secondOffset, y0, x1+secondOffset, y1, c, strokeWidth, dash, cap)
 }
 
 func doubleCompoundLineMetrics(width int) (int, int, int) {

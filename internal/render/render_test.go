@@ -1772,6 +1772,27 @@ func TestRenderTableCellBorderPaintsDoubleCompoundLine(t *testing.T) {
 	}
 }
 
+func TestRenderTableCellBorderHonorsFlatLineCap(t *testing.T) {
+	size := slideSize{CX: emuPerInch, CY: emuPerInch}
+	img := image.NewRGBA(image.Rect(0, 0, 32, 32))
+	border := tableCellBorder{
+		Specified: true,
+		HasLine:   true,
+		Color:     color.RGBA{R: 0xff, A: 0xff},
+		Width:     57150,
+		Cap:       "flat",
+	}
+
+	drawTableCellBorder(img, size, image.Rect(0, 0, 32, 32), image.Rect(10, 12, 24, 20), border, tableEdgeTop)
+
+	if _, _, _, a := img.At(10, 12).RGBA(); a == 0 {
+		t.Fatal("expected flat-cap border to paint its endpoint")
+	}
+	if _, _, _, a := img.At(7, 12).RGBA(); a != 0 {
+		t.Fatalf("flat-cap table border should not extend before its endpoint, got alpha=%04x", a)
+	}
+}
+
 func TestTableCellFillDirectNoFillSuppressesStyleFill(t *testing.T) {
 	style := tableStyleRegion{HasFill: true, FillColor: color.RGBA{R: 0x11, G: 0x22, B: 0x33, A: 0xff}}
 	if _, ok := tableCellFill(style, tableCell{NoFill: true}); ok {
