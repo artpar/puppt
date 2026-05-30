@@ -1522,7 +1522,7 @@ func TestParseTableStylesReadsDirectTableTextFontAndItalic(t *testing.T) {
 				</a:tcTxStyle>
 			</a:wholeTbl>
 		</a:tblStyle>
-	</a:tblStyleLst>`), defaultThemeColors(), themeFonts{MinorLatin: "Calibri"})
+	</a:tblStyleLst>`), defaultThemeColors(), themeFonts{MinorLatin: "Calibri"}, themeLineStyles{})
 
 	style, ok := styles.Styles[normalizedTableStyleID("{STYLE-DIRECT}")]
 	if !ok {
@@ -1534,6 +1534,35 @@ func TestParseTableStylesReadsDirectTableTextFontAndItalic(t *testing.T) {
 	}
 	if !whole.HasTextColor || whole.TextColor != (color.RGBA{R: 0x12, G: 0x34, B: 0x56, A: 0xff}) {
 		t.Fatalf("unexpected direct table text color: %+v", whole)
+	}
+}
+
+func TestParseTableStylesResolvesThemeLineReferences(t *testing.T) {
+	lineStyles := parseThemeLineStyles([]byte(`<a:theme xmlns:a="a">
+		<a:themeElements><a:fmtScheme name="Office"><a:lnStyleLst>
+			<a:ln w="9525"><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:ln>
+			<a:ln w="25400"><a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:prstDash val="dash"/></a:ln>
+		</a:lnStyleLst></a:fmtScheme></a:themeElements>
+	</a:theme>`))
+	styles := parseTableStyles([]byte(`<a:tblStyleLst xmlns:a="a">
+		<a:tblStyle styleId="{STYLE-LINE}" styleName="Theme Line Style">
+			<a:wholeTbl>
+				<a:tcStyle><a:tcBdr>
+					<a:left><a:lnRef idx="2"><a:schemeClr val="accent2"/></a:lnRef></a:left>
+					<a:right><a:lnRef idx="0"><a:schemeClr val="accent2"/></a:lnRef></a:right>
+				</a:tcBdr></a:tcStyle>
+			</a:wholeTbl>
+		</a:tblStyle>
+	</a:tblStyleLst>`), themeColors{"accent2": {R: 12, G: 34, B: 56, A: 255}}, themeFonts{}, lineStyles)
+
+	style := styles.Styles[normalizedTableStyleID("{STYLE-LINE}")]
+	left := style.Regions["wholeTbl"].Borders.Left
+	if !left.Specified || !left.HasLine || left.Width != 25400 || left.Dash != "dash" || left.Color != (color.RGBA{R: 12, G: 34, B: 56, A: 255}) {
+		t.Fatalf("unexpected resolved lnRef table border: %+v", left)
+	}
+	right := style.Regions["wholeTbl"].Borders.Right
+	if !right.Specified || !right.NoLine {
+		t.Fatalf("expected idx=0 line reference to suppress border, got %+v", right)
 	}
 }
 
@@ -1567,6 +1596,27 @@ func TestResolvedTableCellStyleAppliesGenericRegionPrecedence(t *testing.T) {
 	band2 := resolvedTableCellStyle(table, styles, 2, 1)
 	if !band2.HasFill || band2.FillColor != (color.RGBA{R: 0xdd, G: 0xee, B: 0xff, A: 0xff}) {
 		t.Fatalf("unexpected band2 style: %+v", band2)
+	}
+}
+
+func TestTableEdgeBorderUsesInsideBordersForInternalEdges(t *testing.T) {
+	right := tableCellBorder{Specified: true, HasLine: true, Color: color.RGBA{R: 200, A: 255}}
+	bottom := tableCellBorder{Specified: true, HasLine: true, Color: color.RGBA{G: 200, A: 255}}
+	insideV := tableCellBorder{Specified: true, NoLine: true}
+	insideH := tableCellBorder{Specified: true, NoLine: true}
+	borders := tableStyleBorders{Right: right, Bottom: bottom, InsideV: insideV, InsideH: insideH}
+
+	if got := tableEdgeBorder(borders, tableEdgeRight, 0, 0, 2, 2); !got.NoLine {
+		t.Fatalf("expected internal right edge to use insideV, got %+v", got)
+	}
+	if got := tableEdgeBorder(borders, tableEdgeBottom, 0, 0, 2, 2); !got.NoLine {
+		t.Fatalf("expected internal bottom edge to use insideH, got %+v", got)
+	}
+	if got := tableEdgeBorder(borders, tableEdgeRight, 0, 1, 2, 2); got != right {
+		t.Fatalf("expected outside right edge to use right border, got %+v", got)
+	}
+	if got := tableEdgeBorder(borders, tableEdgeBottom, 1, 0, 2, 2); got != bottom {
+		t.Fatalf("expected outside bottom edge to use bottom border, got %+v", got)
 	}
 }
 
@@ -1788,7 +1838,7 @@ func testTableStyleSet(t *testing.T) tableStyleSet {
 				</a:tcStyle>
 			</a:firstRow>
 		</a:tblStyle>
-	</a:tblStyleLst>`), defaultThemeColors(), themeFonts{MinorLatin: "Calibri"})
+	</a:tblStyleLst>`), defaultThemeColors(), themeFonts{MinorLatin: "Calibri"}, themeLineStyles{})
 	if len(styles.Styles) == 0 {
 		t.Fatal("expected test table style XML to parse")
 	}

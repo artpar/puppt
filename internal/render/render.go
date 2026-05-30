@@ -152,6 +152,10 @@ type themeFillStyles struct {
 	Styles []*xmlNode
 }
 
+type themeLineStyles struct {
+	Styles []*xmlNode
+}
+
 type backgroundStyleResolver func(idx int64, placeholderColor color.RGBA) (backgroundPaint, bool)
 
 type slideElement struct {
@@ -471,7 +475,8 @@ func Render(ctx context.Context, inputPath string, options Options) (model.Comma
 	fontsForPart := func(part string) themeFonts {
 		return themeFontsForPart(pkg, part, fonts)
 	}
-	tableStyles := packageTableStyles(pkg, theme, fonts)
+	lineStyles := packageThemeLineStyles(pkg)
+	tableStyles := packageTableStyles(pkg, theme, fonts, lineStyles)
 	renderParts := inheritedRenderParts(pkg, slidePart)
 	paintParts := visibleRenderParts(pkg, slidePart, renderParts)
 	placeholderSources := inheritedPlaceholderSourcesWithThemeResolver(pkg, renderParts, slidePart, themeForPart)
@@ -1189,14 +1194,14 @@ func parseTableLineNode(line *xmlNode, theme themeColors, specified bool) tableC
 	return border
 }
 
-func packageTableStyles(pkg *pptx.Package, theme themeColors, fonts themeFonts) tableStyleSet {
+func packageTableStyles(pkg *pptx.Package, theme themeColors, fonts themeFonts, lineStyles themeLineStyles) tableStyleSet {
 	if data, ok := pkg.Parts["ppt/tableStyles.xml"]; ok {
-		return parseTableStyles(data, theme, fonts)
+		return parseTableStyles(data, theme, fonts, lineStyles)
 	}
 	return tableStyleSet{}
 }
 
-func parseTableStyles(data []byte, theme themeColors, fonts themeFonts) tableStyleSet {
+func parseTableStyles(data []byte, theme themeColors, fonts themeFonts, lineStyles themeLineStyles) tableStyleSet {
 	root, err := parseXMLNode(data)
 	if err != nil {
 		return tableStyleSet{}
@@ -1215,7 +1220,7 @@ func parseTableStyles(data []byte, theme themeColors, fonts themeFonts) tableSty
 			if !isTableStyleRegionName(child.Name) {
 				continue
 			}
-			style.Regions[child.Name] = parseTableStyleRegion(child, theme, fonts)
+			style.Regions[child.Name] = parseTableStyleRegion(child, theme, fonts, lineStyles)
 		}
 		if style.ID != "" {
 			styles.Styles[normalizedTableStyleID(style.ID)] = style
@@ -1233,7 +1238,7 @@ func isTableStyleRegionName(name string) bool {
 	}
 }
 
-func parseTableStyleRegion(node *xmlNode, theme themeColors, fonts themeFonts) tableStyleRegion {
+func parseTableStyleRegion(node *xmlNode, theme themeColors, fonts themeFonts, lineStyles themeLineStyles) tableStyleRegion {
 	var region tableStyleRegion
 	if textStyle := firstChild(node, "tcTxStyle"); textStyle != nil {
 		if rawBold := attrValue(textStyle.Attrs, "b"); rawBold != "" {
@@ -1273,7 +1278,7 @@ func parseTableStyleRegion(node *xmlNode, theme themeColors, fonts themeFonts) t
 			}
 		}
 		if borders := firstChild(cellStyle, "tcBdr"); borders != nil {
-			region.Borders = parseTableStyleBorders(borders, theme)
+			region.Borders = parseTableStyleBorders(borders, theme, lineStyles)
 		}
 	}
 	return region
@@ -1304,27 +1309,47 @@ func tableStyleDirectFontFamily(textStyle *xmlNode) string {
 	return typefaceFromChild(font, "cs")
 }
 
-func parseTableStyleBorders(node *xmlNode, theme themeColors) tableStyleBorders {
+func parseTableStyleBorders(node *xmlNode, theme themeColors, lineStyles themeLineStyles) tableStyleBorders {
 	return tableStyleBorders{
-		Left:    parseTableStyleBorder(node, "left", theme),
-		Right:   parseTableStyleBorder(node, "right", theme),
-		Top:     parseTableStyleBorder(node, "top", theme),
-		Bottom:  parseTableStyleBorder(node, "bottom", theme),
-		InsideH: parseTableStyleBorder(node, "insideH", theme),
-		InsideV: parseTableStyleBorder(node, "insideV", theme),
+		Left:    parseTableStyleBorder(node, "left", theme, lineStyles),
+		Right:   parseTableStyleBorder(node, "right", theme, lineStyles),
+		Top:     parseTableStyleBorder(node, "top", theme, lineStyles),
+		Bottom:  parseTableStyleBorder(node, "bottom", theme, lineStyles),
+		InsideH: parseTableStyleBorder(node, "insideH", theme, lineStyles),
+		InsideV: parseTableStyleBorder(node, "insideV", theme, lineStyles),
 	}
 }
 
-func parseTableStyleBorder(parent *xmlNode, name string, theme themeColors) tableCellBorder {
+func parseTableStyleBorder(parent *xmlNode, name string, theme themeColors, lineStyles themeLineStyles) tableCellBorder {
 	edge := firstChild(parent, name)
 	if edge == nil {
 		return tableCellBorder{}
 	}
 	line := firstChild(edge, "ln")
 	if line == nil {
+		if lineRef := firstChild(edge, "lnRef"); lineRef != nil {
+			return parseTableStyleLineReference(lineRef, theme, lineStyles)
+		}
 		return tableCellBorder{Specified: true, NoLine: true}
 	}
 	return parseTableLineNode(line, theme, true)
+}
+
+func parseTableStyleLineReference(lineRef *xmlNode, theme themeColors, lineStyles themeLineStyles) tableCellBorder {
+	if attrValue(lineRef.Attrs, "idx") == "0" {
+		return tableCellBorder{Specified: true, NoLine: true}
+	}
+	placeholderColor, hasPlaceholderColor := colorFromColorNodeWithTheme(lineRef, theme)
+	if hasPlaceholderColor {
+		if border, ok := lineStyles.Style(parseIntAttr(lineRef.Attrs, "idx"), themeWithPlaceholderColor(theme, placeholderColor)); ok {
+			return border
+		}
+		return tableCellBorder{Specified: true, HasLine: true, Color: placeholderColor, Width: 9525}
+	}
+	if border, ok := lineStyles.Style(parseIntAttr(lineRef.Attrs, "idx"), theme); ok {
+		return border
+	}
+	return tableCellBorder{Specified: true, NoLine: true}
 }
 
 func boolAttrOn(value string) bool {
@@ -3568,6 +3593,22 @@ func packageThemeFillStyles(pkg *pptx.Package) themeFillStyles {
 	return themeFillStyles{}
 }
 
+func packageThemeLineStyles(pkg *pptx.Package) themeLineStyles {
+	paths := make([]string, 0, len(pkg.Parts))
+	for part := range pkg.Parts {
+		if strings.HasPrefix(part, "ppt/theme/") && strings.HasSuffix(part, ".xml") {
+			paths = append(paths, part)
+		}
+	}
+	sort.Strings(paths)
+	for _, part := range paths {
+		if styles := parseThemeLineStyles(pkg.Parts[part]); len(styles.Styles) > 0 {
+			return styles
+		}
+	}
+	return themeLineStyles{}
+}
+
 func parseThemeFillStyles(data []byte) themeFillStyles {
 	root, err := parseXMLNode(data)
 	if err != nil {
@@ -3580,6 +3621,18 @@ func parseThemeFillStyles(data []byte) themeFillStyles {
 	return themeFillStyles{Styles: list.Children}
 }
 
+func parseThemeLineStyles(data []byte) themeLineStyles {
+	root, err := parseXMLNode(data)
+	if err != nil {
+		return themeLineStyles{}
+	}
+	list := firstDescendant(root, "lnStyleLst")
+	if list == nil {
+		return themeLineStyles{}
+	}
+	return themeLineStyles{Styles: childrenByName(list, "ln")}
+}
+
 func (styles themeFillStyles) Style(idx int64, theme themeColors) (backgroundPaint, bool) {
 	if idx <= 0 {
 		return backgroundPaint{}, false
@@ -3589,6 +3642,21 @@ func (styles themeFillStyles) Style(idx int64, theme themeColors) (backgroundPai
 		return backgroundPaint{}, false
 	}
 	return backgroundPaintFromFillNode(styles.Styles[styleIndex], theme)
+}
+
+func (styles themeLineStyles) Style(idx int64, theme themeColors) (tableCellBorder, bool) {
+	if idx <= 0 {
+		return tableCellBorder{}, false
+	}
+	styleIndex := int(idx - 1)
+	if styleIndex < 0 || styleIndex >= len(styles.Styles) {
+		return tableCellBorder{}, false
+	}
+	border := parseTableLineNode(styles.Styles[styleIndex], theme, true)
+	if border.NoLine || border.HasLine {
+		return border, true
+	}
+	return tableCellBorder{}, false
 }
 
 func parseThemeEffectStyles(data []byte) themeEffectStyles {
@@ -4038,6 +4106,8 @@ func drawTableCellFill(img *image.RGBA, rect image.Rectangle, fill color.RGBA) {
 }
 
 func drawTableBorders(img *image.RGBA, target image.Rectangle, size slideSize, table tableModel, tableStyles tableStyleSet, columnOffsets []int, rowOffsets []int) {
+	rowCount := len(table.Rows)
+	columnCount := tableColumnCount(table)
 	for rowIndex, row := range table.Rows {
 		for columnIndex, cell := range row.Cells {
 			if cell.HMerge || cell.VMerge || columnIndex+1 >= len(columnOffsets) || rowIndex+1 >= len(rowOffsets) {
@@ -4048,10 +4118,10 @@ func drawTableBorders(img *image.RGBA, target image.Rectangle, size slideSize, t
 				continue
 			}
 			style := resolvedTableCellStyle(table, tableStyles, rowIndex, columnIndex)
-			drawTableCellBorderWithDefault(img, size, target, cellRect, cell.BorderTop, tableEdgeTop, tableEdgeBorder(style.Borders, tableEdgeTop, rowIndex, columnIndex), true)
-			drawTableCellBorderWithDefault(img, size, target, cellRect, cell.BorderBottom, tableEdgeBottom, tableEdgeBorder(style.Borders, tableEdgeBottom, rowIndex, columnIndex), true)
-			drawTableCellBorderWithDefault(img, size, target, cellRect, cell.BorderLeft, tableEdgeLeft, tableEdgeBorder(style.Borders, tableEdgeLeft, rowIndex, columnIndex), true)
-			drawTableCellBorderWithDefault(img, size, target, cellRect, cell.BorderRight, tableEdgeRight, tableEdgeBorder(style.Borders, tableEdgeRight, rowIndex, columnIndex), true)
+			drawTableCellBorderWithDefault(img, size, target, cellRect, cell.BorderTop, tableEdgeTop, tableEdgeBorder(style.Borders, tableEdgeTop, rowIndex, columnIndex, rowCount, columnCount), true)
+			drawTableCellBorderWithDefault(img, size, target, cellRect, cell.BorderBottom, tableEdgeBottom, tableEdgeBorder(style.Borders, tableEdgeBottom, rowIndex, columnIndex, rowCount, columnCount), true)
+			drawTableCellBorderWithDefault(img, size, target, cellRect, cell.BorderLeft, tableEdgeLeft, tableEdgeBorder(style.Borders, tableEdgeLeft, rowIndex, columnIndex, rowCount, columnCount), true)
+			drawTableCellBorderWithDefault(img, size, target, cellRect, cell.BorderRight, tableEdgeRight, tableEdgeBorder(style.Borders, tableEdgeRight, rowIndex, columnIndex, rowCount, columnCount), true)
 		}
 	}
 }
@@ -4063,7 +4133,7 @@ const (
 	tableEdgeRight
 )
 
-func tableEdgeBorder(borders tableStyleBorders, edge int, rowIndex int, columnIndex int) tableCellBorder {
+func tableEdgeBorder(borders tableStyleBorders, edge int, rowIndex int, columnIndex int, rowCount int, columnCount int) tableCellBorder {
 	switch edge {
 	case tableEdgeTop:
 		if rowIndex > 0 && borders.InsideH.Specified {
@@ -4073,6 +4143,11 @@ func tableEdgeBorder(borders tableStyleBorders, edge int, rowIndex int, columnIn
 			return borders.Top
 		}
 	case tableEdgeBottom:
+		if rowCount <= 0 || rowIndex < rowCount-1 {
+			if borders.InsideH.Specified {
+				return borders.InsideH
+			}
+		}
 		if borders.Bottom.Specified {
 			return borders.Bottom
 		}
@@ -4087,6 +4162,11 @@ func tableEdgeBorder(borders tableStyleBorders, edge int, rowIndex int, columnIn
 			return borders.Left
 		}
 	case tableEdgeRight:
+		if columnCount <= 0 || columnIndex < columnCount-1 {
+			if borders.InsideV.Specified {
+				return borders.InsideV
+			}
+		}
 		if borders.Right.Specified {
 			return borders.Right
 		}
