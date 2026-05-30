@@ -5386,6 +5386,56 @@ func TestParseSlideElementAppliesStyleFillAndLineFallbacks(t *testing.T) {
 	}
 }
 
+func TestParseSlideElementMergesLocalLinePropertiesWithStyleLineRef(t *testing.T) {
+	root, err := parseXMLNode([]byte(`<p:sp xmlns:p="p" xmlns:a="a">
+	  <p:nvSpPr><p:cNvPr id="7" name="Dashed Rectangle"/></p:nvSpPr>
+	  <p:spPr>
+	    <a:xfrm><a:off x="0" y="0"/><a:ext cx="1" cy="1"/></a:xfrm>
+	    <a:prstGeom prst="rect"><a:avLst/></a:prstGeom>
+	    <a:ln w="22225" cap="flat" algn="ctr"><a:prstDash val="sysDot"/></a:ln>
+	  </p:spPr>
+	  <p:style><a:lnRef idx="1"><a:schemeClr val="accent1"/></a:lnRef></p:style>
+	</p:sp>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	lineStyles := parseThemeLineStyles([]byte(`<a:theme xmlns:a="a"><a:themeElements><a:fmtScheme><a:lnStyleLst>
+	  <a:ln w="38100" cap="rnd"><a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:prstDash val="dash"/></a:ln>
+	</a:lnStyleLst></a:fmtScheme></a:themeElements></a:theme>`))
+	theme := themeColors{"accent1": {R: 0, G: 0x70, B: 0xC0, A: 255}}
+
+	got := parseSlideElementNodeWithThemeEffectsAndFills(root, renderTransform{ScaleX: 1, ScaleY: 1}, theme, themeEffectStyles{}, themeFillStyles{}, lineStyles)
+	if !got.HasLine || got.LineColor != theme["accent1"] {
+		t.Fatalf("expected style lineRef to provide line color, got %+v", got)
+	}
+	if got.LineWidth != 22225 || got.LineDash != "sysDot" || got.LineCap != "flat" || got.LineAlign != "ctr" {
+		t.Fatalf("expected local line width/dash/cap/align to override style line, got %+v", got)
+	}
+}
+
+func TestParseSlideElementLocalSolidDashSuppressesStyleDash(t *testing.T) {
+	root, err := parseXMLNode([]byte(`<p:sp xmlns:p="p" xmlns:a="a">
+	  <p:nvSpPr><p:cNvPr id="7" name="Solid Rectangle"/></p:nvSpPr>
+	  <p:spPr>
+	    <a:xfrm><a:off x="0" y="0"/><a:ext cx="1" cy="1"/></a:xfrm>
+	    <a:prstGeom prst="rect"><a:avLst/></a:prstGeom>
+	    <a:ln><a:prstDash val="solid"/></a:ln>
+	  </p:spPr>
+	  <p:style><a:lnRef idx="1"><a:schemeClr val="accent1"/></a:lnRef></p:style>
+	</p:sp>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	lineStyles := parseThemeLineStyles([]byte(`<a:theme xmlns:a="a"><a:themeElements><a:fmtScheme><a:lnStyleLst>
+	  <a:ln w="38100"><a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:prstDash val="dash"/></a:ln>
+	</a:lnStyleLst></a:fmtScheme></a:themeElements></a:theme>`))
+
+	got := parseSlideElementNodeWithThemeEffectsAndFills(root, renderTransform{ScaleX: 1, ScaleY: 1}, themeColors{"accent1": {A: 255}}, themeEffectStyles{}, themeFillStyles{}, lineStyles)
+	if !got.HasLine || got.LineDash != "" {
+		t.Fatalf("explicit solid dash should suppress inherited style dash, got %+v", got)
+	}
+}
+
 func TestParseSlideElementResolvesThemeGradientFillRef(t *testing.T) {
 	root, err := parseXMLNode([]byte(`<p:sp xmlns:p="p" xmlns:a="a">
 	  <p:nvSpPr><p:cNvPr id="2" name="Gradient Rect"/></p:nvSpPr>

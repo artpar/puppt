@@ -210,9 +210,13 @@ type slideElement struct {
 	LineColor                  color.RGBA
 	NoLine                     bool
 	LineWidth                  int64
+	HasLineWidth               bool
 	LineDash                   string
+	HasLineDash                bool
 	LineCap                    string
+	HasLineCap                 bool
 	LineAlign                  string
+	HasLineAlign               bool
 	HasLineMarker              bool
 	HeadLineMarker             string
 	HeadLineMarkerWidth        string
@@ -1426,9 +1430,18 @@ func parseShapeProperties(spPr *xmlNode, transform renderTransform, element *sli
 		}
 	}
 	if ln := firstChild(spPr, "ln"); ln != nil {
-		element.LineWidth = parseIntAttr(ln.Attrs, "w")
-		element.LineCap = attrValue(ln.Attrs, "cap")
-		element.LineAlign = attrValue(ln.Attrs, "algn")
+		if attrValue(ln.Attrs, "w") != "" {
+			element.HasLineWidth = true
+			element.LineWidth = parseIntAttr(ln.Attrs, "w")
+		}
+		if cap := attrValue(ln.Attrs, "cap"); cap != "" {
+			element.HasLineCap = true
+			element.LineCap = cap
+		}
+		if align := attrValue(ln.Attrs, "algn"); align != "" {
+			element.HasLineAlign = true
+			element.LineAlign = align
+		}
 		if element.LineWidth == 0 {
 			element.LineWidth = 9525
 		}
@@ -1441,6 +1454,7 @@ func parseShapeProperties(spPr *xmlNode, transform renderTransform, element *sli
 			}
 		}
 		if dash := firstChild(ln, "prstDash"); dash != nil {
+			element.HasLineDash = true
 			if value := attrValue(dash.Attrs, "val"); value != "" && value != "solid" {
 				element.LineDash = value
 			}
@@ -1578,10 +1592,21 @@ func applyTableBorderToShapeLine(element *slideElement, border tableCellBorder) 
 	}
 	element.HasLine = true
 	element.LineColor = border.Color
-	element.LineWidth = border.Width
-	element.LineDash = border.Dash
-	element.LineCap = border.Cap
-	element.LineAlign = border.Align
+	if !element.HasLineWidth && border.Width > 0 {
+		element.LineWidth = border.Width
+	}
+	if !element.HasLineDash {
+		element.LineDash = border.Dash
+	}
+	if !element.HasLineCap {
+		element.LineCap = border.Cap
+	}
+	if !element.HasLineAlign {
+		element.LineAlign = border.Align
+	}
+	if element.LineWidth == 0 {
+		element.LineWidth = 9525
+	}
 }
 
 func applyStyleFillPaint(element *slideElement, paint backgroundPaint) {
