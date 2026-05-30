@@ -7473,7 +7473,7 @@ func TestParseSlideBackgroundGradient(t *testing.T) {
 	}
 }
 
-func TestParseSlideBackgroundGradientMarksUnsupportedPathPartial(t *testing.T) {
+func TestParseSlideBackgroundGradientSupportsRectangularPath(t *testing.T) {
 	data := []byte(`<?xml version="1.0" encoding="UTF-8"?>
 	<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
 	  <p:cSld>
@@ -7495,8 +7495,8 @@ func TestParseSlideBackgroundGradientMarksUnsupportedPathPartial(t *testing.T) {
 	if !ok || !got.HasGradient {
 		t.Fatalf("expected gradient background parse: got=%+v ok=%v", got, ok)
 	}
-	if got.Gradient.FullySupported {
-		t.Fatalf("unsupported gradient path was marked fully supported: %+v", got.Gradient)
+	if got.Gradient.Path != "rect" || !got.Gradient.FullySupported {
+		t.Fatalf("rectangular gradient path should be fully supported: %+v", got.Gradient)
 	}
 }
 
@@ -7887,6 +7887,23 @@ func TestLinearGradientPositionSamplesPixelCenters(t *testing.T) {
 	}
 	if got := linearGradientPosition(bounds, 0, 9, gradientPaint{}); got != 95000 {
 		t.Fatalf("expected bottom pixel center to sample inside gradient bounds, got %d", got)
+	}
+}
+
+func TestRectangularGradientPositionUsesFillToRectFocus(t *testing.T) {
+	gradient := gradientPaint{
+		Path:        "rect",
+		HasFillRect: true,
+		FillRect:    relativeRect{Left: 25000, Top: 25000, Right: 25000, Bottom: 25000},
+	}
+	if got := rectangularGradientPosition(image.Rect(0, 0, 100, 100), 50, 50, gradient); got != 0 {
+		t.Fatalf("expected sample inside rectangular focus to stay at first stop, got %d", got)
+	}
+	if got := rectangularGradientPosition(image.Rect(0, 0, 100, 100), 0, 50, gradient); got < 95000 {
+		t.Fatalf("expected sample near anchor edge to reach the outer stop, got %d", got)
+	}
+	if got := rectangularGradientPosition(image.Rect(0, 0, 100, 100), 13, 50, gradient); got <= 0 || got >= 100000 {
+		t.Fatalf("expected sample between focus and anchor rectangles to interpolate, got %d", got)
 	}
 }
 

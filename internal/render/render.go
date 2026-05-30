@@ -904,7 +904,7 @@ func gradientFillIsFullySupported(gradFill *xmlNode, gradient gradientPaint) boo
 	if tileRect := firstChild(gradFill, "tileRect"); tileRect != nil && len(tileRect.Attrs) > 0 {
 		return false
 	}
-	if gradient.Path != "" && gradient.Path != "circle" {
+	if gradient.Path != "" && gradient.Path != "circle" && gradient.Path != "rect" {
 		return false
 	}
 	if gradient.HasAngle || firstChild(gradFill, "lin") != nil {
@@ -5904,9 +5904,12 @@ func drawGradientRect(img *image.RGBA, bounds image.Rectangle, gradient gradient
 	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
 		for x := bounds.Min.X; x < bounds.Max.X; x++ {
 			var position int64
-			if gradient.Path == "circle" {
+			switch gradient.Path {
+			case "circle":
 				position = radialGradientPosition(bounds, x, y, gradient)
-			} else {
+			case "rect":
+				position = rectangularGradientPosition(bounds, x, y, gradient)
+			default:
 				position = linearGradientPosition(bounds, x, y, gradient)
 			}
 			c := colorAtGradientPositionForPath(gradient.Stops, position, gradient.Path)
@@ -5985,9 +5988,12 @@ func drawGradientWithCoverage(img *image.RGBA, paintBounds image.Rectangle, grad
 				continue
 			}
 			var position int64
-			if gradient.Path == "circle" {
+			switch gradient.Path {
+			case "circle":
 				position = radialGradientPosition(gradientBounds, x, y, gradient)
-			} else {
+			case "rect":
+				position = rectangularGradientPosition(gradientBounds, x, y, gradient)
+			default:
 				position = linearGradientPosition(gradientBounds, x, y, gradient)
 			}
 			c := colorAtGradientPositionForPath(gradient.Stops, position, gradient.Path)
@@ -6065,6 +6071,75 @@ type floatRect struct {
 	MinY float64
 	MaxX float64
 	MaxY float64
+}
+
+func rectangularGradientFocusRect(bounds image.Rectangle, gradient gradientPaint) floatRect {
+	if !gradient.HasFillRect {
+		centerX := float64(bounds.Min.X) + float64(bounds.Dx())/2
+		centerY := float64(bounds.Min.Y) + float64(bounds.Dy())/2
+		return floatRect{MinX: centerX, MinY: centerY, MaxX: centerX, MaxY: centerY}
+	}
+	width := float64(bounds.Dx())
+	height := float64(bounds.Dy())
+	left := float64(bounds.Min.X) + width*float64(gradient.FillRect.Left)/100000
+	top := float64(bounds.Min.Y) + height*float64(gradient.FillRect.Top)/100000
+	right := float64(bounds.Max.X) - width*float64(gradient.FillRect.Right)/100000
+	bottom := float64(bounds.Max.Y) - height*float64(gradient.FillRect.Bottom)/100000
+	if right < left {
+		center := (left + right) / 2
+		left = center
+		right = center
+	}
+	if bottom < top {
+		center := (top + bottom) / 2
+		top = center
+		bottom = center
+	}
+	return floatRect{MinX: left, MinY: top, MaxX: right, MaxY: bottom}
+}
+
+func rectangularGradientPosition(bounds image.Rectangle, x int, y int, gradient gradientPaint) int64 {
+	if bounds.Dx() <= 0 || bounds.Dy() <= 0 {
+		return 0
+	}
+	sampleX := float64(x) + 0.5
+	sampleY := float64(y) + 0.5
+	outer := floatRect{
+		MinX: float64(bounds.Min.X),
+		MinY: float64(bounds.Min.Y),
+		MaxX: float64(bounds.Max.X),
+		MaxY: float64(bounds.Max.Y),
+	}
+	inner := rectangularGradientFocusRect(bounds, gradient)
+	if pointInRect(sampleX, sampleY, inner) {
+		return 0
+	}
+	position := 0.0
+	if sampleX < inner.MinX {
+		position = math.Max(position, normalizedGradientDistance(inner.MinX-sampleX, inner.MinX-outer.MinX))
+	} else if sampleX > inner.MaxX {
+		position = math.Max(position, normalizedGradientDistance(sampleX-inner.MaxX, outer.MaxX-inner.MaxX))
+	}
+	if sampleY < inner.MinY {
+		position = math.Max(position, normalizedGradientDistance(inner.MinY-sampleY, inner.MinY-outer.MinY))
+	} else if sampleY > inner.MaxY {
+		position = math.Max(position, normalizedGradientDistance(sampleY-inner.MaxY, outer.MaxY-inner.MaxY))
+	}
+	return int64(math.Round(clampGradientRatio(position) * 100000))
+}
+
+func normalizedGradientDistance(distance float64, span float64) float64 {
+	if distance <= 0 {
+		return 0
+	}
+	if span <= 0 {
+		return 1
+	}
+	return distance / span
+}
+
+func pointInRect(x float64, y float64, rect floatRect) bool {
+	return x >= rect.MinX && x <= rect.MaxX && y >= rect.MinY && y <= rect.MaxY
 }
 
 func gradientFocusRect(bounds image.Rectangle, gradient gradientPaint) floatRect {
