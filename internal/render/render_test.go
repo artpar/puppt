@@ -7878,6 +7878,49 @@ func TestInheritedHeaderFooterSettingsTreatsMissingElementAsDisabled(t *testing.
 	}
 }
 
+func TestPresentationShowsSpecialPlaceholdersOnTitleSlideDefaultsOn(t *testing.T) {
+	pkg := &pptx.Package{
+		PresentationPath: "ppt/presentation.xml",
+		Parts: map[string][]byte{
+			"ppt/presentation.xml": []byte(`<p:presentation xmlns:p="p"/>`),
+		},
+	}
+	if !presentationShowsSpecialPlaceholdersOnTitleSlide(pkg) {
+		t.Fatal("missing showSpecialPlsOnTitleSld should default to showing special placeholders")
+	}
+}
+
+func TestPresentationShowsSpecialPlaceholdersOnTitleSlideReadsFalse(t *testing.T) {
+	pkg := &pptx.Package{
+		PresentationPath: "ppt/presentation.xml",
+		Parts: map[string][]byte{
+			"ppt/presentation.xml": []byte(`<p:presentation xmlns:p="p" showSpecialPlsOnTitleSld="0"/>`),
+		},
+	}
+	if presentationShowsSpecialPlaceholdersOnTitleSlide(pkg) {
+		t.Fatal("showSpecialPlsOnTitleSld=0 should hide special placeholders on title slides")
+	}
+}
+
+func TestSlideUsesTitleLayoutReadsLayoutType(t *testing.T) {
+	pkg := &pptx.Package{Parts: map[string][]byte{
+		"ppt/slides/_rels/slide1.xml.rels": []byte(`<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout" Target="../slideLayouts/slideLayout1.xml"/>
+</Relationships>`),
+		"ppt/slides/_rels/slide2.xml.rels": []byte(`<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout" Target="../slideLayouts/slideLayout2.xml"/>
+</Relationships>`),
+		"ppt/slideLayouts/slideLayout1.xml": []byte(`<p:sldLayout xmlns:p="p" type="title"/>`),
+		"ppt/slideLayouts/slideLayout2.xml": []byte(`<p:sldLayout xmlns:p="p" type="obj"/>`),
+	}}
+	if !slideUsesTitleLayout(pkg, "ppt/slides/slide1.xml") {
+		t.Fatal("expected title layout to be detected")
+	}
+	if slideUsesTitleLayout(pkg, "ppt/slides/slide2.xml") {
+		t.Fatal("non-title layout should not be treated as a title slide")
+	}
+}
+
 func TestFormatUnsupportedSummarySortsDeterministically(t *testing.T) {
 	got := formatUnsupportedSummary(map[string]int{
 		"later alphabetically":   2,

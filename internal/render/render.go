@@ -519,6 +519,9 @@ func Render(ctx context.Context, inputPath string, options Options) (model.Comma
 	textStyles := inheritedTextStylesWithThemeResolver(pkg, renderParts, slidePart, themeForPart)
 	background := inheritedBackgroundWithThemeResolver(pkg, renderParts, themeForPart)
 	headerFooter := inheritedHeaderFooterSettings(pkg, renderParts)
+	if !presentationShowsSpecialPlaceholdersOnTitleSlide(pkg) && slideUsesTitleLayout(pkg, slidePart) {
+		headerFooter = headerFooterSettings{}
+	}
 	inheritedHeaderFooterPart := inheritedHeaderFooterRenderPart(pkg, paintParts, slidePart, headerFooter)
 	img := image.NewRGBA(image.Rect(0, 0, width, height))
 	var unsupported []model.SkipItem
@@ -625,6 +628,30 @@ func layoutHidesMasterShapes(pkg *pptx.Package, slidePart string) bool {
 	}
 	value := strings.ToLower(strings.TrimSpace(attrValue(root.Attrs, "showMasterSp")))
 	return value == "0" || value == "false"
+}
+
+func presentationShowsSpecialPlaceholdersOnTitleSlide(pkg *pptx.Package) bool {
+	root, err := parseXMLNode(pkg.Parts[pkg.PresentationPath])
+	if err != nil {
+		return true
+	}
+	value := strings.TrimSpace(attrValue(root.Attrs, "showSpecialPlsOnTitleSld"))
+	if value == "" {
+		return true
+	}
+	return boolAttrOn(value)
+}
+
+func slideUsesTitleLayout(pkg *pptx.Package, slidePart string) bool {
+	layoutPart := firstRelationshipTarget(pkg, slidePart, pptx.SlideLayoutRelType)
+	if layoutPart == "" {
+		return false
+	}
+	root, err := parseXMLNode(pkg.Parts[layoutPart])
+	if err != nil {
+		return false
+	}
+	return strings.TrimSpace(attrValue(root.Attrs, "type")) == "title"
 }
 
 func firstRelationshipTarget(pkg *pptx.Package, sourcePart string, relationshipType string) string {
