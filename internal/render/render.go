@@ -573,7 +573,7 @@ func Render(ctx context.Context, inputPath string, options Options) (model.Comma
 		elements = resolveTextFields(elements, options.SlideNumber)
 		unsupported = append(unsupported, renderElements(pkg, renderPart, size, img, elements, tableStyles)...)
 		unsupported = append(unsupported, unsupportedItems(renderPart, elements)...)
-		unsupported = append(unsupported, timingUnsupportedItems(renderPart, pkg.Parts[renderPart])...)
+		unsupported = append(unsupported, timingUnsupportedItems(renderPart, pkg.Parts[renderPart], elements)...)
 	}
 	applyDisplayP3OutputTransform(img)
 	if err := writePNGWithDPI(options.OutputPath, img, dpi); err != nil {
@@ -11962,16 +11962,119 @@ func unsupportedItems(slidePart string, elements []slideElement) []model.SkipIte
 	return items
 }
 
-func timingUnsupportedItems(slidePart string, data []byte) []model.SkipItem {
+func timingUnsupportedItems(slidePart string, data []byte, elements []slideElement) []model.SkipItem {
 	root, err := parseXMLNode(data)
 	if err != nil {
 		return nil
 	}
 	timing := firstDescendant(root, "timing")
-	if timing == nil || !timingHasAnimationBehavior(timing) {
+	if timing == nil || !timingHasAnimationBehavior(timing) || timingHasSupportedStaticVisibilityBuilds(root, timing, elements) {
 		return nil
 	}
 	return []model.SkipItem{unsupportedItem(slidePart, partialUnsupportedCode, "slide animation timing was not evaluated for static rendering")}
+}
+
+func timingHasSupportedStaticVisibilityBuilds(root *xmlNode, timing *xmlNode, elements []slideElement) bool {
+	targetIDs := partObjectIDs(root, elements)
+	if len(targetIDs) == 0 {
+		return false
+	}
+	seenVisibilityBuild := false
+	for _, node := range timingBehaviorNodes(timing) {
+		switch node.Name {
+		case "set":
+			targetID, ok := timingSetVisibilityTarget(node)
+			if !ok || !targetIDs[targetID] {
+				return false
+			}
+			seenVisibilityBuild = true
+		case "animEffect":
+			targetID, ok := timingStaticEntranceEffectTarget(node)
+			if !ok || !targetIDs[targetID] {
+				return false
+			}
+		case "cTn":
+			if !timingContainerIsSupportedStaticEntrance(node) {
+				return false
+			}
+		default:
+			return false
+		}
+	}
+	return seenVisibilityBuild
+}
+
+func partObjectIDs(root *xmlNode, elements []slideElement) map[string]bool {
+	ids := map[string]bool{}
+	for _, property := range descendantsByName(root, "cNvPr") {
+		if id := attrValue(property.Attrs, "id"); id != "" {
+			ids[id] = true
+		}
+	}
+	for _, element := range elements {
+		if element.ID != "" {
+			ids[element.ID] = true
+		}
+	}
+	return ids
+}
+
+func timingBehaviorNodes(node *xmlNode) []*xmlNode {
+	var nodes []*xmlNode
+	if timingNodeIsBehavior(node) {
+		nodes = append(nodes, node)
+	}
+	for _, child := range node.Children {
+		nodes = append(nodes, timingBehaviorNodes(child)...)
+	}
+	return nodes
+}
+
+func timingNodeIsBehavior(node *xmlNode) bool {
+	switch node.Name {
+	case "anim", "animClr", "animEffect", "animMotion", "animRot", "animScale", "cmd", "set":
+		return true
+	case "cTn":
+		return attrValue(node.Attrs, "presetClass") != "" || attrValue(node.Attrs, "presetID") != ""
+	default:
+		return false
+	}
+}
+
+func timingSetVisibilityTarget(node *xmlNode) (string, bool) {
+	if !timingSetWritesVisibleStyle(node) {
+		return "", false
+	}
+	target := firstDescendant(node, "spTgt")
+	if target == nil {
+		return "", false
+	}
+	return attrValue(target.Attrs, "spid"), true
+}
+
+func timingStaticEntranceEffectTarget(node *xmlNode) (string, bool) {
+	if attrValue(node.Attrs, "transition") != "in" {
+		return "", false
+	}
+	target := firstDescendant(node, "spTgt")
+	if target == nil {
+		return "", false
+	}
+	return attrValue(target.Attrs, "spid"), true
+}
+
+func timingSetWritesVisibleStyle(node *xmlNode) bool {
+	attrNames := descendantsByName(node, "attrName")
+	if len(attrNames) != 1 || strings.TrimSpace(attrNames[0].Text) != "style.visibility" {
+		return false
+	}
+	value := firstDescendant(node, "strVal")
+	return value != nil && strings.EqualFold(attrValue(value.Attrs, "val"), "visible")
+}
+
+func timingContainerIsSupportedStaticEntrance(node *xmlNode) bool {
+	presetClass := attrValue(node.Attrs, "presetClass")
+	return presetClass == "" || presetClass == "entr"
 }
 
 func timingHasAnimationBehavior(timing *xmlNode) bool {
@@ -11984,13 +12087,8 @@ func timingHasAnimationBehavior(timing *xmlNode) bool {
 }
 
 func timingNodeHasAnimationBehavior(node *xmlNode) bool {
-	switch node.Name {
-	case "anim", "animClr", "animEffect", "animMotion", "animRot", "animScale", "cmd", "set":
+	if timingNodeIsBehavior(node) {
 		return true
-	case "cTn":
-		if attrValue(node.Attrs, "presetClass") != "" || attrValue(node.Attrs, "presetID") != "" {
-			return true
-		}
 	}
 	for _, child := range node.Children {
 		if timingNodeHasAnimationBehavior(child) {

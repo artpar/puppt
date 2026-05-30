@@ -8762,29 +8762,59 @@ func TestUnsupportedItemsSkipsEmptyPlaceholders(t *testing.T) {
 	}
 }
 
-func TestTimingUnsupportedItemsReportsAnimationBehavior(t *testing.T) {
+func TestTimingUnsupportedItemsAcceptsStaticVisibilityEntranceBuilds(t *testing.T) {
 	got := timingUnsupportedItems("ppt/slides/slide1.xml", []byte(`<p:sld xmlns:p="p">
   <p:cSld/>
   <p:timing>
     <p:tnLst>
       <p:par>
-        <p:cTn id="1">
+        <p:cTn id="1" presetID="1" presetClass="entr">
           <p:childTnLst>
             <p:set>
               <p:cBhvr>
+                <p:tgtEl><p:spTgt spid="7"/></p:tgtEl>
                 <p:attrNameLst><p:attrName>style.visibility</p:attrName></p:attrNameLst>
               </p:cBhvr>
               <p:to><p:strVal val="visible"/></p:to>
             </p:set>
+            <p:animEffect transition="in" filter="fade">
+              <p:cBhvr><p:tgtEl><p:spTgt spid="7"/></p:tgtEl></p:cBhvr>
+            </p:animEffect>
           </p:childTnLst>
         </p:cTn>
       </p:par>
     </p:tnLst>
   </p:timing>
-</p:sld>`))
+</p:sld>`), []slideElement{{ID: "7", Name: "Animated Shape"}})
+
+	if len(got) != 0 {
+		t.Fatalf("visibility entrance builds should be handled as static final-state renders, got %+v", got)
+	}
+}
+
+func TestTimingUnsupportedItemsReportsUnsupportedAnimationBehavior(t *testing.T) {
+	got := timingUnsupportedItems("ppt/slides/slide1.xml", []byte(`<p:sld xmlns:p="p">
+  <p:cSld/>
+  <p:timing>
+    <p:tnLst>
+      <p:par>
+        <p:cTn id="1" presetID="3" presetClass="emph">
+          <p:childTnLst>
+            <p:animMotion>
+              <p:cBhvr>
+                <p:tgtEl><p:spTgt spid="7"/></p:tgtEl>
+                <p:attrNameLst><p:attrName>ppt_x</p:attrName></p:attrNameLst>
+              </p:cBhvr>
+            </p:animMotion>
+          </p:childTnLst>
+        </p:cTn>
+      </p:par>
+    </p:tnLst>
+  </p:timing>
+</p:sld>`), []slideElement{{ID: "7", Name: "Animated Shape"}})
 
 	if len(got) != 1 {
-		t.Fatalf("expected timing partial unsupported item, got %+v", got)
+		t.Fatalf("expected unsupported timing item, got %+v", got)
 	}
 	if got[0].Code != partialUnsupportedCode || got[0].Part != "ppt/slides/slide1.xml" {
 		t.Fatalf("unexpected timing unsupported item: %+v", got[0])
@@ -8792,7 +8822,7 @@ func TestTimingUnsupportedItemsReportsAnimationBehavior(t *testing.T) {
 }
 
 func TestTimingUnsupportedItemsIgnoresEmptyTimingTree(t *testing.T) {
-	got := timingUnsupportedItems("ppt/slides/slide1.xml", []byte(`<p:sld xmlns:p="p"><p:cSld/><p:timing><p:tnLst/></p:timing></p:sld>`))
+	got := timingUnsupportedItems("ppt/slides/slide1.xml", []byte(`<p:sld xmlns:p="p"><p:cSld/><p:timing><p:tnLst/></p:timing></p:sld>`), nil)
 	if len(got) != 0 {
 		t.Fatalf("empty timing tree should not be reported, got %+v", got)
 	}
