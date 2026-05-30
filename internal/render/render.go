@@ -209,6 +209,7 @@ type slideElement struct {
 	LineWidth                  int64
 	LineDash                   string
 	LineCap                    string
+	LineAlign                  string
 	HasLineMarker              bool
 	HeadLineMarker             string
 	HeadLineMarkerWidth        string
@@ -366,6 +367,7 @@ type tableCellBorder struct {
 	Width     int64
 	Dash      string
 	Cap       string
+	Align     string
 	Join      string
 }
 
@@ -1179,6 +1181,7 @@ func parseTableLineNode(line *xmlNode, theme themeColors, specified bool) tableC
 		Specified: specified,
 		Width:     parseIntAttr(line.Attrs, "w"),
 		Cap:       attrValue(line.Attrs, "cap"),
+		Align:     attrValue(line.Attrs, "algn"),
 	}
 	if border.Width == 0 {
 		border.Width = 9525
@@ -1413,6 +1416,7 @@ func parseShapeProperties(spPr *xmlNode, transform renderTransform, element *sli
 	if ln := firstChild(spPr, "ln"); ln != nil {
 		element.LineWidth = parseIntAttr(ln.Attrs, "w")
 		element.LineCap = attrValue(ln.Attrs, "cap")
+		element.LineAlign = attrValue(ln.Attrs, "algn")
 		if element.LineWidth == 0 {
 			element.LineWidth = 9525
 		}
@@ -1565,6 +1569,7 @@ func applyTableBorderToShapeLine(element *slideElement, border tableCellBorder) 
 	element.LineWidth = border.Width
 	element.LineDash = border.Dash
 	element.LineCap = border.Cap
+	element.LineAlign = border.Align
 }
 
 func applyStyleFillPaint(element *slideElement, paint backgroundPaint) {
@@ -4862,7 +4867,7 @@ func renderShape(slidePart string, size slideSize, img *image.RGBA, element *sli
 		lineWidth := emuLineWidthToPixels(element.LineWidth, size.CX, img.Bounds().Dx())
 		switch element.PrstGeom {
 		case "rect", "roundRect", "round1Rect", "":
-			drawStyledRectOutline(img, target, element.LineColor, lineWidth, element.LineDash)
+			drawStyledRectOutlineAligned(img, target, element.LineColor, lineWidth, element.LineDash, element.LineAlign)
 			rendered = true
 		case "ellipse":
 			drawEllipseOutline(img, target, element.LineColor, lineWidth)
@@ -8208,6 +8213,11 @@ func drawRectOutline(img *image.RGBA, rect image.Rectangle, c color.RGBA, width 
 }
 
 func drawStyledRectOutline(img *image.RGBA, rect image.Rectangle, c color.RGBA, width int, dash string) {
+	drawStyledRectOutlineAligned(img, rect, c, width, dash, "")
+}
+
+func drawStyledRectOutlineAligned(img *image.RGBA, rect image.Rectangle, c color.RGBA, width int, dash string, align string) {
+	rect = alignedStrokeRect(rect, width, align)
 	if dash == "" {
 		drawRectOutline(img, rect, c, width)
 		return
@@ -8220,6 +8230,20 @@ func drawStyledRectOutline(img *image.RGBA, rect image.Rectangle, c color.RGBA, 
 		drawStyledLine(img, rect.Min.X, rect.Max.Y-1-i, rect.Max.X-1, rect.Max.Y-1-i, c, 1, dash, "flat")
 		drawStyledLine(img, rect.Min.X+i, rect.Min.Y, rect.Min.X+i, rect.Max.Y-1, c, 1, dash, "flat")
 		drawStyledLine(img, rect.Max.X-1-i, rect.Min.Y, rect.Max.X-1-i, rect.Max.Y-1, c, 1, dash, "flat")
+	}
+}
+
+func alignedStrokeRect(rect image.Rectangle, width int, align string) image.Rectangle {
+	if rect.Empty() || width <= 1 {
+		return rect
+	}
+	switch align {
+	case "ctr":
+		return rect.Inset(-(width / 2))
+	case "out":
+		return rect.Inset(-(width - 1))
+	default:
+		return rect
 	}
 }
 
@@ -9570,7 +9594,7 @@ func drawPictureRasterLayer(img *image.RGBA, target image.Rectangle, pictureImag
 }
 
 func drawPictureOutline(img *image.RGBA, target image.Rectangle, element slideElement, lineWidth int) {
-	drawStyledRectOutline(img, target, element.LineColor, lineWidth, element.LineDash)
+	drawStyledRectOutlineAligned(img, target, element.LineColor, lineWidth, element.LineDash, element.LineAlign)
 }
 
 func drawPictureShadow(img *image.RGBA, target image.Rectangle, element slideElement, size slideSize) bool {

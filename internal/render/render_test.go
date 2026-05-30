@@ -390,6 +390,39 @@ func TestRenderShapePaintsDashedRectOutline(t *testing.T) {
 	}
 }
 
+func TestRenderShapeHonorsCenteredRectLineAlignment(t *testing.T) {
+	size := slideSize{CX: emuPerInch, CY: emuPerInch}
+	img := image.NewRGBA(image.Rect(0, 0, 96, 96))
+	element := slideElement{
+		Kind:         "sp",
+		Name:         "Centered Stroke Rectangle",
+		PrstGeom:     "rect",
+		HasTransform: true,
+		OffX:         emuPerInch / 4,
+		OffY:         emuPerInch / 4,
+		ExtCX:        emuPerInch / 2,
+		ExtCY:        emuPerInch / 2,
+		HasLine:      true,
+		LineColor:    color.RGBA{R: 255, A: 255},
+		LineWidth:    19050,
+		LineAlign:    "ctr",
+	}
+
+	unsupported := renderShape("ppt/slides/slide1.xml", size, img, &element)
+	if len(unsupported) != 0 || !element.Rendered {
+		t.Fatalf("unexpected centered outline render result: unsupported=%+v rendered=%v", unsupported, element.Rendered)
+	}
+	if got := img.RGBAAt(25, 48); got.A != 0 {
+		t.Fatalf("centered 2px stroke should not paint two pixels inside the left edge, got %#v", got)
+	}
+	if got := img.RGBAAt(24, 48); got.R != 255 || got.A != 255 {
+		t.Fatalf("centered 2px stroke should paint the boundary pixel, got %#v", got)
+	}
+	if got := img.RGBAAt(23, 48); got.R != 255 || got.A != 255 {
+		t.Fatalf("centered 2px stroke should paint one pixel outside the left edge, got %#v", got)
+	}
+}
+
 func TestRenderShapePaintsZeroHeightConnectorLine(t *testing.T) {
 	size := slideSize{CX: emuPerInch, CY: emuPerInch}
 	img := image.NewRGBA(image.Rect(0, 0, 96, 96))
@@ -1079,7 +1112,7 @@ func TestCollectSlideElementsParsesLineDash(t *testing.T) {
         <p:spPr>
           <a:xfrm><a:off x="0" y="0"/><a:ext cx="914400" cy="914400"/></a:xfrm>
           <a:prstGeom prst="rect"><a:avLst/></a:prstGeom>
-	          <a:ln w="9525" cap="rnd"><a:solidFill><a:srgbClr val="0000FF"/></a:solidFill><a:prstDash val="dash"/></a:ln>
+	          <a:ln w="9525" cap="rnd" algn="ctr"><a:solidFill><a:srgbClr val="0000FF"/></a:solidFill><a:prstDash val="dash"/></a:ln>
         </p:spPr>
       </p:sp>
     </p:spTree>
@@ -1095,6 +1128,9 @@ func TestCollectSlideElementsParsesLineDash(t *testing.T) {
 	}
 	if elements[0].LineCap != "rnd" {
 		t.Fatalf("expected line cap to be parsed, got %+v", elements[0])
+	}
+	if elements[0].LineAlign != "ctr" {
+		t.Fatalf("expected line alignment to be parsed, got %+v", elements[0])
 	}
 }
 
