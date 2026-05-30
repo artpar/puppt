@@ -337,6 +337,36 @@ func TestRenderShapeHonorsFlatLineCap(t *testing.T) {
 	}
 }
 
+func TestRenderShapeHonorsFlatLineCapOnDashedLine(t *testing.T) {
+	size := slideSize{CX: emuPerInch, CY: emuPerInch}
+	img := image.NewRGBA(image.Rect(0, 0, 96, 96))
+	element := slideElement{
+		Kind:         "cxnSp",
+		Name:         "Dashed Flat Connector",
+		PrstGeom:     "line",
+		HasTransform: true,
+		OffX:         emuPerInch / 4,
+		OffY:         emuPerInch / 2,
+		ExtCX:        emuPerInch / 2,
+		HasLine:      true,
+		LineColor:    color.RGBA{R: 255, A: 255},
+		LineWidth:    114300,
+		LineDash:     "dash",
+		LineCap:      "flat",
+	}
+
+	unsupported := renderShape("ppt/slides/slide1.xml", size, img, &element)
+	if len(unsupported) != 0 || !element.Rendered {
+		t.Fatalf("unexpected dashed flat-cap line render result: unsupported=%+v rendered=%v", unsupported, element.Rendered)
+	}
+	if _, _, _, a := img.At(20, 44).RGBA(); a != 0 {
+		t.Fatalf("dashed flat cap should not extend before its endpoint, got alpha=%04x", a)
+	}
+	if got := img.RGBAAt(24, 48); got.R == 0 || got.A == 0 {
+		t.Fatalf("expected dashed flat-cap line to paint at its authored endpoint, got %#v", got)
+	}
+}
+
 func TestRenderShapeCompositesTransparentConnectorLine(t *testing.T) {
 	size := slideSize{CX: emuPerInch, CY: emuPerInch}
 	img := image.NewRGBA(image.Rect(0, 0, 96, 96))

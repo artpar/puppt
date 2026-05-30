@@ -8760,7 +8760,7 @@ func drawLine(img *image.RGBA, x0 int, y0 int, x1 int, y1 int, c color.RGBA, wid
 }
 
 func drawStyledLine(img *image.RGBA, x0 int, y0 int, x1 int, y1 int, c color.RGBA, width int, dash string, cap string) {
-	if cap == "" || cap == "sq" || (cap == "flat" && dash != "") {
+	if cap == "" || cap == "sq" {
 		if dash == "" {
 			drawLine(img, x0, y0, x1, y1, c, width)
 			return
