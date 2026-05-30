@@ -907,6 +907,9 @@ func gradientFillIsFullySupported(gradFill *xmlNode, gradient gradientPaint) boo
 	if gradient.Path != "" && gradient.Path != "circle" && gradient.Path != "rect" {
 		return false
 	}
+	if gradient.Path == "circle" {
+		return false
+	}
 	if gradient.HasAngle || firstChild(gradFill, "lin") != nil {
 		return true
 	}

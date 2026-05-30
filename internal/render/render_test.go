@@ -7562,8 +7562,8 @@ func TestParseSlideBackgroundGradient(t *testing.T) {
 	if !got.Gradient.HasFillRect || got.Gradient.FillRect.Top != -80000 || got.Gradient.FillRect.Bottom != 180000 {
 		t.Fatalf("gradient fillToRect was not parsed: %+v", got.Gradient)
 	}
-	if !got.Gradient.FullySupported {
-		t.Fatalf("circle gradient with fillToRect should be fully supported: %+v", got.Gradient)
+	if got.Gradient.FullySupported {
+		t.Fatalf("circle gradients should stay explicitly partial until radial path parity is complete: %+v", got.Gradient)
 	}
 }
 
@@ -7882,7 +7882,7 @@ func TestRenderShapePaintsRectGradientFill(t *testing.T) {
 	}
 }
 
-func TestRenderShapeSupportsCircleGradientFill(t *testing.T) {
+func TestRenderShapeRendersAndReportsPartialCircleGradientFill(t *testing.T) {
 	img := image.NewRGBA(image.Rect(0, 0, 10, 10))
 	unsupported := renderShape("ppt/slides/slide1.xml", slideSize{CX: emuPerInch, CY: emuPerInch}, img, &slideElement{
 		Kind:            "sp",
@@ -7896,15 +7896,17 @@ func TestRenderShapeSupportsCircleGradientFill(t *testing.T) {
 			Path:           "circle",
 			HasFillRect:    true,
 			FillRect:       relativeRect{Left: 50000, Top: 50000, Right: 50000, Bottom: 50000},
-			FullySupported: true,
 			Stops: []gradientStop{
 				{Position: 0, Color: color.RGBA{R: 255, A: 255}},
 				{Position: 100000, Color: color.RGBA{B: 255, A: 255}},
 			},
 		},
 	})
-	if len(unsupported) != 0 {
-		t.Fatalf("expected supported circle gradient fill, got %+v", unsupported)
+	if len(unsupported) != 1 || !strings.Contains(unsupported[0].Message, "gradient fill was rendered with simplified layout") {
+		t.Fatalf("expected partial circle gradient report, got %+v", unsupported)
+	}
+	if got := img.RGBAAt(5, 5); got.A == 0 {
+		t.Fatalf("expected partial circle gradient to still render visible fill")
 	}
 }
 
