@@ -1167,6 +1167,36 @@ func TestCollectSlideElementsParsesLineDash(t *testing.T) {
 	}
 }
 
+func TestLineDashPatternPixelsUsesDrawingMLPresetRuns(t *testing.T) {
+	tests := []struct {
+		name  string
+		dash  string
+		width int
+		want  []int
+	}{
+		{name: "dot", dash: "dot", width: 2, want: []int{2, 6}},
+		{name: "dash", dash: "dash", width: 2, want: []int{8, 6}},
+		{name: "large dash", dash: "lgDash", width: 2, want: []int{16, 6}},
+		{name: "dash dot", dash: "dashDot", width: 2, want: []int{8, 6, 2, 6}},
+		{name: "large dash dot", dash: "lgDashDot", width: 2, want: []int{16, 6, 2, 6}},
+		{name: "large dash dot dot", dash: "lgDashDotDot", width: 2, want: []int{16, 6, 2, 6, 2, 6}},
+		{name: "system dot", dash: "sysDot", width: 2, want: []int{2, 2}},
+		{name: "system dash", dash: "sysDash", width: 2, want: []int{6, 2}},
+		{name: "system dash dot", dash: "sysDashDot", width: 2, want: []int{6, 2, 2, 2}},
+		{name: "system dash dot dot", dash: "sysDashDotDot", width: 2, want: []int{6, 2, 2, 2, 2, 2}},
+		{name: "minimum unit", dash: "sysDot", width: 0, want: []int{1, 1}},
+		{name: "unknown fallback", dash: "unknown", width: 2, want: []int{8, 6}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := lineDashPatternPixels(tt.dash, tt.width)
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Fatalf("lineDashPatternPixels(%q, %d) = %v, want %v", tt.dash, tt.width, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestCollectSlideElementsParsesSoftEdge(t *testing.T) {
 	data := []byte(`<?xml version="1.0" encoding="UTF-8"?>
 <p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="r">

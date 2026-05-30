@@ -8971,23 +8971,42 @@ func pointInLineStroke(x float64, y float64, x0 float64, y0 float64, x1 float64,
 }
 
 func lineDashPatternPixels(dash string, width int) []int {
-	unit := maxInt(width, 1)
-	switch dash {
-	case "dash", "sysDash":
-		return []int{maxInt(unit*4, 4), maxInt(unit*3, 3)}
-	case "lgDash":
-		return []int{maxInt(unit*8, 8), maxInt(unit*3, 3)}
-	case "dashDot", "sysDashDot":
-		return []int{maxInt(unit*4, 4), maxInt(unit*3, 3), maxInt(unit, 1), maxInt(unit*3, 3)}
-	case "lgDashDot":
-		return []int{maxInt(unit*8, 8), maxInt(unit*3, 3), maxInt(unit, 1), maxInt(unit*3, 3)}
-	case "lgDashDotDot":
-		return []int{maxInt(unit*8, 8), maxInt(unit*3, 3), maxInt(unit, 1), maxInt(unit*3, 3), maxInt(unit, 1), maxInt(unit*3, 3)}
-	case "dot", "sysDot":
-		return []int{maxInt(unit, 1), maxInt(unit*3, 3)}
-	default:
-		return []int{maxInt(unit*4, 4), maxInt(unit*3, 3)}
+	patterns := map[string]string{
+		"dash":          "1111000",
+		"dashDot":       "11110001000",
+		"dot":           "1000",
+		"lgDash":        "11111111000",
+		"lgDashDot":     "111111110001000",
+		"lgDashDotDot":  "1111111100010001000",
+		"sysDash":       "1110",
+		"sysDashDot":    "111010",
+		"sysDashDotDot": "11101010",
+		"sysDot":        "10",
 	}
+	bits, ok := patterns[dash]
+	if !ok {
+		bits = patterns["dash"]
+	}
+	return binaryDashPatternPixels(bits, width)
+}
+
+func binaryDashPatternPixels(bits string, width int) []int {
+	if bits == "" {
+		return nil
+	}
+	unit := maxInt(width, 1)
+	pattern := make([]int, 0, len(bits))
+	run := 1
+	for i := 1; i < len(bits); i++ {
+		if bits[i] == bits[i-1] {
+			run++
+			continue
+		}
+		pattern = append(pattern, maxInt(unit*run, run))
+		run = 1
+	}
+	pattern = append(pattern, maxInt(unit*run, run))
+	return pattern
 }
 
 func drawLineTriangleMarker(img *image.RGBA, tipX int, tipY int, dirX int, dirY int, c color.RGBA, lineWidth int, markerWidth string, markerLength string) {
