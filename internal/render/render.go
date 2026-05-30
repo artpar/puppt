@@ -8693,6 +8693,12 @@ func substituteFontSourceForFamily(fontFamily string, bold bool, italic bool) (f
 		if normalizedFontFamily(fontFamily) == "calibri light" && bold {
 			bold = false
 		}
+		if fontPath := firstExistingPath(carlitoFontCandidates(bold, italic)); fontPath != "" {
+			source, err := readFontPath(fontPath)
+			if err == nil {
+				return source, true
+			}
+		}
 		source, err := readBundledFont(carlitoAssetPath(bold, italic))
 		if err != nil {
 			return fontSource{}, false
@@ -8711,6 +8717,39 @@ func substituteFontSourceForFamily(fontFamily string, bold bool, italic bool) (f
 	default:
 		return fontSource{}, false
 	}
+}
+
+func carlitoFontCandidates(bold bool, italic bool) []string {
+	styleName := "Regular"
+	fileName := "Carlito-Regular.ttf"
+	switch {
+	case bold && italic:
+		styleName = "BoldItalic"
+		fileName = "Carlito-BoldItalic.ttf"
+	case bold:
+		styleName = "Bold"
+		fileName = "Carlito-Bold.ttf"
+	case italic:
+		styleName = "Italic"
+		fileName = "Carlito-Italic.ttf"
+	}
+	candidates := []string{
+		"/System/Library/PrivateFrameworks/FontServices.framework/Versions/A/Resources/Fonts/ApplicationSupport/Carlito.ttc",
+		"/Library/Fonts/Carlito.ttc",
+		"/System/Library/Fonts/Supplemental/Carlito.ttc",
+		"/Library/Fonts/" + fileName,
+		"/System/Library/Fonts/Supplemental/" + fileName,
+		"/usr/share/fonts/truetype/crosextra/" + fileName,
+		"/usr/share/fonts/truetype/carlito/" + fileName,
+		"/usr/share/fonts/opentype/carlito/" + fileName,
+	}
+	if styleName != "Regular" {
+		candidates = append(candidates,
+			"/Library/Fonts/Carlito-"+styleName+".ttf",
+			"/System/Library/Fonts/Supplemental/Carlito-"+styleName+".ttf",
+		)
+	}
+	return candidates
 }
 
 func supportedFontSubstituteAvailable(fontFamily string, bold bool, italic bool) bool {

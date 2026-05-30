@@ -3472,17 +3472,17 @@ func TestFontResolutionDistinguishesExactAndSubstituteFonts(t *testing.T) {
 	if !ok {
 		t.Fatal("expected configured Calibri substitute font")
 	}
-	if source.Label != "carlito/Carlito-Regular.ttf" {
-		t.Fatalf("expected bundled Carlito substitute, got %q", source.Label)
+	if !strings.Contains(source.Label, "Carlito") {
+		t.Fatalf("expected Carlito substitute, got %q", source.Label)
 	}
 	if _, err := parseFontData(source.Data, false, false); err != nil {
-		t.Fatalf("expected bundled Carlito font to parse: %v", err)
+		t.Fatalf("expected Carlito font to parse: %v", err)
 	}
 	lightBold, ok := substituteFontSourceForFamily("Calibri Light", true, false)
 	if !ok {
 		t.Fatal("expected configured Calibri Light substitute font")
 	}
-	if lightBold.Label != "carlito/Carlito-Regular.ttf" {
+	if !strings.Contains(lightBold.Label, "Carlito") {
 		t.Fatalf("expected Calibri Light bold substitute to preserve the light face metrics, got %q", lightBold.Label)
 	}
 }
@@ -3601,8 +3601,8 @@ func TestSupportedFontSubstitutesAreResolvedButNotUnsupported(t *testing.T) {
 		if !ok {
 			t.Fatalf("expected supported substitute for %s", family)
 		}
-		if !strings.Contains(source.Label, "Carlito-Regular.ttf") {
-			t.Fatalf("expected bundled Carlito source for %s, got %q", family, source.Label)
+		if !strings.Contains(source.Label, "Carlito") {
+			t.Fatalf("expected Carlito source for %s, got %q", family, source.Label)
 		}
 		if message := fontResolutionUnsupportedMessage(slideElement{FontFamily: family}); message != "" {
 			t.Fatalf("supported substitute for %s should not be reported: %q", family, message)

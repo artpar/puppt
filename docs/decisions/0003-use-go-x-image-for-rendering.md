@@ -18,7 +18,7 @@ Use `golang.org/x/image` for low-level image/font rendering primitives behind `i
 
 This dependency is allowed only for drawing primitives such as font faces and glyph rasterization. It must not own `.pptx` package reading, PresentationML interpretation, mutation, validation, or command JSON behavior.
 
-Allow exact renderer font files to be pinned through `PUPPT_FONT_MAP` for production and CI environments that can provide Office-compatible fonts without changing code. Bundle the unmodified Carlito TTF files under `internal/render/assets/fonts/carlito` as the deterministic configured substitute for Calibri and Calibri Light when the exact requested font is unavailable. Carlito is pinned from `googlefonts/carlito` commit `3a810cab78ebd6e2e4eed42af9e8453c4f9b850a` and carries its upstream `OFL.txt` license file.
+Allow exact renderer font files to be pinned through `PUPPT_FONT_MAP` for production and CI environments that can provide Office-compatible fonts without changing code. Prefer locally installed Carlito metric-compatible fonts for Calibri and Calibri Light when exact Calibri-family fonts are unavailable, then bundle the unmodified Carlito TTF files under `internal/render/assets/fonts/carlito` as the deterministic fallback. Carlito is pinned from `googlefonts/carlito` commit `3a810cab78ebd6e2e4eed42af9e8453c4f9b850a` and carries its upstream `OFL.txt` license file.
 
 ## Consequences
 
@@ -26,4 +26,4 @@ Allow exact renderer font files to be pinned through `PUPPT_FONT_MAP` for produc
 - Renderer behavior remains testable through focused PNG tests and the real-world golden comparison harness.
 - Production and CI can pin exact font files explicitly instead of relying on ambient host font discovery.
 - Font selection and text layout remain Puppt-owned code and must report partial or unsupported behavior when fidelity is incomplete.
-- Rendering Calibri-family text no longer depends on host-specific Helvetica/Arial availability, but the JSON still reports the substitution because Carlito is not the exact requested font.
+- Rendering Calibri-family text no longer depends on host-specific Helvetica/Arial availability. The JSON reports an unresolved font issue only when neither the exact requested family nor a supported Carlito substitute can be resolved.
