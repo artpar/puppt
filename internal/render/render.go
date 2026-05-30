@@ -10363,9 +10363,24 @@ func substituteFontSourceForFamily(fontFamily string, bold bool, italic bool) (f
 			return fontSource{}, false
 		}
 		return source, true
+	case "segoe ui historic", "segoe ui symbol":
+		if source, ok := sansSerifSubstituteFontSource(bold, italic); ok {
+			return source, true
+		}
+		return fontSource{}, false
 	default:
 		return fontSource{}, false
 	}
+}
+
+func sansSerifSubstituteFontSource(bold bool, italic bool) (fontSource, bool) {
+	if fontPath := firstExistingPath(fontCandidates(bold, italic)); fontPath != "" {
+		source, err := readFontPath(fontPath)
+		if err == nil {
+			return source, true
+		}
+	}
+	return fontSource{}, false
 }
 
 func carlitoFontCandidates(bold bool, italic bool) []string {
