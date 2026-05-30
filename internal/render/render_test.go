@@ -4590,6 +4590,37 @@ func TestResolveSlidePlaceholdersKeepsLocalBodyProperties(t *testing.T) {
 	}
 }
 
+func TestResolveSlidePlaceholdersInheritsUnspecifiedFirstLastSpacing(t *testing.T) {
+	elements := []slideElement{{
+		Kind:              "sp",
+		Name:              "Content Placeholder 1",
+		Text:              "Slide body",
+		IsPlaceholder:     true,
+		PlaceholderType:   "body",
+		HasBodyProperties: true,
+	}}
+	sources := map[string]slideElement{
+		"type:body": {
+			IsPlaceholder:           true,
+			PlaceholderType:         "body",
+			HasFirstLastSpacing:     true,
+			IncludeFirstLastSpacing: true,
+		},
+	}
+
+	got := resolveSlidePlaceholders(elements, sources)
+	if !got[0].HasFirstLastSpacing || !got[0].IncludeFirstLastSpacing {
+		t.Fatalf("unspecified first/last paragraph spacing was not inherited: %+v", got[0])
+	}
+
+	elements[0].HasFirstLastSpacing = true
+	elements[0].IncludeFirstLastSpacing = false
+	got = resolveSlidePlaceholders(elements, sources)
+	if !got[0].HasFirstLastSpacing || got[0].IncludeFirstLastSpacing {
+		t.Fatalf("explicit false first/last paragraph spacing should block inheritance: %+v", got[0])
+	}
+}
+
 func TestResolveSlidePlaceholdersDefaultsLocalCenterTitleBodyAnchor(t *testing.T) {
 	elements := []slideElement{{
 		Kind:              "sp",
@@ -4964,7 +4995,7 @@ func TestParseBodyPropertiesReadsTextAnchor(t *testing.T) {
 	if element.TextVertical != "eaVert" || !element.HasTextBodyRotation || element.TextBodyRotation != 5400000 || element.TextColumnCount != 2 || !element.TextAnchorCenter {
 		t.Fatalf("expected text layout body properties: %+v", element)
 	}
-	if !element.IncludeFirstLastSpacing {
+	if !element.HasFirstLastSpacing || !element.IncludeFirstLastSpacing {
 		t.Fatalf("expected first/last paragraph spacing flag: %+v", element)
 	}
 	if !element.HasNormAutofit {
@@ -4978,6 +5009,18 @@ func TestParseBodyPropertiesReadsTextAnchor(t *testing.T) {
 	}
 	if !element.HasLineSpacingReductionPct || element.LineSpacingReductionPct != 20000 {
 		t.Fatalf("unexpected autofit line spacing reduction: %+v", element)
+	}
+}
+
+func TestParseBodyPropertiesReadsExplicitFirstLastSpacingOff(t *testing.T) {
+	root, err := parseXMLNode([]byte(`<a:bodyPr xmlns:a="a" spcFirstLastPara="0"/>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var element slideElement
+	parseBodyProperties(root, &element)
+	if !element.HasFirstLastSpacing || element.IncludeFirstLastSpacing {
+		t.Fatalf("expected explicit false first/last paragraph spacing flag: %+v", element)
 	}
 }
 

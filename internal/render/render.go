@@ -234,6 +234,7 @@ type slideElement struct {
 	TextColumnCount            int
 	TextAnchorCenter           bool
 	IncludeFirstLastSpacing    bool
+	HasFirstLastSpacing        bool
 	HasNoAutofit               bool
 	HasShapeAutofit            bool
 	HasNormAutofit             bool
@@ -1656,8 +1657,9 @@ func parseBodyProperties(node *xmlNode, element *slideElement) {
 	if attrValue(node.Attrs, "anchorCtr") == "1" {
 		element.TextAnchorCenter = true
 	}
-	if attrValue(node.Attrs, "spcFirstLastPara") == "1" {
-		element.IncludeFirstLastSpacing = true
+	if value := attrValue(node.Attrs, "spcFirstLastPara"); value != "" {
+		element.HasFirstLastSpacing = true
+		element.IncludeFirstLastSpacing = boolAttrOn(value)
 	}
 	if firstChild(node, "noAutofit") != nil {
 		element.HasNoAutofit = true
@@ -2943,8 +2945,9 @@ func mergePlaceholderSource(base slideElement, override slideElement) slideEleme
 	} else if shouldDefaultCenterTitleTextAnchor(merged) {
 		merged.TextAnchor = "ctr"
 	}
-	if !merged.HasBodyProperties && !merged.IncludeFirstLastSpacing {
+	if !merged.HasFirstLastSpacing && !merged.IncludeFirstLastSpacing {
 		merged.IncludeFirstLastSpacing = base.IncludeFirstLastSpacing
+		merged.HasFirstLastSpacing = base.HasFirstLastSpacing
 	}
 	if !merged.HasBodyProperties && !merged.HasShapeAutofit {
 		merged.HasShapeAutofit = base.HasShapeAutofit
@@ -3088,8 +3091,9 @@ func resolveSlidePlaceholders(elements []slideElement, sources map[string]slideE
 		} else if shouldDefaultCenterTitleTextAnchor(*element) {
 			element.TextAnchor = "ctr"
 		}
-		if !element.HasBodyProperties && !element.IncludeFirstLastSpacing {
+		if !element.HasFirstLastSpacing && !element.IncludeFirstLastSpacing {
 			element.IncludeFirstLastSpacing = source.IncludeFirstLastSpacing
+			element.HasFirstLastSpacing = source.HasFirstLastSpacing
 		}
 		if !element.HasBodyProperties && !element.HasShapeAutofit {
 			element.HasShapeAutofit = source.HasShapeAutofit
