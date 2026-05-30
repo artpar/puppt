@@ -174,6 +174,11 @@ type slideElement struct {
 	ExtCX                      int64
 	ExtCY                      int64
 	HasTransform               bool
+	HasTextTransform           bool
+	TextOffX                   int64
+	TextOffY                   int64
+	TextExtCX                  int64
+	TextExtCY                  int64
 	HasCrop                    bool
 	CropLeft                   int64
 	CropTop                    int64
@@ -981,6 +986,9 @@ func parseSlideElementNodeWithThemeEffectsAndFills(node *xmlNode, transform rend
 	} else if xfrm := firstChild(node, "xfrm"); xfrm != nil {
 		parseTransform(xfrm, transform, &element)
 	}
+	if txXfrm := firstChild(node, "txXfrm"); txXfrm != nil {
+		parseTextTransform(txXfrm, transform, &element)
+	}
 	if style := firstChild(node, "style"); style != nil {
 		parseStyleProperties(style, &element, theme, effectStyles, fillStyles)
 	}
@@ -1657,6 +1665,19 @@ func parseTransform(xfrm *xmlNode, transform renderTransform, element *slideElem
 		element.ExtCX = transformLength(parseIntAttr(ext.Attrs, "cx"), transform.ScaleX)
 		element.ExtCY = transformLength(parseIntAttr(ext.Attrs, "cy"), transform.ScaleY)
 	}
+}
+
+func parseTextTransform(xfrm *xmlNode, transform renderTransform, element *slideElement) {
+	off := firstChild(xfrm, "off")
+	ext := firstChild(xfrm, "ext")
+	if off == nil || ext == nil {
+		return
+	}
+	element.HasTextTransform = true
+	element.TextOffX = transformCoord(parseIntAttr(off.Attrs, "x"), transform.ScaleX, transform.OffsetX)
+	element.TextOffY = transformCoord(parseIntAttr(off.Attrs, "y"), transform.ScaleY, transform.OffsetY)
+	element.TextExtCX = transformLength(parseIntAttr(ext.Attrs, "cx"), transform.ScaleX)
+	element.TextExtCY = transformLength(parseIntAttr(ext.Attrs, "cy"), transform.ScaleY)
 }
 
 func parseTextProperties(node *xmlNode, element *slideElement, theme themeColors) {
@@ -4621,6 +4642,12 @@ func fitDiagramElementsToFrame(elements []slideElement, frame slideElement) []sl
 		elements[index].OffY = frame.OffY + elements[index].OffY*scaleY/denomY
 		elements[index].ExtCX = elements[index].ExtCX * scaleX / denomX
 		elements[index].ExtCY = elements[index].ExtCY * scaleY / denomY
+		if elements[index].HasTextTransform {
+			elements[index].TextOffX = frame.OffX + elements[index].TextOffX*scaleX/denomX
+			elements[index].TextOffY = frame.OffY + elements[index].TextOffY*scaleY/denomY
+			elements[index].TextExtCX = elements[index].TextExtCX * scaleX / denomX
+			elements[index].TextExtCY = elements[index].TextExtCY * scaleY / denomY
+		}
 	}
 	return elements
 }
@@ -4637,6 +4664,14 @@ func diagramElementExtents(elements []slideElement) (int64, int64) {
 		}
 		if bottom := element.OffY + element.ExtCY; bottom > maxY {
 			maxY = bottom
+		}
+		if element.HasTextTransform {
+			if right := element.TextOffX + element.TextExtCX; right > maxX {
+				maxX = right
+			}
+			if bottom := element.TextOffY + element.TextExtCY; bottom > maxY {
+				maxY = bottom
+			}
 		}
 	}
 	return maxX, maxY
@@ -7402,6 +7437,14 @@ func measureString(face font.Face, text string) int {
 }
 
 func textBounds(bounds image.Rectangle, element slideElement, size slideSize, canvas image.Rectangle) image.Rectangle {
+	if element.HasTextTransform && element.TextExtCX > 0 && element.TextExtCY > 0 {
+		bounds = image.Rect(
+			scaleEMU(element.TextOffX, size.CX, canvas.Dx()),
+			scaleEMU(element.TextOffY, size.CY, canvas.Dy()),
+			scaleEMU(element.TextOffX+element.TextExtCX, size.CX, canvas.Dx()),
+			scaleEMU(element.TextOffY+element.TextExtCY, size.CY, canvas.Dy()),
+		)
+	}
 	left := scaleEMU(defaultTextInsetXEMU, size.CX, canvas.Dx())
 	top := scaleEMU(defaultTextInsetYEMU, size.CY, canvas.Dy())
 	right := scaleEMU(defaultTextInsetXEMU, size.CX, canvas.Dx())

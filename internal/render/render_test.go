@@ -1954,6 +1954,25 @@ func TestRenderGraphicFrameReportsUnsupportedDiagramContent(t *testing.T) {
 	}
 }
 
+func TestParseSlideElementNodeReadsDiagramTextTransform(t *testing.T) {
+	root, err := parseXMLNode([]byte(`<dsp:sp xmlns:dsp="dsp" xmlns:a="a">
+	  <dsp:nvSpPr><dsp:cNvPr id="1" name="Diagram Shape"/></dsp:nvSpPr>
+	  <dsp:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="1000" cy="1000"/></a:xfrm></dsp:spPr>
+	  <dsp:txXfrm><a:off x="100" y="200"/><a:ext cx="300" cy="400"/></dsp:txXfrm>
+	</dsp:sp>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got := parseSlideElementNode(root, renderTransform{ScaleX: 2, ScaleY: 3, OffsetX: 10, OffsetY: 20})
+	if !got.HasTextTransform {
+		t.Fatalf("expected diagram text transform to be parsed: %+v", got)
+	}
+	if got.TextOffX != 210 || got.TextOffY != 620 || got.TextExtCX != 600 || got.TextExtCY != 1200 {
+		t.Fatalf("unexpected transformed diagram text box: %+v", got)
+	}
+}
+
 func TestFitDiagramElementsToFramePreservesContainedCoordinates(t *testing.T) {
 	elements := []slideElement{{
 		HasTransform: true,
@@ -2001,6 +2020,53 @@ func TestFitDiagramElementsToFrameScalesDownOverflowingCoordinates(t *testing.T)
 	}
 	if got[0].OffX != 60 || got[0].OffY != 120 || got[0].ExtCX != 450 || got[0].ExtCY != 900 {
 		t.Fatalf("expected overflowing diagram coordinates to be scaled down into frame, got %+v", got[0])
+	}
+}
+
+func TestFitDiagramElementsToFrameScalesDiagramTextTransform(t *testing.T) {
+	elements := []slideElement{{
+		HasTransform:     true,
+		OffX:             0,
+		OffY:             0,
+		ExtCX:            1000,
+		ExtCY:            1000,
+		HasTextTransform: true,
+		TextOffX:         1000,
+		TextOffY:         500,
+		TextExtCX:        1000,
+		TextExtCY:        500,
+	}}
+	frame := slideElement{
+		HasTransform: true,
+		OffX:         100,
+		OffY:         200,
+		ExtCX:        1000,
+		ExtCY:        1000,
+	}
+
+	got := fitDiagramElementsToFrame(elements, frame)
+	if got[0].OffX != 100 || got[0].ExtCX != 500 {
+		t.Fatalf("expected shape coordinates to scale against diagram text extents, got %+v", got[0])
+	}
+	if got[0].TextOffX != 600 || got[0].TextOffY != 700 || got[0].TextExtCX != 500 || got[0].TextExtCY != 500 {
+		t.Fatalf("expected diagram text transform to scale with frame, got %+v", got[0])
+	}
+}
+
+func TestTextBoundsUsesDiagramTextTransform(t *testing.T) {
+	element := slideElement{
+		HasTextTransform: true,
+		TextOffX:         emuPerInch / 4,
+		TextOffY:         emuPerInch / 2,
+		TextExtCX:        emuPerInch / 2,
+		TextExtCY:        emuPerInch / 4,
+		HasInsets:        true,
+	}
+
+	got := textBounds(image.Rect(0, 0, 96, 96), element, slideSize{CX: emuPerInch, CY: emuPerInch}, image.Rect(0, 0, 96, 96))
+	want := image.Rect(24, 48, 72, 72)
+	if got != want {
+		t.Fatalf("expected diagram text transform to define text bounds: got=%v want=%v", got, want)
 	}
 }
 
