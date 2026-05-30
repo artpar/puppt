@@ -5666,6 +5666,19 @@ func TestScaledTextElementAppliesLineSpacingReductionWithoutFontScale(t *testing
 	}
 }
 
+func TestScaledTextElementDoesNotInventPercentageLineSpacingForReduction(t *testing.T) {
+	got := scaledTextElement(slideElement{
+		LineSpacingReductionPct: 10000,
+		TextParagraphs: []textParagraph{{
+			Text:     "Body",
+			FontSize: 2400,
+		}},
+	})
+	if got.TextParagraphs[0].LineSpacingPct != 0 {
+		t.Fatalf("line spacing reduction applies only to percentage line spacing: %+v", got)
+	}
+}
+
 func TestFallbackFontPointSizeKeepsThirtyTwoPointText(t *testing.T) {
 	got := fallbackFontPointSize(3200, false, false)
 	want := 32.0

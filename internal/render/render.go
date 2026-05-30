@@ -5783,14 +5783,10 @@ func scaledFontSize(fontSize int, scalePct int) int {
 }
 
 func reducedLineSpacing(lineSpacingPct int, reductionPct int) int {
-	if reductionPct <= 0 {
+	if reductionPct <= 0 || lineSpacingPct <= 0 {
 		return lineSpacingPct
 	}
-	base := lineSpacingPct
-	if base <= 0 {
-		base = 100000
-	}
-	reduced := base - reductionPct
+	reduced := lineSpacingPct - reductionPct
 	if reduced < 1000 {
 		return 1000
 	}
