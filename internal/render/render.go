@@ -573,6 +573,7 @@ func Render(ctx context.Context, inputPath string, options Options) (model.Comma
 		elements = resolveTextFields(elements, options.SlideNumber)
 		unsupported = append(unsupported, renderElements(pkg, renderPart, size, img, elements, tableStyles)...)
 		unsupported = append(unsupported, unsupportedItems(renderPart, elements)...)
+		unsupported = append(unsupported, timingUnsupportedItems(renderPart, pkg.Parts[renderPart])...)
 	}
 	applyDisplayP3OutputTransform(img)
 	if err := writePNGWithDPI(options.OutputPath, img, dpi); err != nil {
@@ -11959,6 +11960,44 @@ func unsupportedItems(slidePart string, elements []slideElement) []model.SkipIte
 		items = append(items, unsupportedItem(slidePart, unsupportedCode, message))
 	}
 	return items
+}
+
+func timingUnsupportedItems(slidePart string, data []byte) []model.SkipItem {
+	root, err := parseXMLNode(data)
+	if err != nil {
+		return nil
+	}
+	timing := firstDescendant(root, "timing")
+	if timing == nil || !timingHasAnimationBehavior(timing) {
+		return nil
+	}
+	return []model.SkipItem{unsupportedItem(slidePart, partialUnsupportedCode, "slide animation timing was not evaluated for static rendering")}
+}
+
+func timingHasAnimationBehavior(timing *xmlNode) bool {
+	for _, child := range timing.Children {
+		if timingNodeHasAnimationBehavior(child) {
+			return true
+		}
+	}
+	return false
+}
+
+func timingNodeHasAnimationBehavior(node *xmlNode) bool {
+	switch node.Name {
+	case "anim", "animClr", "animEffect", "animMotion", "animRot", "animScale", "cmd", "set":
+		return true
+	case "cTn":
+		if attrValue(node.Attrs, "presetClass") != "" || attrValue(node.Attrs, "presetID") != "" {
+			return true
+		}
+	}
+	for _, child := range node.Children {
+		if timingNodeHasAnimationBehavior(child) {
+			return true
+		}
+	}
+	return false
 }
 
 func unsupportedItem(slidePart string, code string, message string) model.SkipItem {

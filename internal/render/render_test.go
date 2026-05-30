@@ -8762,6 +8762,42 @@ func TestUnsupportedItemsSkipsEmptyPlaceholders(t *testing.T) {
 	}
 }
 
+func TestTimingUnsupportedItemsReportsAnimationBehavior(t *testing.T) {
+	got := timingUnsupportedItems("ppt/slides/slide1.xml", []byte(`<p:sld xmlns:p="p">
+  <p:cSld/>
+  <p:timing>
+    <p:tnLst>
+      <p:par>
+        <p:cTn id="1">
+          <p:childTnLst>
+            <p:set>
+              <p:cBhvr>
+                <p:attrNameLst><p:attrName>style.visibility</p:attrName></p:attrNameLst>
+              </p:cBhvr>
+              <p:to><p:strVal val="visible"/></p:to>
+            </p:set>
+          </p:childTnLst>
+        </p:cTn>
+      </p:par>
+    </p:tnLst>
+  </p:timing>
+</p:sld>`))
+
+	if len(got) != 1 {
+		t.Fatalf("expected timing partial unsupported item, got %+v", got)
+	}
+	if got[0].Code != partialUnsupportedCode || got[0].Part != "ppt/slides/slide1.xml" {
+		t.Fatalf("unexpected timing unsupported item: %+v", got[0])
+	}
+}
+
+func TestTimingUnsupportedItemsIgnoresEmptyTimingTree(t *testing.T) {
+	got := timingUnsupportedItems("ppt/slides/slide1.xml", []byte(`<p:sld xmlns:p="p"><p:cSld/><p:timing><p:tnLst/></p:timing></p:sld>`))
+	if len(got) != 0 {
+		t.Fatalf("empty timing tree should not be reported, got %+v", got)
+	}
+}
+
 func TestFilterInheritedPlaceholdersKeepsEnabledSlideNumberPlaceholder(t *testing.T) {
 	elements := []slideElement{{
 		Kind:            "sp",
