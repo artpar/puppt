@@ -5638,6 +5638,9 @@ func renderShape(slidePart string, size slideSize, img *image.RGBA, element *sli
 		}
 		rendered = true
 	}
+	if item, ok := unsupportedBWModeItem(slidePart, *element); ok {
+		unsupported = append(unsupported, item)
+	}
 	element.Rendered = rendered
 	return unsupported
 }
@@ -10702,6 +10705,9 @@ func renderPicture(pkg *pptx.Package, slidePart string, size slideSize, img *ima
 			unsupported = append(unsupported, unsupportedItem(slidePart, partialUnsupportedCode, fmt.Sprintf("picture object %q %s", elementLabel(*element), message)))
 		}
 	}
+	if item, ok := unsupportedBWModeItem(slidePart, *element); ok {
+		unsupported = append(unsupported, item)
+	}
 	if element.HasSoftEdge {
 		if !softEdgeRendered {
 			unsupported = append(unsupported, unsupportedItem(slidePart, partialUnsupportedCode, fmt.Sprintf("picture object %q soft edge was not rendered", elementLabel(*element))))
@@ -11761,11 +11767,11 @@ func shouldApplyImageAlphaModFix(element slideElement) bool {
 }
 
 func shouldApplyImageBWMode(element slideElement) bool {
-	return element.BWMode == "gray"
+	return bwModeTransformsColor(element.BWMode)
 }
 
 func applyElementBWMode(element *slideElement) {
-	if element == nil || element.BWMode != "gray" {
+	if element == nil || !bwModeTransformsColor(element.BWMode) {
 		return
 	}
 	if element.HasFill {
@@ -11806,14 +11812,29 @@ func applyElementBWMode(element *slideElement) {
 }
 
 func applyBWModeToColor(c color.RGBA, mode string) color.RGBA {
-	if mode != "gray" {
+	switch strings.TrimSpace(mode) {
+	case "gray":
+		luma := grayLuma(c)
+		c.R = luma
+		c.G = luma
+		c.B = luma
+		return c
+	case "black":
+		c.R = 0
+		c.G = 0
+		c.B = 0
+		return c
+	case "white":
+		c.R = 255
+		c.G = 255
+		c.B = 255
+		return c
+	case "hidden":
+		c.A = 0
+		return c
+	default:
 		return c
 	}
-	luma := grayLuma(c)
-	c.R = luma
-	c.G = luma
-	c.B = luma
-	return c
 }
 
 func transformedPictureImage(src image.Image, srcBounds image.Rectangle, element slideElement) *image.RGBA {
@@ -11849,6 +11870,25 @@ func applyImageBWMode(c color.RGBA, element slideElement) color.RGBA {
 func grayLuma(c color.RGBA) uint8 {
 	luma := uint8((299*int(c.R) + 587*int(c.G) + 114*int(c.B) + 500) / 1000)
 	return luma
+}
+
+func bwModeTransformsColor(mode string) bool {
+	switch strings.TrimSpace(mode) {
+	case "gray", "black", "white", "hidden":
+		return true
+	default:
+		return false
+	}
+}
+
+func unsupportedBWModeItem(slidePart string, element slideElement) (model.SkipItem, bool) {
+	mode := strings.TrimSpace(element.BWMode)
+	switch mode {
+	case "", "auto", "clr", "gray", "black", "white", "hidden":
+		return model.SkipItem{}, false
+	default:
+		return unsupportedItem(slidePart, partialUnsupportedCode, fmt.Sprintf("%s object %q black-and-white mode %q was not rendered", objectKindLabel(element.Kind), elementLabel(element), mode)), true
+	}
 }
 
 func applyImageAlphaModFix(c color.RGBA, element slideElement) color.RGBA {

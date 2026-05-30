@@ -5299,6 +5299,28 @@ func TestPictureSourceForElementAppliesGrayBlackWhiteMode(t *testing.T) {
 	}
 }
 
+func TestPictureSourceForElementAppliesConcreteBlackWhiteModes(t *testing.T) {
+	src := image.NewRGBA(image.Rect(0, 0, 1, 1))
+	src.SetRGBA(0, 0, color.RGBA{R: 100, G: 150, B: 200, A: 220})
+
+	for _, tc := range []struct {
+		mode string
+		want color.RGBA
+	}{
+		{mode: "black", want: color.RGBA{A: 220}},
+		{mode: "white", want: color.RGBA{R: 255, G: 255, B: 255, A: 220}},
+		{mode: "hidden", want: color.RGBA{R: 100, G: 150, B: 200}},
+	} {
+		got, bounds := pictureSourceForElement(src, slideElement{BWMode: tc.mode})
+		if bounds != image.Rect(0, 0, 1, 1) {
+			t.Fatalf("%s: unexpected transformed source bounds: %v", tc.mode, bounds)
+		}
+		if pixel := color.RGBAModel.Convert(got.At(0, 0)).(color.RGBA); pixel != tc.want {
+			t.Fatalf("%s: unexpected bwMode pixel: got %#v want %#v", tc.mode, pixel, tc.want)
+		}
+	}
+}
+
 func TestRenderShapeAppliesGrayBlackWhiteModeToFillAndLine(t *testing.T) {
 	img := image.NewRGBA(image.Rect(0, 0, 96, 96))
 	element := slideElement{
@@ -5325,6 +5347,26 @@ func TestRenderShapeAppliesGrayBlackWhiteModeToFillAndLine(t *testing.T) {
 	}
 	if got := img.RGBAAt(0, 48); got.R != got.G || got.G != got.B || got.B == 255 || got.A == 0 {
 		t.Fatalf("expected blue outline to render as gray, got %#v", got)
+	}
+}
+
+func TestRenderShapeReportsUnsupportedBlackWhiteModeValues(t *testing.T) {
+	img := image.NewRGBA(image.Rect(0, 0, 96, 96))
+	element := slideElement{
+		Kind:         "sp",
+		Name:         "Black White Shape",
+		BWMode:       "blackWhite",
+		HasTransform: true,
+		ExtCX:        emuPerInch,
+		ExtCY:        emuPerInch,
+		PrstGeom:     "rect",
+		HasFill:      true,
+		FillColor:    color.RGBA{R: 255, A: 255},
+	}
+
+	unsupported := renderShape("ppt/slides/slide1.xml", slideSize{CX: emuPerInch, CY: emuPerInch}, img, &element)
+	if len(unsupported) != 1 || unsupported[0].Code != partialUnsupportedCode || !strings.Contains(unsupported[0].Message, `black-and-white mode "blackWhite"`) || !element.Rendered {
+		t.Fatalf("expected unsupported bwMode report with rendered fallback, got unsupported=%+v rendered=%v", unsupported, element.Rendered)
 	}
 }
 
