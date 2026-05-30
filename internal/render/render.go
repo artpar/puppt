@@ -251,6 +251,10 @@ type slideElement struct {
 	TextAnchor                 string
 	HasTextWrap                bool
 	TextWrap                   string
+	HasTextHorizontalOverflow  bool
+	TextHorizontalOverflow     string
+	HasTextVerticalOverflow    bool
+	TextVerticalOverflow       string
 	HasTextVertical            bool
 	TextVertical               string
 	HasTextBodyRotation        bool
@@ -1904,6 +1908,14 @@ func parseBodyProperties(node *xmlNode, element *slideElement) {
 	if wrap := attrValue(node.Attrs, "wrap"); wrap != "" {
 		element.HasTextWrap = true
 		element.TextWrap = wrap
+	}
+	if overflow := attrValue(node.Attrs, "horzOverflow"); overflow != "" {
+		element.HasTextHorizontalOverflow = true
+		element.TextHorizontalOverflow = overflow
+	}
+	if overflow := attrValue(node.Attrs, "vertOverflow"); overflow != "" {
+		element.HasTextVerticalOverflow = true
+		element.TextVerticalOverflow = overflow
 	}
 	if anchor := attrValue(node.Attrs, "anchor"); anchor != "" {
 		element.TextAnchor = anchor
@@ -3773,6 +3785,14 @@ func inheritPlaceholderBodyTextProperties(element *slideElement, source slideEle
 	if !element.HasTextWrap {
 		element.HasTextWrap = source.HasTextWrap
 		element.TextWrap = source.TextWrap
+	}
+	if !element.HasTextHorizontalOverflow {
+		element.HasTextHorizontalOverflow = source.HasTextHorizontalOverflow
+		element.TextHorizontalOverflow = source.TextHorizontalOverflow
+	}
+	if !element.HasTextVerticalOverflow {
+		element.HasTextVerticalOverflow = source.HasTextVerticalOverflow
+		element.TextVerticalOverflow = source.TextVerticalOverflow
 	}
 	if !element.HasTextVertical {
 		element.HasTextVertical = source.HasTextVertical
@@ -6583,12 +6603,12 @@ func drawShapeText(img *image.RGBA, bounds image.Rectangle, element slideElement
 }
 
 func drawShapeTextWithDPI(img *image.RGBA, bounds image.Rectangle, element slideElement, dpi int) error {
-	clip := bounds.Intersect(img.Bounds())
-	if clip.Empty() {
-		return nil
-	}
+	clip := shapeTextClipRect(element, bounds, img.Bounds())
 	if clip == img.Bounds() {
 		return drawShapeTextLayerWithDPI(img, bounds, element, dpi)
+	}
+	if clip.Empty() {
+		return nil
 	}
 	layer := image.NewRGBA(img.Bounds())
 	if err := drawShapeTextLayerWithDPI(layer, bounds, element, dpi); err != nil {
@@ -6596,6 +6616,37 @@ func drawShapeTextWithDPI(img *image.RGBA, bounds image.Rectangle, element slide
 	}
 	draw.Draw(img, clip, layer, clip.Min, draw.Over)
 	return nil
+}
+
+func shapeTextClipRect(element slideElement, bounds image.Rectangle, canvas image.Rectangle) image.Rectangle {
+	clip := canvas
+	if !shapeTextHorizontalOverflowAllowed(element) {
+		clip.Min.X = maxInt(clip.Min.X, bounds.Min.X)
+		clip.Max.X = minInt(clip.Max.X, bounds.Max.X)
+	}
+	if !shapeTextVerticalOverflowAllowed(element) {
+		clip.Min.Y = maxInt(clip.Min.Y, bounds.Min.Y)
+		clip.Max.Y = minInt(clip.Max.Y, bounds.Max.Y)
+	}
+	return clip.Intersect(canvas)
+}
+
+func shapeTextHorizontalOverflowAllowed(element slideElement) bool {
+	switch strings.TrimSpace(element.TextHorizontalOverflow) {
+	case "", "overflow":
+		return true
+	default:
+		return false
+	}
+}
+
+func shapeTextVerticalOverflowAllowed(element slideElement) bool {
+	switch strings.TrimSpace(element.TextVerticalOverflow) {
+	case "", "overflow":
+		return true
+	default:
+		return false
+	}
 }
 
 func drawShapeTextLayerWithDPI(img *image.RGBA, bounds image.Rectangle, element slideElement, dpi int) error {
@@ -6641,6 +6692,10 @@ func drawShapeTextLayerWithDPI(img *image.RGBA, bounds image.Rectangle, element 
 		bounds = anchorCenteredTextBounds(bounds, width)
 	}
 	y := anchoredTextTop(bounds, measuredTextHeight(measured), element.TextAnchor)
+	verticalLimit := bounds.Max.Y
+	if shapeTextVerticalOverflowAllowed(element) {
+		verticalLimit = img.Bounds().Max.Y
+	}
 	for _, line := range lines {
 		if len(measured) == 0 {
 			return nil
@@ -6649,7 +6704,7 @@ func drawShapeTextLayerWithDPI(img *image.RGBA, bounds image.Rectangle, element 
 		measured = measured[1:]
 		y += current.SpaceBefore
 		baseline := y + current.Ascent
-		if y > bounds.Max.Y {
+		if y > verticalLimit {
 			return nil
 		}
 		textAlign := line.TextAlign
@@ -9868,6 +9923,16 @@ func textLayoutUnsupportedMessagesForTarget(element slideElement, bounds image.R
 	var messages []string
 	if element.TextWrap != "" && element.TextWrap != "square" && element.TextWrap != "none" {
 		messages = append(messages, fmt.Sprintf("text body wrap mode %q was not rendered", element.TextWrap))
+	}
+	if element.TextHorizontalOverflow != "" && element.TextHorizontalOverflow != "overflow" && element.TextHorizontalOverflow != "clip" {
+		messages = append(messages, fmt.Sprintf("text horizontal overflow mode %q was not rendered", element.TextHorizontalOverflow))
+	}
+	if element.TextVerticalOverflow != "" && element.TextVerticalOverflow != "overflow" && element.TextVerticalOverflow != "clip" {
+		if element.TextVerticalOverflow == "ellipsis" {
+			messages = append(messages, "text vertical overflow ellipsis was rendered as clipped")
+		} else {
+			messages = append(messages, fmt.Sprintf("text vertical overflow mode %q was not rendered", element.TextVerticalOverflow))
+		}
 	}
 	if element.TextVertical != "" && element.TextVertical != "horz" {
 		messages = append(messages, fmt.Sprintf("text body vertical mode %q was not rendered", element.TextVertical))

@@ -5823,37 +5823,46 @@ func TestResolveSlidePlaceholdersKeepsLocalBodyProperties(t *testing.T) {
 
 func TestResolveSlidePlaceholdersInheritsUnspecifiedBodyTextProperties(t *testing.T) {
 	elements := []slideElement{{
-		Kind:              "sp",
-		Name:              "Content Placeholder 1",
-		Text:              "Slide body",
-		IsPlaceholder:     true,
-		PlaceholderType:   "body",
-		HasBodyProperties: true,
-		HasTextWrap:       true,
-		TextWrap:          "square",
+		Kind:                    "sp",
+		Name:                    "Content Placeholder 1",
+		Text:                    "Slide body",
+		IsPlaceholder:           true,
+		PlaceholderType:         "body",
+		HasBodyProperties:       true,
+		HasTextWrap:             true,
+		TextWrap:                "square",
+		HasTextVerticalOverflow: true,
+		TextVerticalOverflow:    "clip",
 	}}
 	sources := map[string]slideElement{
 		"type:body": {
-			IsPlaceholder:           true,
-			PlaceholderType:         "body",
-			HasTextWrap:             true,
-			TextWrap:                "none",
-			HasTextVertical:         true,
-			TextVertical:            "eaVert",
-			HasTextBodyRotation:     true,
-			TextBodyRotation:        5400000,
-			HasTextColumns:          true,
-			TextColumnCount:         2,
-			HasTextAnchorCenter:     true,
-			TextAnchorCenter:        true,
-			HasFirstLastSpacing:     true,
-			IncludeFirstLastSpacing: true,
+			IsPlaceholder:             true,
+			PlaceholderType:           "body",
+			HasTextWrap:               true,
+			TextWrap:                  "none",
+			HasTextHorizontalOverflow: true,
+			TextHorizontalOverflow:    "overflow",
+			HasTextVerticalOverflow:   true,
+			TextVerticalOverflow:      "overflow",
+			HasTextVertical:           true,
+			TextVertical:              "eaVert",
+			HasTextBodyRotation:       true,
+			TextBodyRotation:          5400000,
+			HasTextColumns:            true,
+			TextColumnCount:           2,
+			HasTextAnchorCenter:       true,
+			TextAnchorCenter:          true,
+			HasFirstLastSpacing:       true,
+			IncludeFirstLastSpacing:   true,
 		},
 	}
 
 	got := resolveSlidePlaceholders(elements, sources)
 	if got[0].TextWrap != "square" {
 		t.Fatalf("local body wrap should block inherited wrap: %+v", got[0])
+	}
+	if got[0].TextVerticalOverflow != "clip" || !got[0].HasTextHorizontalOverflow || got[0].TextHorizontalOverflow != "overflow" {
+		t.Fatalf("local vertical overflow should block inherited value while missing horizontal overflow inherits: %+v", got[0])
 	}
 	if got[0].TextVertical != "eaVert" || !got[0].HasTextBodyRotation || got[0].TextBodyRotation != 5400000 || !got[0].HasTextColumns || got[0].TextColumnCount != 2 || !got[0].TextAnchorCenter {
 		t.Fatalf("unspecified body text properties were not inherited: %+v", got[0])
@@ -6331,7 +6340,7 @@ func TestInheritedTextStylesUsePresentationDefaultAsBase(t *testing.T) {
 }
 
 func TestParseBodyPropertiesReadsTextAnchor(t *testing.T) {
-	root, err := parseXMLNode([]byte(`<a:bodyPr xmlns:a="a" anchor="ctr" wrap="square" vert="eaVert" rot="5400000" numCol="2" anchorCtr="1" spcFirstLastPara="1"><a:spAutoFit/><a:normAutofit fontScale="85000" lnSpcReduction="20000"/></a:bodyPr>`))
+	root, err := parseXMLNode([]byte(`<a:bodyPr xmlns:a="a" anchor="ctr" wrap="square" horzOverflow="clip" vertOverflow="overflow" vert="eaVert" rot="5400000" numCol="2" anchorCtr="1" spcFirstLastPara="1"><a:spAutoFit/><a:normAutofit fontScale="85000" lnSpcReduction="20000"/></a:bodyPr>`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -6339,6 +6348,9 @@ func TestParseBodyPropertiesReadsTextAnchor(t *testing.T) {
 	parseBodyProperties(root, &element)
 	if element.TextAnchor != "ctr" || !element.HasTextWrap || element.TextWrap != "square" {
 		t.Fatalf("unexpected body properties: %+v", element)
+	}
+	if !element.HasTextHorizontalOverflow || element.TextHorizontalOverflow != "clip" || !element.HasTextVerticalOverflow || element.TextVerticalOverflow != "overflow" {
+		t.Fatalf("expected text overflow properties: %+v", element)
 	}
 	if !element.HasTextVertical || element.TextVertical != "eaVert" || !element.HasTextBodyRotation || element.TextBodyRotation != 5400000 || !element.HasTextColumns || element.TextColumnCount != 2 || !element.HasTextAnchorCenter || !element.TextAnchorCenter {
 		t.Fatalf("expected text layout body properties: %+v", element)
@@ -6439,6 +6451,84 @@ func TestRenderShapeDoesNotReportSimpleTextAsSimplifiedLayout(t *testing.T) {
 	unsupported := renderShape("ppt/slides/slide1.xml", size, img, &element)
 	if len(unsupported) != 0 || !element.Rendered {
 		t.Fatalf("expected simple text to render without partial scaffold, got unsupported=%+v rendered=%v", unsupported, element.Rendered)
+	}
+}
+
+func TestDrawShapeTextAllowsExplicitNoAutofitOverflow(t *testing.T) {
+	img := image.NewRGBA(image.Rect(0, 0, 260, 120))
+	element := slideElement{
+		Text:         "First\nSecond",
+		FontSize:     2400,
+		HasNoAutofit: true,
+		TextParagraphs: []textParagraph{{
+			Text:     "First",
+			FontSize: 2400,
+			Runs:     []textRun{{Text: "First", FontSize: 2400}},
+		}, {
+			Text:     "Second",
+			FontSize: 2400,
+			Runs:     []textRun{{Text: "Second", FontSize: 2400}},
+		}},
+	}
+
+	bounds := image.Rect(10, 10, 250, 28)
+	if err := drawShapeTextWithDPI(img, bounds, element, defaultOutputDPI); err != nil {
+		t.Fatal(err)
+	}
+
+	painted := opaqueBounds(img)
+	if painted.Empty() || painted.Max.Y <= bounds.Max.Y {
+		t.Fatalf("expected explicit no-autofit text to paint below text bounds %v, got %v", bounds, painted)
+	}
+}
+
+func TestDrawShapeTextAllowsImplicitNoAutofitHorizontalOverflow(t *testing.T) {
+	img := image.NewRGBA(image.Rect(0, 0, 260, 80))
+	element := slideElement{
+		Text:     "This line should overflow",
+		TextWrap: "none",
+		FontSize: 2400,
+		TextParagraphs: []textParagraph{{
+			Text:     "This line should overflow",
+			FontSize: 2400,
+			Runs:     []textRun{{Text: "This line should overflow", FontSize: 2400}},
+		}},
+	}
+
+	bounds := image.Rect(10, 10, 70, 70)
+	if err := drawShapeTextWithDPI(img, bounds, element, defaultOutputDPI); err != nil {
+		t.Fatal(err)
+	}
+
+	painted := opaqueBounds(img)
+	if painted.Empty() || painted.Max.X <= bounds.Max.X {
+		t.Fatalf("expected implicit no-autofit text to paint past right text bounds %v, got %v", bounds, painted)
+	}
+}
+
+func TestDrawShapeTextClipsHorizontalOverflowWhenRequested(t *testing.T) {
+	img := image.NewRGBA(image.Rect(0, 0, 260, 80))
+	element := slideElement{
+		Text:                      "This line should overflow",
+		TextWrap:                  "none",
+		HasTextHorizontalOverflow: true,
+		TextHorizontalOverflow:    "clip",
+		FontSize:                  2400,
+		TextParagraphs: []textParagraph{{
+			Text:     "This line should overflow",
+			FontSize: 2400,
+			Runs:     []textRun{{Text: "This line should overflow", FontSize: 2400}},
+		}},
+	}
+
+	bounds := image.Rect(10, 10, 70, 70)
+	if err := drawShapeTextWithDPI(img, bounds, element, defaultOutputDPI); err != nil {
+		t.Fatal(err)
+	}
+
+	painted := opaqueBounds(img)
+	if painted.Empty() || painted.Max.X > bounds.Max.X {
+		t.Fatalf("expected horizontal overflow clip to constrain text to bounds %v, got %v", bounds, painted)
 	}
 }
 
@@ -7098,9 +7188,11 @@ func TestDrawShapeTextClipsGlyphsToTextBounds(t *testing.T) {
 	img := image.NewRGBA(image.Rect(0, 0, 220, 70))
 	draw.Draw(img, img.Bounds(), &image.Uniform{C: color.White}, image.Point{}, draw.Src)
 	element := slideElement{
-		FontFamily: "Carlito",
-		FontSize:   3200,
-		TextAnchor: "b",
+		FontFamily:              "Carlito",
+		FontSize:                3200,
+		TextAnchor:              "b",
+		TextVerticalOverflow:    "clip",
+		HasTextVerticalOverflow: true,
 		TextParagraphs: []textParagraph{{
 			Runs: []textRun{
 				{Text: "First", FontSize: 3200, HasTextColor: true, TextColor: color.RGBA{B: 255, A: 255}},
