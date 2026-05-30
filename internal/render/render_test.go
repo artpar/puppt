@@ -3055,6 +3055,34 @@ func TestTextParagraphsFromNodeCapturesRunUnderline(t *testing.T) {
 	}
 }
 
+func TestTextParagraphsFromNodeCapturesDrawingMLUnderlineStrokeAndFill(t *testing.T) {
+	root, err := parseXMLNode([]byte(`<p:txBody xmlns:p="p" xmlns:a="a">
+  <a:p>
+    <a:r><a:rPr sz="1800"><a:uLn/><a:uFill><a:solidFill><a:srgbClr val="00FF00"/></a:solidFill></a:uFill></a:rPr><a:t>Underlined</a:t></a:r>
+    <a:r><a:rPr sz="1800" u="none"><a:uLnTx/><a:uFillTx/></a:rPr><a:t>Plain</a:t></a:r>
+    <a:r><a:rPr sz="1800"><a:uLn><a:noFill/></a:uLn></a:rPr><a:t>No stroke</a:t></a:r>
+  </a:p>
+</p:txBody>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got := textParagraphsFromNode(root)
+	if len(got) != 1 || len(got[0].Runs) != 3 {
+		t.Fatalf("unexpected run parse: %+v", got)
+	}
+	if !got[0].Runs[0].Underline || !got[0].Runs[0].HasUnderlineColor || got[0].Runs[0].UnderlineColor != (color.RGBA{G: 0xff, A: 0xff}) {
+		t.Fatalf("expected explicit underline stroke and fill, got %+v", got[0].Runs[0])
+	}
+	if got[0].Runs[1].Underline || got[0].Runs[2].Underline {
+		t.Fatalf("u=none and no-fill underline stroke should not underline text: %+v", got[0].Runs)
+	}
+	segment := runToSegment(got[0].Runs[0], got[0])
+	if !segment.Underline || !segment.HasUnderlineColor || segment.UnderlineColor != got[0].Runs[0].UnderlineColor {
+		t.Fatalf("expected underline stroke and fill on render segment, got %+v", segment)
+	}
+}
+
 func TestTextParagraphsFromNodeCapturesRunStrikethrough(t *testing.T) {
 	root, err := parseXMLNode([]byte(`<p:txBody xmlns:p="p" xmlns:a="a">
   <a:p>
@@ -3202,6 +3230,22 @@ func TestDrawTextUnderlinePaintsBelowBaseline(t *testing.T) {
 	drawTextUnderline(img, face, 10, 20, 60, color.RGBA{R: 255, A: 255})
 	if !hasColorPixel(img, color.RGBA{R: 255, A: 255}) {
 		t.Fatal("expected underline to paint red pixels")
+	}
+}
+
+func TestUnderlineColorForSegmentUsesExplicitUnderlineFill(t *testing.T) {
+	segment := textLineSegment{
+		HasTextColor:      true,
+		TextColor:         color.RGBA{R: 0xff, A: 0xff},
+		HasUnderlineColor: true,
+		UnderlineColor:    color.RGBA{G: 0xff, A: 0xff},
+	}
+	if got := underlineColorForSegment(segment, color.RGBA{B: 0xff, A: 0xff}); got != segment.UnderlineColor {
+		t.Fatalf("expected explicit underline color, got %#v", got)
+	}
+	segment.HasUnderlineColor = false
+	if got := underlineColorForSegment(segment, color.RGBA{B: 0xff, A: 0xff}); got != segment.TextColor {
+		t.Fatalf("expected underline color to follow text color, got %#v", got)
 	}
 }
 

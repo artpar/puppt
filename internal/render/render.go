@@ -320,6 +320,8 @@ type textRun struct {
 	HasItalic         bool
 	Italic            bool
 	Underline         bool
+	HasUnderlineColor bool
+	UnderlineColor    color.RGBA
 	Strike            string
 	Baseline          int
 	HasCharSpacing    bool
@@ -3006,7 +3008,7 @@ func applyRunPropertiesToRun(run *textRun, rPr *xmlNode, text string, theme them
 		run.HasItalic = true
 		run.Italic = boolAttrOn(value)
 	}
-	run.Underline = isUnderlineStyle(attrValue(rPr.Attrs, "u"))
+	run.Underline = runPropertiesUnderline(rPr)
 	run.Strike = textStrikeType(attrValue(rPr.Attrs, "strike"))
 	run.Baseline = int(parseIntAttr(rPr.Attrs, "baseline"))
 	if value := attrValue(rPr.Attrs, "kern"); value != "" {
@@ -3027,6 +3029,17 @@ func applyRunPropertiesToRun(run *textRun, rPr *xmlNode, text string, theme them
 		if highlightColor, ok := colorFromColorNodeWithTheme(highlight, theme); ok {
 			run.HasHighlightColor = true
 			run.HighlightColor = highlightColor
+		}
+	}
+	if underlineFill := firstChild(rPr, "uFill"); underlineFill != nil {
+		if solidFill := firstChild(underlineFill, "solidFill"); solidFill != nil {
+			if underlineColor, ok := colorFromSolidFillWithTheme(solidFill, theme); ok {
+				run.HasUnderlineColor = true
+				run.UnderlineColor = underlineColor
+			}
+		} else if underlineColor, ok := colorFromColorNodeWithTheme(underlineFill, theme); ok {
+			run.HasUnderlineColor = true
+			run.UnderlineColor = underlineColor
 		}
 	}
 }
@@ -3073,6 +3086,16 @@ func textNeedsAlternateTypeface(text string) bool {
 
 func isUnderlineStyle(value string) bool {
 	return value != "" && value != "none"
+}
+
+func runPropertiesUnderline(rPr *xmlNode) bool {
+	if value := attrValue(rPr.Attrs, "u"); value != "" {
+		return isUnderlineStyle(value)
+	}
+	if underline := firstChild(rPr, "uLn"); underline != nil {
+		return firstChild(underline, "noFill") == nil
+	}
+	return false
 }
 
 func textStrikeType(value string) string {
@@ -6547,7 +6570,7 @@ func drawShapeTextLayerWithDPI(img *image.RGBA, bounds image.Rectangle, element 
 					x = drawTextSegmentWithTabsAndSpacingAtDPI(drawer, segmentFace, segment.Text, x, lineStart, segmentBaseline, dpi, line.TabStops, segment.CharSpacing)
 				}
 				if segment.Underline {
-					drawTextUnderline(img, segmentFace, segmentStart, segmentBaseline, x-segmentStart, textColorForSegment(segment, textColor))
+					drawTextUnderline(img, segmentFace, segmentStart, segmentBaseline, x-segmentStart, underlineColorForSegment(segment, textColor))
 				}
 				if segment.Strike != "" {
 					drawTextStrikethrough(img, segmentFace, segmentStart, segmentBaseline, x-segmentStart, segment.Strike, textColorForSegment(segment, textColor))
@@ -6621,6 +6644,13 @@ func textColorForSegment(segment textLineSegment, fallback color.RGBA) color.RGB
 		return segment.TextColor
 	}
 	return fallback
+}
+
+func underlineColorForSegment(segment textLineSegment, fallback color.RGBA) color.RGBA {
+	if segment.HasUnderlineColor {
+		return segment.UnderlineColor
+	}
+	return textColorForSegment(segment, fallback)
 }
 
 func fitNormalAutofitElement(element slideElement, bounds image.Rectangle, dpiOverride ...int) slideElement {
@@ -7217,6 +7247,8 @@ func runToSegment(run textRun, paragraph textParagraph) textLineSegment {
 		Bold:              resolvedRunBold(run, paragraph),
 		Italic:            resolvedRunItalic(run, paragraph),
 		Underline:         run.Underline,
+		HasUnderlineColor: run.HasUnderlineColor,
+		UnderlineColor:    run.UnderlineColor,
 		Strike:            run.Strike,
 		FontSize:          fontSize,
 		Baseline:          run.Baseline,
@@ -7814,6 +7846,8 @@ type textLineSegment struct {
 	Bold              bool
 	Italic            bool
 	Underline         bool
+	HasUnderlineColor bool
+	UnderlineColor    color.RGBA
 	Strike            string
 	FontSize          int
 	Baseline          int
