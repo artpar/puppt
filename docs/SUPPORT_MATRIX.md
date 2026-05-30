@@ -19,10 +19,10 @@
 | Deck creation | Supported for structured JSON | Creation and CLI tests |
 | Validation | Supported for package structure and relationship reachability | Validate tests |
 | Review summaries | Supported | Review and acceptance tests |
-| Preview rendering | Non-v1 | No rendering path exists |
+| PNG slide rendering | Partial | `puppt render` writes PNGs and reports unsupported visible objects |
 | Macro/VBA editing | Non-v1 | Warn and preserve where detected |
 | Chart/SmartArt editing | Non-v1 | Warn and preserve where detected |
 | Rich media metadata | Non-v1 | Relationship-level metadata only |
-| PowerPoint visual fidelity guarantees | Non-v1 | Output is editable-package focused |
+| PowerPoint visual fidelity guarantees | In progress | Real-world golden comparison harness exists; full pixel parity is not yet achieved |
 
 Unsupported operations must fail explicitly or be reported in `unsupported`; Puppt must not silently flatten or drop unknown content.

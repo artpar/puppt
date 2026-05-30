@@ -9,6 +9,7 @@ import (
 	createworkflow "github.com/artpar/puppt/internal/create"
 	editworkflow "github.com/artpar/puppt/internal/edit"
 	inspectworkflow "github.com/artpar/puppt/internal/inspect"
+	renderworkflow "github.com/artpar/puppt/internal/render"
 	"github.com/artpar/puppt/internal/report"
 	reviewworkflow "github.com/artpar/puppt/internal/review"
 	validateworkflow "github.com/artpar/puppt/internal/validate"
@@ -48,7 +49,42 @@ func NewRootCommand() *cobra.Command {
 	cmd.AddCommand(newCreateCommand())
 	cmd.AddCommand(newValidateCommand())
 	cmd.AddCommand(newReviewCommand())
+	cmd.AddCommand(newRenderCommand())
 
+	return cmd
+}
+
+func newRenderCommand() *cobra.Command {
+	var slideNumber int
+	var outputPath string
+	var outputDPI int
+	var emitJSON bool
+	cmd := &cobra.Command{
+		Use:   "render <input.pptx>",
+		Short: "Render one .pptx slide to a PNG image.",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			result, err := renderworkflow.Render(cmd.Context(), args[0], renderworkflow.Options{
+				SlideNumber: slideNumber,
+				OutputPath:  outputPath,
+				DPI:         outputDPI,
+			})
+			if err != nil {
+				return err
+			}
+			if emitJSON {
+				return report.WriteJSON(cmd.OutOrStdout(), result)
+			}
+			_, err = fmt.Fprintln(cmd.OutOrStdout(), result.Summary.Human)
+			return err
+		},
+	}
+	cmd.Flags().IntVar(&slideNumber, "slide", 0, "1-based slide number to render")
+	cmd.Flags().StringVar(&outputPath, "out", "", "path to write rendered PNG")
+	cmd.Flags().IntVar(&outputDPI, "dpi", 72, "output PNG resolution in pixels per inch")
+	cmd.Flags().BoolVar(&emitJSON, "json", false, "emit stable machine-readable JSON")
+	cmd.MarkFlagRequired("slide")
+	cmd.MarkFlagRequired("out")
 	return cmd
 }
 

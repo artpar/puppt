@@ -21,13 +21,94 @@ func TestHelpListsRequiredV1Commands(t *testing.T) {
 	}
 
 	output := stdout.String()
-	for _, want := range []string{"inspect", "plan", "edit", "create", "validate", "review", "version"} {
+	for _, want := range []string{"inspect", "plan", "edit", "create", "validate", "review", "render", "version"} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("help output missing %q:\n%s", want, output)
 		}
 	}
 	if stderr.Len() != 0 {
 		t.Fatalf("help wrote stderr: %s", stderr.String())
+	}
+}
+
+func TestRenderJSON(t *testing.T) {
+	dir := t.TempDir()
+	deckPath := filepath.Join(dir, "deck.pptx")
+	outputPath := filepath.Join(dir, "slide-1.png")
+	if err := fixtures.WriteMinimalPPTX(deckPath, []string{"ppt/slides/slide1.xml"}); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	if err := Execute(context.Background(), []string{"render", deckPath, "--slide", "1", "--out", outputPath, "--json"}, &stdout, &stderr); err != nil {
+		t.Fatalf("render failed: %v\n%s", err, stdout.String())
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("render wrote stderr: %s", stderr.String())
+	}
+
+	var payload struct {
+		SchemaVersion string `json:"schema_version"`
+		Command       string `json:"command"`
+		Status        string `json:"status"`
+		Output        string `json:"output"`
+		Render        struct {
+			SlideNumber int    `json:"slide_number"`
+			SlidePart   string `json:"slide_part"`
+			Width       int    `json:"width"`
+			Height      int    `json:"height"`
+		} `json:"render"`
+		Unsupported []struct {
+			Code string `json:"code"`
+			Part string `json:"part"`
+		} `json:"unsupported"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
+		t.Fatalf("invalid json: %v\n%s", err, stdout.String())
+	}
+	if payload.SchemaVersion != "puppt.v1" || payload.Command != "render" || payload.Status != "partial" {
+		t.Fatalf("unexpected envelope: %+v", payload)
+	}
+	if payload.Output != outputPath || payload.Render.SlideNumber != 1 || payload.Render.SlidePart != "ppt/slides/slide1.xml" {
+		t.Fatalf("unexpected render payload: %+v", payload)
+	}
+	if payload.Render.Width != 960 || payload.Render.Height != 540 || len(payload.Unsupported) != 1 {
+		t.Fatalf("unexpected render details: %+v", payload)
+	}
+	if _, err := os.Stat(outputPath); err != nil {
+		t.Fatalf("render did not write output: %v", err)
+	}
+}
+
+func TestRenderJSONHonorsDPIFlag(t *testing.T) {
+	dir := t.TempDir()
+	deckPath := filepath.Join(dir, "deck.pptx")
+	outputPath := filepath.Join(dir, "slide-1.png")
+	if err := fixtures.WriteMinimalPPTX(deckPath, []string{"ppt/slides/slide1.xml"}); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	if err := Execute(context.Background(), []string{"render", deckPath, "--slide", "1", "--out", outputPath, "--dpi", "96", "--json"}, &stdout, &stderr); err != nil {
+		t.Fatalf("render failed: %v\n%s", err, stdout.String())
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("render wrote stderr: %s", stderr.String())
+	}
+
+	var payload struct {
+		Render struct {
+			Width  int `json:"width"`
+			Height int `json:"height"`
+		} `json:"render"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
+		t.Fatalf("invalid json: %v\n%s", err, stdout.String())
+	}
+	if payload.Render.Width != 1280 || payload.Render.Height != 720 {
+		t.Fatalf("unexpected render dimensions: %+v", payload.Render)
 	}
 }
 

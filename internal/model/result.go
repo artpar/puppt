@@ -19,6 +19,7 @@ type CommandResult struct {
 	Ambiguous     []SkipItem   `json:"ambiguous,omitempty"`
 	Unsupported   []SkipItem   `json:"unsupported,omitempty"`
 	Validation    *Validation  `json:"validation,omitempty"`
+	Render        *Render      `json:"render,omitempty"`
 }
 
 type Summary struct {
@@ -53,4 +54,11 @@ type Validation struct {
 	Valid    bool        `json:"valid"`
 	Warnings []Warning   `json:"warnings"`
 	Errors   []ErrorItem `json:"errors"`
+}
+
+type Render struct {
+	SlideNumber int    `json:"slide_number"`
+	SlidePart   string `json:"slide_part"`
+	Width       int    `json:"width"`
+	Height      int    `json:"height"`
 }

@@ -49,3 +49,13 @@ puppt review input.pptx --changes changes.json --json
 ```
 
 Reads a prior command result or a `changes` array, inspects and validates the deck, and emits an agent-readable plus human-readable change summary.
+
+## Render
+
+```sh
+puppt render input.pptx --slide 1 --out slide-1.png --json
+```
+
+Renders one 1-based slide to PNG using Puppt-owned `.pptx` package interpretation and Go image output. The default output resolution is 72 DPI, matching the checked-in Apple Notes reference export dimensions for the real-world fixtures; use `--dpi 96` for 1280x720 alternate comparison output. The renderer does not shell out to LibreOffice, PowerPoint, Keynote, browser renderers, or external office tools. Unsupported visible objects are reported in `unsupported`; they must not be silently omitted.
+
+Set `PUPPT_FONT_MAP` to pin exact renderer font files for environments that provide Office-compatible fonts. Entries are semicolon-separated `family=/path/to/font.ttf` values; style-specific entries use `family:bold=...`, `family:italic=...`, or `family:bolditalic=...`. When no exact font is available, Puppt uses deterministic configured substitutes for known Office theme fonts and reports the substitution in JSON.

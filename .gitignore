@@ -1,2 +1,3 @@
 bin/
 testdata/realworld-ppts/
+.DS_Store
