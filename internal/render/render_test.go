@@ -3992,6 +3992,44 @@ func TestDrawShapeTextWrapsAndCenters(t *testing.T) {
 	}
 }
 
+func TestAnchorCenteredTextBoundsCentersSmallestTextBox(t *testing.T) {
+	got := anchorCenteredTextBounds(image.Rect(10, 20, 210, 80), 60)
+	want := image.Rect(80, 20, 140, 80)
+	if got != want {
+		t.Fatalf("unexpected anchor-centered bounds: got=%v want=%v", got, want)
+	}
+	if got := anchorCenteredTextBounds(image.Rect(10, 20, 210, 80), 220); got != image.Rect(10, 20, 210, 80) {
+		t.Fatalf("text wider than the body bounds should keep original bounds, got %v", got)
+	}
+}
+
+func TestDrawShapeTextHonorsAnchorCenter(t *testing.T) {
+	left := image.NewRGBA(image.Rect(0, 0, 220, 90))
+	centered := image.NewRGBA(image.Rect(0, 0, 220, 90))
+	element := slideElement{
+		FontFamily: "Carlito",
+		FontSize:   2400,
+		TextParagraphs: []textParagraph{{
+			Runs: []textRun{{Text: "Hi", FontSize: 2400}},
+		}},
+	}
+	if err := drawShapeTextWithDPI(left, left.Bounds(), element, defaultOutputDPI); err != nil {
+		t.Fatal(err)
+	}
+	element.TextAnchorCenter = true
+	if err := drawShapeTextWithDPI(centered, centered.Bounds(), element, defaultOutputDPI); err != nil {
+		t.Fatal(err)
+	}
+	leftBounds := opaqueBounds(left)
+	centeredBounds := opaqueBounds(centered)
+	if leftBounds.Empty() || centeredBounds.Empty() {
+		t.Fatalf("expected text pixels, got left=%v centered=%v", leftBounds, centeredBounds)
+	}
+	if centeredBounds.Min.X <= leftBounds.Min.X+70 {
+		t.Fatalf("expected anchorCtr text bounds to move toward the horizontal center, got left=%v centered=%v", leftBounds, centeredBounds)
+	}
+}
+
 func TestRenderPictureAppliesSourceCrop(t *testing.T) {
 	pkg := &pptx.Package{
 		Parts: map[string][]byte{
@@ -5383,10 +5421,13 @@ func TestRenderShapeReportsSpecificUnsupportedTextLayoutFeatures(t *testing.T) {
 		t.Fatalf("expected text to still render best-effort, got rendered=%v", element.Rendered)
 	}
 	got := unsupportedMessages(unsupported)
-	for _, want := range []string{"vertical mode", "rotation", "columns", "anchor-center"} {
+	for _, want := range []string{"vertical mode", "rotation", "columns"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("expected %q in unsupported messages, got %s", want, got)
 		}
+	}
+	if strings.Contains(got, "anchor-center") {
+		t.Fatalf("anchor-center is supported for horizontal text and should not be reported independently, got %s", got)
 	}
 	if strings.Contains(got, "simplified layout") {
 		t.Fatalf("blanket simplified-layout scaffold should not be emitted: %s", got)

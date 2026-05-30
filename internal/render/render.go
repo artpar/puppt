@@ -1772,8 +1772,8 @@ func parseBodyProperties(node *xmlNode, element *slideElement) {
 	if columns := int(parseIntAttr(node.Attrs, "numCol")); columns > 0 {
 		element.TextColumnCount = columns
 	}
-	if attrValue(node.Attrs, "anchorCtr") == "1" {
-		element.TextAnchorCenter = true
+	if value := attrValue(node.Attrs, "anchorCtr"); value != "" {
+		element.TextAnchorCenter = boolAttrOn(value)
 	}
 	if value := attrValue(node.Attrs, "spcFirstLastPara"); value != "" {
 		element.HasFirstLastSpacing = true
@@ -5831,6 +5831,13 @@ func drawShapeTextLayerWithDPI(img *image.RGBA, bounds image.Rectangle, element 
 	if err != nil {
 		return err
 	}
+	if element.TextAnchorCenter {
+		width, err := measuredTextRenderLinesWidth(faces, face, boldFace, lines, dpi)
+		if err != nil {
+			return err
+		}
+		bounds = anchorCenteredTextBounds(bounds, width)
+	}
 	y := anchoredTextTop(bounds, measuredTextHeight(measured), element.TextAnchor)
 	for _, line := range lines {
 		if len(measured) == 0 {
@@ -7319,6 +7326,14 @@ func anchoredTextTop(bounds image.Rectangle, totalHeight int, anchor string) int
 		top = bounds.Min.Y
 	}
 	return top
+}
+
+func anchorCenteredTextBounds(bounds image.Rectangle, textWidth int) image.Rectangle {
+	if textWidth <= 0 || textWidth >= bounds.Dx() {
+		return bounds
+	}
+	left := bounds.Min.X + (bounds.Dx()-textWidth)/2
+	return image.Rect(left, bounds.Min.Y, left+textWidth, bounds.Max.Y)
 }
 
 func textLayoutLines(face font.Face, text string, maxWidth int, wrap string) []string {
@@ -8894,9 +8909,6 @@ func textLayoutUnsupportedMessagesForTarget(element slideElement, bounds image.R
 	}
 	if element.TextColumnCount > 1 {
 		messages = append(messages, "text body columns were not rendered")
-	}
-	if element.TextAnchorCenter {
-		messages = append(messages, "text body anchor-center was not rendered")
 	}
 	if normalAutofitRequiresSimplifiedSizing(element, bounds, dpi) {
 		messages = append(messages, "normal autofit was rendered with simplified sizing")
