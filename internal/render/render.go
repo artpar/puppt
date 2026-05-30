@@ -1841,20 +1841,24 @@ func colorFromColorNodeWithTheme(node *xmlNode, theme themeColors) (color.RGBA, 
 		}
 	}
 	if preset := firstChild(node, "prstClr"); preset != nil {
-		var c color.RGBA
-		switch attrValue(preset.Attrs, "val") {
-		case "black":
-			c = color.RGBA{A: 255}
-		case "red":
-			c = color.RGBA{R: 255, A: 255}
-		case "white":
-			c = color.RGBA{R: 255, G: 255, B: 255, A: 255}
-		default:
-			return color.RGBA{}, false
+		if c, ok := presetColor(attrValue(preset.Attrs, "val")); ok {
+			return applyColorModifiers(c, preset), true
 		}
-		return applyColorModifiers(c, preset), true
 	}
 	return color.RGBA{}, false
+}
+
+func presetColor(value string) (color.RGBA, bool) {
+	switch value {
+	case "black":
+		return color.RGBA{A: 255}, true
+	case "red":
+		return color.RGBA{R: 255, A: 255}, true
+	case "white":
+		return color.RGBA{R: 255, G: 255, B: 255, A: 255}, true
+	default:
+		return color.RGBA{}, false
+	}
 }
 
 func parseScRGBColor(node *xmlNode) (color.RGBA, bool) {
