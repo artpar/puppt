@@ -1086,8 +1086,10 @@ func parseSlideElementNodeWithThemeEffectsAndFills(node *xmlNode, transform rend
 
 func parseBlipEffects(blip *xmlNode, element *slideElement) {
 	if alphaModFix := firstChild(blip, "alphaModFix"); alphaModFix != nil {
-		if amount := parseIntAttr(alphaModFix.Attrs, "amt"); amount > 0 {
-			element.HasImageAlphaModFix = true
+		element.HasImageAlphaModFix = true
+		if attrValue(alphaModFix.Attrs, "amt") == "" {
+			element.ImageAlphaModFixPct = 100000
+		} else if amount := parseIntAttr(alphaModFix.Attrs, "amt"); amount > 0 {
 			element.ImageAlphaModFixPct = amount
 		}
 	}

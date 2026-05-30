@@ -5198,15 +5198,18 @@ func TestParseBlipEffectsReadsAlphaModFixAmount(t *testing.T) {
 	}
 }
 
-func TestParseBlipEffectsIgnoresDefaultAlphaModFix(t *testing.T) {
+func TestParseBlipEffectsReadsDefaultAlphaModFixAmount(t *testing.T) {
 	root, err := parseXMLNode([]byte(`<a:blip xmlns:a="a"><a:alphaModFix/></a:blip>`))
 	if err != nil {
 		t.Fatal(err)
 	}
 	var element slideElement
 	parseBlipEffects(root, &element)
-	if element.HasImageAlphaModFix {
-		t.Fatalf("alphaModFix without amt should keep default opacity, got %+v", element)
+	if !element.HasImageAlphaModFix || element.ImageAlphaModFixPct != 100000 {
+		t.Fatalf("alphaModFix without amt should parse the DrawingML default opacity, got %+v", element)
+	}
+	if shouldApplyImageAlphaModFix(element) {
+		t.Fatalf("default alphaModFix should not alter rendered opacity, got %+v", element)
 	}
 }
 
