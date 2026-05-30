@@ -1968,6 +1968,49 @@ func TestDiagramDrawingElementsResolveSlideThemeColorMapAndFonts(t *testing.T) {
 	}
 }
 
+func TestDiagramDrawingElementsResolveSlideThemeFillAndEffectStyles(t *testing.T) {
+	pkg := &pptx.Package{Parts: map[string][]byte{
+		"ppt/slides/_rels/slide1.xml.rels": []byte(`<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout" Target="../slideLayouts/slideLayout1.xml"/>
+</Relationships>`),
+		"ppt/slideLayouts/_rels/slideLayout1.xml.rels": []byte(`<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideMaster" Target="../slideMasters/slideMaster1.xml"/>
+</Relationships>`),
+		"ppt/slideMasters/slideMaster1.xml": []byte(`<p:sldMaster xmlns:p="p"><p:clrMap bg1="lt1" tx1="dk1" bg2="lt2" tx2="dk2" accent1="accent6"/></p:sldMaster>`),
+		"ppt/slideMasters/_rels/slideMaster1.xml.rels": []byte(`<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme" Target="../theme/theme2.xml"/>
+</Relationships>`),
+		"ppt/theme/theme1.xml": []byte(`<a:theme xmlns:a="a"><a:themeElements><a:clrScheme name="Fallback"><a:accent1><a:srgbClr val="FF0000"/></a:accent1></a:clrScheme></a:themeElements></a:theme>`),
+		"ppt/theme/theme2.xml": []byte(`<a:theme xmlns:a="a"><a:themeElements>
+  <a:clrScheme name="Slide"><a:accent1><a:srgbClr val="0000FF"/></a:accent1><a:accent6><a:srgbClr val="70AD47"/></a:accent6></a:clrScheme>
+  <a:fmtScheme name="Slide">
+    <a:fillStyleLst>
+      <a:solidFill><a:schemeClr val="accent1"/></a:solidFill>
+    </a:fillStyleLst>
+    <a:lnStyleLst/>
+    <a:effectStyleLst>
+      <a:effectStyle><a:effectLst><a:outerShdw blurRad="40000" dist="20000" dir="5400000"><a:schemeClr val="phClr"><a:alpha val="50000"/></a:schemeClr></a:outerShdw></a:effectLst></a:effectStyle>
+    </a:effectStyleLst>
+  </a:fmtScheme>
+</a:themeElements></a:theme>`),
+		"ppt/diagrams/drawing1.xml": []byte(`<dsp:drawing xmlns:dsp="dsp" xmlns:a="a"><dsp:spTree><dsp:sp><dsp:nvSpPr><dsp:cNvPr id="1" name="Diagram Shape"/></dsp:nvSpPr><dsp:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="914400" cy="914400"/></a:xfrm><a:prstGeom prst="rect"/></dsp:spPr><dsp:style><a:fillRef idx="1"><a:schemeClr val="accent1"/></a:fillRef><a:effectRef idx="1"><a:schemeClr val="accent1"/></a:effectRef></dsp:style></dsp:sp></dsp:spTree></dsp:drawing>`),
+	}}
+
+	got := diagramDrawingElements(pkg, "ppt/slides/slide1.xml", "ppt/diagrams/drawing1.xml")
+	if len(got) != 1 {
+		t.Fatalf("expected one diagram element, got %d", len(got))
+	}
+	if got[0].FillColor != (color.RGBA{R: 0x70, G: 0xad, B: 0x47, A: 0xff}) {
+		t.Fatalf("expected diagram fillRef to resolve through slide theme fill style and color map, got %+v", got[0].FillColor)
+	}
+	if !got[0].HasShadow {
+		t.Fatalf("expected diagram effectRef to resolve through slide theme effect style, got %+v", got[0])
+	}
+	if got[0].ShadowColor != (color.RGBA{R: 0x70, G: 0xad, B: 0x47, A: 0x7f}) {
+		t.Fatalf("expected diagram effectRef phClr to use mapped slide color, got %+v", got[0].ShadowColor)
+	}
+}
+
 func TestRenderGraphicFrameReportsUnsupportedDiagramContent(t *testing.T) {
 	size := slideSize{CX: emuPerInch, CY: emuPerInch}
 	img := image.NewRGBA(image.Rect(0, 0, 96, 96))

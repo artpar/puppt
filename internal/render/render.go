@@ -4611,7 +4611,9 @@ func renderDiagramGraphicFrame(pkg *pptx.Package, slidePart string, size slideSi
 func diagramDrawingElements(pkg *pptx.Package, slidePart, drawingPart string) []slideElement {
 	colors := themeColorsForPart(pkg, slidePart, packageThemeColors(pkg))
 	fonts := themeFontsForPart(pkg, slidePart, packageThemeFonts(pkg))
-	elements := collectSlideElementsWithTheme(pkg.Parts[drawingPart], colors)
+	effectStyles := themeEffectStylesForPart(pkg, slidePart)
+	fillStyles := themeFillStylesForPart(pkg, slidePart)
+	elements := collectSlideElementsWithThemeEffectsAndFills(pkg.Parts[drawingPart], colors, effectStyles, fillStyles)
 	return applyThemeFontFamilies(elements, fonts)
 }
 
