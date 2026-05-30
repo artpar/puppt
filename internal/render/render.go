@@ -8220,7 +8220,7 @@ func measureTextRenderLines(faces *fontFaceCache, lines []textRenderLine, fallba
 			fontSize := lineFontSize(line, fallbackFontSize)
 			current.SpaceBefore += paragraphSpacingPercentPixelsAtDPI(current.SpaceBeforePct, fontSize, faces.DPI)
 			current.SpaceAfter += paragraphSpacingPercentPixelsAtDPI(current.SpaceAfterPct, fontSize, faces.DPI)
-			current.Height = applyLineSpacingAtDPI(current.Height, current.LineSpacingPct, fontSize, faces.DPI)
+			current.Height = visibleLineAdvance(applyLineSpacingAtDPI(current.Height, current.LineSpacingPct, fontSize, faces.DPI), current)
 			measured = append(measured, current)
 			continue
 		}
@@ -8235,10 +8235,13 @@ func measureTextRenderLines(faces *fontFaceCache, lines []textRenderLine, fallba
 		metrics := face.Metrics()
 		height := defaultLineMetricHeight(metrics)
 		measured = append(measured, measuredTextLine{
-			Face:           face,
-			Ascent:         metrics.Ascent.Ceil(),
-			Descent:        metrics.Descent.Ceil(),
-			Height:         applyLineSpacingAtDPI(height, line.LineSpacingPct, fontSize, faces.DPI),
+			Face:    face,
+			Ascent:  metrics.Ascent.Ceil(),
+			Descent: metrics.Descent.Ceil(),
+			Height: visibleLineAdvance(
+				applyLineSpacingAtDPI(height, line.LineSpacingPct, fontSize, faces.DPI),
+				measuredTextLine{Ascent: metrics.Ascent.Ceil(), Descent: metrics.Descent.Ceil()},
+			),
 			SpaceBefore:    line.SpaceBefore + paragraphSpacingPercentPixelsAtDPI(line.SpaceBeforePct, fontSize, faces.DPI),
 			SpaceBeforePct: line.SpaceBeforePct,
 			SpaceAfter:     line.SpaceAfter + paragraphSpacingPercentPixelsAtDPI(line.SpaceAfterPct, fontSize, faces.DPI),
@@ -8269,6 +8272,14 @@ func applyLineSpacingAtDPI(height int, pct int, fontSize int, dpi int) int {
 		return 1
 	}
 	return scaled
+}
+
+func visibleLineAdvance(height int, line measuredTextLine) int {
+	minimum := line.Ascent + line.Descent
+	if minimum > height {
+		return minimum
+	}
+	return height
 }
 
 func lineFontSize(line textRenderLine, fallbackFontSize int) int {

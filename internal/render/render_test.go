@@ -3859,6 +3859,16 @@ func TestApplyLineSpacingUsesDrawingMLFontSizeForPercentSpacing(t *testing.T) {
 	}
 }
 
+func TestVisibleLineAdvanceKeepsTightSpacingFromCollidingGlyphs(t *testing.T) {
+	line := measuredTextLine{Ascent: 22, Descent: 6}
+	if got := visibleLineAdvance(22, line); got != 28 {
+		t.Fatalf("line advance shorter than ink extents should grow to 28, got %d", got)
+	}
+	if got := visibleLineAdvance(32, line); got != 32 {
+		t.Fatalf("line advance taller than ink extents should be preserved, got %d", got)
+	}
+}
+
 func TestParseSpacingPercentAcceptsDrawingMLPercentString(t *testing.T) {
 	root, err := parseXMLNode([]byte(`<a:lnSpc xmlns:a="a"><a:spcPct val="92.5%"/></a:lnSpc>`))
 	if err != nil {
