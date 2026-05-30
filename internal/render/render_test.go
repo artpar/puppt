@@ -5728,7 +5728,7 @@ func TestRenderShapeDoesNotReportImplicitNormalAutofitWhenTextAlreadyFits(t *tes
 	}
 }
 
-func TestRenderShapeReportsDerivedNormalAutofitScale(t *testing.T) {
+func TestRenderShapeDoesNotReportSupportedDerivedNormalAutofitScale(t *testing.T) {
 	size := slideSize{CX: emuPerInch, CY: emuPerInch}
 	img := image.NewRGBA(image.Rect(0, 0, 140, 70))
 	element := slideElement{
@@ -5751,8 +5751,8 @@ func TestRenderShapeReportsDerivedNormalAutofitScale(t *testing.T) {
 
 	unsupported := renderShape("ppt/slides/slide1.xml", size, img, &element)
 	got := unsupportedMessages(unsupported)
-	if !strings.Contains(got, "normal autofit was rendered with simplified sizing") {
-		t.Fatalf("derived normal-autofit scaling should be reported as partial, got %s", got)
+	if strings.Contains(got, "normal autofit was rendered with simplified sizing") {
+		t.Fatalf("derived normal-autofit sizing should be supported when a fitting scale exists, got %s", got)
 	}
 }
 
@@ -6006,6 +6006,35 @@ func TestFitNormalAutofitElementCanScaleBelowFiftyPercent(t *testing.T) {
 	}
 	if !textFitsAtScale(got, image.Rect(0, 0, 180, 30), got.FontScalePct, normalAutofitMaxSoftLines(got), defaultOutputDPI) {
 		t.Fatalf("selected scale should fit in the target bounds, got %+v", got)
+	}
+}
+
+func TestFitNormalAutofitElementSelectsLargestFittingScale(t *testing.T) {
+	element := slideElement{
+		HasNormAutofit: true,
+		FontFamily:     "Carlito",
+		FontSize:       4000,
+		TextWrap:       "none",
+		TextParagraphs: []textParagraph{{
+			Text:     "Wide Heading With Several Words",
+			FontSize: 4000,
+			Runs: []textRun{{
+				Text:     "Wide Heading With Several Words",
+				FontSize: 4000,
+			}},
+		}},
+	}
+	bounds := image.Rect(0, 0, 180, 30)
+	got := fitNormalAutofitElement(element, bounds)
+
+	if got.FontScalePct <= minimumNormalAutofitFontScalePct || got.FontScalePct >= 100000 {
+		t.Fatalf("expected a derived normal-autofit scale within supported bounds, got %+v", got)
+	}
+	if !textFitsAtScale(got, bounds, got.FontScalePct, normalAutofitMaxSoftLines(got), defaultOutputDPI) {
+		t.Fatalf("selected normal-autofit scale should fit, got %+v", got)
+	}
+	if textFitsAtScale(got, bounds, got.FontScalePct+1, normalAutofitMaxSoftLines(got), defaultOutputDPI) {
+		t.Fatalf("selected normal-autofit scale should be the largest fitting scale, got %+v", got)
 	}
 }
 

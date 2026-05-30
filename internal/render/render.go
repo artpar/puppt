@@ -6128,11 +6128,8 @@ func fitNormalAutofitElement(element slideElement, bounds image.Rectangle, dpiOv
 			element.HasLineSpacingReductionPct = false
 		}
 	}
-	for _, scale := range normalAutofitProbeScales(startScale) {
-		if textFitsAtScale(element, bounds, scale, maxLines, dpi) {
-			bestScale = scale
-			break
-		}
+	if scale, ok := largestFittingNormalAutofitScale(element, bounds, startScale, maxLines, dpi); ok {
+		bestScale = scale
 	}
 	if bestScale != element.FontScalePct {
 		element.FontScalePct = bestScale
@@ -6140,23 +6137,33 @@ func fitNormalAutofitElement(element slideElement, bounds image.Rectangle, dpiOv
 	return element
 }
 
-func normalAutofitProbeScales(startScale int) []int {
+func largestFittingNormalAutofitScale(element slideElement, bounds image.Rectangle, startScale int, maxLines int, dpi int) (int, bool) {
 	if startScale < minimumNormalAutofitFontScalePct {
 		startScale = minimumNormalAutofitFontScalePct
 	}
-	scales := make([]int, 0, startScale/normalAutofitFontScaleStepPct+2)
-	for scale := startScale; scale >= minimumNormalAutofitFontScalePct; scale -= normalAutofitFontScaleStepPct {
-		scales = append(scales, scale)
+	if textFitsAtScale(element, bounds, startScale, maxLines, dpi) {
+		return startScale, true
 	}
-	if scales[len(scales)-1] != minimumNormalAutofitFontScalePct {
-		scales = append(scales, minimumNormalAutofitFontScalePct)
+	if !textFitsAtScale(element, bounds, minimumNormalAutofitFontScalePct, maxLines, dpi) {
+		return 0, false
 	}
-	return scales
+	low := minimumNormalAutofitFontScalePct
+	high := startScale - 1
+	best := low
+	for low <= high {
+		mid := low + (high-low)/2
+		if textFitsAtScale(element, bounds, mid, maxLines, dpi) {
+			best = mid
+			low = mid + 1
+			continue
+		}
+		high = mid - 1
+	}
+	return best, true
 }
 
 const (
 	minimumNormalAutofitFontScalePct = 1000
-	normalAutofitFontScaleStepPct    = 2500
 )
 
 func normalAutofitHasAuthoredScale(element slideElement) bool {
@@ -9148,7 +9155,8 @@ func normalAutofitRequiresSimplifiedSizing(element slideElement, bounds image.Re
 		startScale = 100000
 	}
 	maxLines := normalAutofitMaxSoftLines(element)
-	return !textFitsAtScale(element, bounds, startScale, maxLines, dpi)
+	_, ok := largestFittingNormalAutofitScale(element, bounds, startScale, maxLines, dpi)
+	return !ok
 }
 
 func shapeAutofitLayoutSupported(element slideElement) bool {
