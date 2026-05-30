@@ -5978,13 +5978,16 @@ func TestParseThemeFontsMapsLatinScheme(t *testing.T) {
 	fonts := parseThemeFonts([]byte(`<a:theme xmlns:a="a">
   <a:themeElements>
     <a:fontScheme name="Facet">
-      <a:majorFont><a:latin typeface="Trebuchet MS"/></a:majorFont>
-      <a:minorFont><a:latin typeface="Arial"/></a:minorFont>
+      <a:majorFont><a:latin typeface="Trebuchet MS"/><a:ea typeface="Yu Gothic"/><a:cs typeface="Times New Roman"/></a:majorFont>
+      <a:minorFont><a:latin typeface="Arial"/><a:ea typeface="MS Gothic"/><a:cs typeface="Tahoma"/></a:minorFont>
     </a:fontScheme>
   </a:themeElements>
 </a:theme>`))
 	if fonts.MajorLatin != "Trebuchet MS" || fonts.MinorLatin != "Arial" {
 		t.Fatalf("unexpected theme fonts: %+v", fonts)
+	}
+	if fonts.MajorEA != "Yu Gothic" || fonts.MajorCS != "Times New Roman" || fonts.MinorEA != "MS Gothic" || fonts.MinorCS != "Tahoma" {
+		t.Fatalf("unexpected non-Latin theme fonts: %+v", fonts)
 	}
 }
 
@@ -5996,17 +5999,29 @@ func TestApplyThemeFontFamiliesUsesMajorForTitles(t *testing.T) {
 		{Text: "Runs", TextParagraphs: []textParagraph{{Runs: []textRun{
 			{Text: "Major", FontFamily: "+mj-lt"},
 			{Text: "Minor", FontFamily: "+mn-lt"},
+			{Text: "MajorEA", FontFamily: "+mj-ea"},
+			{Text: "MinorCS", FontFamily: "+mn-cs"},
 		}}}},
-		{Text: "Bullet", TextParagraphs: []textParagraph{{Bullet: "•", BulletFontFamily: "+mj-lt"}}},
+		{Text: "Bullet", TextParagraphs: []textParagraph{{Bullet: "•", BulletFontFamily: "+mj-cs"}}},
 	}
-	got := applyThemeFontFamilies(elements, themeFonts{MajorLatin: "Trebuchet MS", MinorLatin: "Arial"})
+	got := applyThemeFontFamilies(elements, themeFonts{
+		MajorLatin: "Trebuchet MS",
+		MajorEA:    "Yu Gothic",
+		MajorCS:    "Times New Roman",
+		MinorLatin: "Arial",
+		MinorEA:    "MS Gothic",
+		MinorCS:    "Tahoma",
+	})
 	if got[0].FontFamily != "Trebuchet MS" || got[1].FontFamily != "Arial" || got[2].FontFamily != "Existing" {
 		t.Fatalf("unexpected font family application: %+v", got)
 	}
 	if got[3].TextParagraphs[0].Runs[0].FontFamily != "Trebuchet MS" || got[3].TextParagraphs[0].Runs[1].FontFamily != "Arial" {
 		t.Fatalf("unexpected run font family application: %+v", got[3].TextParagraphs[0].Runs)
 	}
-	if got[4].TextParagraphs[0].BulletFontFamily != "Trebuchet MS" {
+	if got[3].TextParagraphs[0].Runs[2].FontFamily != "Yu Gothic" || got[3].TextParagraphs[0].Runs[3].FontFamily != "Tahoma" {
+		t.Fatalf("unexpected non-Latin run font family application: %+v", got[3].TextParagraphs[0].Runs)
+	}
+	if got[4].TextParagraphs[0].BulletFontFamily != "Times New Roman" {
 		t.Fatalf("unexpected bullet font family application: %+v", got[4].TextParagraphs[0])
 	}
 }

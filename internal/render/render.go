@@ -141,7 +141,11 @@ type paragraphStyle struct {
 
 type themeFonts struct {
 	MajorLatin string
+	MajorEA    string
+	MajorCS    string
 	MinorLatin string
+	MinorEA    string
+	MinorCS    string
 }
 
 type themeFillStyles struct {
@@ -3281,8 +3285,16 @@ func resolveThemeTypeface(typeface string, fonts themeFonts) string {
 	switch strings.ToLower(strings.TrimSpace(typeface)) {
 	case "+mj-lt":
 		return fonts.MajorLatin
+	case "+mj-ea":
+		return fonts.MajorEA
+	case "+mj-cs":
+		return fonts.MajorCS
 	case "+mn-lt":
 		return fonts.MinorLatin
+	case "+mn-ea":
+		return fonts.MinorEA
+	case "+mn-cs":
+		return fonts.MinorCS
 	default:
 		return ""
 	}
@@ -3737,9 +3749,13 @@ func parseThemeFonts(data []byte) themeFonts {
 	var fonts themeFonts
 	if major := firstChild(scheme, "majorFont"); major != nil {
 		fonts.MajorLatin = latinTypeface(major)
+		fonts.MajorEA = typefaceFromChild(major, "ea")
+		fonts.MajorCS = typefaceFromChild(major, "cs")
 	}
 	if minor := firstChild(scheme, "minorFont"); minor != nil {
 		fonts.MinorLatin = latinTypeface(minor)
+		fonts.MinorEA = typefaceFromChild(minor, "ea")
+		fonts.MinorCS = typefaceFromChild(minor, "cs")
 	}
 	return fonts
 }
