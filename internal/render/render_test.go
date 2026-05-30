@@ -4453,6 +4453,30 @@ func TestRenderPictureAppliesCustomGeometryMask(t *testing.T) {
 	}
 }
 
+func TestRasterizePathMaskAntialiasesCustomGeometryEdges(t *testing.T) {
+	mask := rasterizePathMask(image.Rect(0, 0, 16, 16), []pathPoint{
+		{X: 0, Y: 0},
+		{X: 1, Y: 0},
+		{X: 0, Y: 1},
+	})
+	hasOpaque := false
+	hasPartial := false
+	for y := mask.Bounds().Min.Y; y < mask.Bounds().Max.Y; y++ {
+		for x := mask.Bounds().Min.X; x < mask.Bounds().Max.X; x++ {
+			alpha := mask.AlphaAt(x, y).A
+			if alpha == 255 {
+				hasOpaque = true
+			}
+			if alpha > 0 && alpha < 255 {
+				hasPartial = true
+			}
+		}
+	}
+	if !hasOpaque || !hasPartial {
+		t.Fatalf("expected vector mask to include opaque and antialiased pixels, opaque=%v partial=%v", hasOpaque, hasPartial)
+	}
+}
+
 func TestRenderPicturePaintsOuterShadow(t *testing.T) {
 	pkg := &pptx.Package{
 		Parts: map[string][]byte{

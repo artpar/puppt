@@ -32,6 +32,7 @@ import (
 	"golang.org/x/image/font/opentype"
 	"golang.org/x/image/font/sfnt"
 	"golang.org/x/image/math/fixed"
+	"golang.org/x/image/vector"
 )
 
 const (
@@ -10867,27 +10868,28 @@ func scaleImageWithCustomMask(dst *image.RGBA, target image.Rectangle, src image
 	}
 	layer := image.NewRGBA(image.Rect(0, 0, target.Dx(), target.Dy()))
 	xdraw.ApproxBiLinear.Scale(layer, layer.Bounds(), src, srcBounds, xdraw.Over, nil)
-	polygon := make([]image.Point, 0, len(points))
-	localBounds := layer.Bounds()
-	for _, point := range points {
-		polygon = append(polygon, image.Point{
-			X: localBounds.Min.X + int(math.Round(point.X*float64(localBounds.Dx()))),
-			Y: localBounds.Min.Y + int(math.Round(point.Y*float64(localBounds.Dy()))),
-		})
+	mask := rasterizePathMask(layer.Bounds(), points)
+	draw.DrawMask(dst, target, layer, image.Point{}, mask, image.Point{}, draw.Over)
+}
+
+func rasterizePathMask(bounds image.Rectangle, points []pathPoint) *image.Alpha {
+	mask := image.NewAlpha(image.Rect(0, 0, bounds.Dx(), bounds.Dy()))
+	if bounds.Empty() || len(points) < 3 {
+		return mask
 	}
-	for y := localBounds.Min.Y; y < localBounds.Max.Y; y++ {
-		for x := localBounds.Min.X; x < localBounds.Max.X; x++ {
-			coverage := polygonCoverage(float64(x), float64(y), polygon)
-			if coverage == 0 {
-				continue
-			}
-			pixel := layer.RGBAAt(x, y)
-			if coverage < 4 {
-				pixel.A = coverageAlpha(pixel.A, coverage)
-			}
-			blendPixel(dst, target.Min.X+x, target.Min.Y+y, pixel)
+	rasterizer := vector.NewRasterizer(bounds.Dx(), bounds.Dy())
+	for index, point := range points {
+		x := float32(point.X * float64(bounds.Dx()))
+		y := float32(point.Y * float64(bounds.Dy()))
+		if index == 0 {
+			rasterizer.MoveTo(x, y)
+		} else {
+			rasterizer.LineTo(x, y)
 		}
 	}
+	rasterizer.ClosePath()
+	rasterizer.Draw(mask, mask.Bounds(), image.Opaque, image.Point{})
+	return mask
 }
 
 func unsupportedItems(slidePart string, elements []slideElement) []model.SkipItem {
