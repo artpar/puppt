@@ -5935,7 +5935,7 @@ func scaledTextElement(element slideElement, dpiOverride ...int) slideElement {
 		dpi = normalizeOutputDPI(dpiOverride[0])
 	}
 	applyFontScale := element.FontScalePct > 0 && element.FontScalePct != 100000
-	applyLineSpacingReduction := element.LineSpacingReductionPct > 0
+	applyLineSpacingReduction := element.LineSpacingReductionPct > 0 && element.FontScalePct > 0 && element.FontScalePct != 100000
 	scaleForDPI := dpi != defaultOutputDPI
 	if !scaleForDPI && !applyFontScale && !applyLineSpacingReduction {
 		return element
