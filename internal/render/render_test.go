@@ -2038,7 +2038,7 @@ func TestParseTableModelRecordsUnsupportedVisibleFeatures(t *testing.T) {
 				<a:tcPr>
 					<a:gradFill><a:gsLst><a:gs pos="0"><a:srgbClr val="FFFFFF"/></a:gs><a:gs pos="100000"><a:srgbClr val="000000"/></a:gs></a:gsLst></a:gradFill>
 					<a:effectLst><a:outerShdw blurRad="12700" dist="12700" dir="5400000"><a:srgbClr val="000000"/></a:outerShdw></a:effectLst>
-					<a:lnB cmpd="thickThin" cap="rnd"><a:solidFill><a:srgbClr val="FF0000"/></a:solidFill><a:round/><a:tailEnd type="triangle"/></a:lnB>
+					<a:lnB cmpd="thickThin" cap="unsupportedCap"><a:solidFill><a:srgbClr val="FF0000"/></a:solidFill><a:round/><a:tailEnd type="triangle"/></a:lnB>
 			</a:tcPr>
 		</a:tc></a:tr>
 	</a:tbl>`))
@@ -2153,6 +2153,25 @@ func TestRenderGraphicFrameReportsSpecificUnsupportedTableFeatures(t *testing.T)
 	unsupported := renderGraphicFrame(&pptx.Package{}, "ppt/slides/slide1.xml", size, img, &element, nil, tableStyleSet{})
 	if len(unsupported) != 1 || unsupported[0].Code != partialUnsupportedCode || !strings.Contains(unsupported[0].Message, "uses effects") {
 		t.Fatalf("expected specific table unsupported feature, got %+v", unsupported)
+	}
+}
+
+func TestParseTableModelDoesNotReportRenderedRoundBorderCaps(t *testing.T) {
+	root, err := parseXMLNode([]byte(`<a:tbl xmlns:a="a">
+		<a:tblGrid><a:gridCol w="914400"/></a:tblGrid>
+		<a:tr h="914400"><a:tc><a:txBody><a:bodyPr/><a:p><a:r><a:t>Cell</a:t></a:r></a:p></a:txBody>
+			<a:tcPr>
+				<a:lnB cap="rnd"><a:solidFill><a:srgbClr val="FF0000"/></a:solidFill></a:lnB>
+			</a:tcPr>
+		</a:tc></a:tr>
+	</a:tbl>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	table := parseTableModel(root, defaultThemeColors())
+	if slices.Contains(table.UnsupportedFeatures, "uses border line caps that were not rendered") {
+		t.Fatalf("round table border caps are rendered and should not be reported partial: %+v", table.UnsupportedFeatures)
 	}
 }
 

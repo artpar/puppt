@@ -1149,7 +1149,7 @@ func effectListHasVisibleEffects(node *xmlNode) bool {
 }
 
 func collectTableLineUnsupportedFeatureMessages(line *xmlNode, messages map[string]bool) {
-	if cap := attrValue(line.Attrs, "cap"); cap != "" && cap != "flat" && cap != "sq" {
+	if cap := attrValue(line.Attrs, "cap"); cap != "" && cap != "flat" && cap != "sq" && cap != "rnd" {
 		messages["uses border line caps that were not rendered"] = true
 	}
 	if cmpd := attrValue(line.Attrs, "cmpd"); !isSupportedTableCompoundLine(cmpd) {
