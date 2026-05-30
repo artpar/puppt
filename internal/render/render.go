@@ -239,6 +239,17 @@ type slideElement struct {
 	ShadowBlur                 int64
 	ShadowDistance             int64
 	ShadowDirection            int64
+	ShadowAlignment            string
+	HasShadowRotateWithShape   bool
+	ShadowRotateWithShape      bool
+	HasShadowScaleX            bool
+	ShadowScaleX               int64
+	HasShadowScaleY            bool
+	ShadowScaleY               int64
+	HasShadowSkewX             bool
+	ShadowSkewX                int64
+	HasShadowSkewY             bool
+	ShadowSkewY                int64
 	HasSoftEdge                bool
 	SoftEdgeRadius             int64
 	CustomPath                 []pathPoint
@@ -482,11 +493,22 @@ type themeEffectStyles struct {
 }
 
 type themeEffectStyle struct {
-	HasShadow       bool
-	ShadowColor     color.RGBA
-	ShadowBlur      int64
-	ShadowDistance  int64
-	ShadowDirection int64
+	HasShadow                bool
+	ShadowColor              color.RGBA
+	ShadowBlur               int64
+	ShadowDistance           int64
+	ShadowDirection          int64
+	ShadowAlignment          string
+	HasShadowRotateWithShape bool
+	ShadowRotateWithShape    bool
+	HasShadowScaleX          bool
+	ShadowScaleX             int64
+	HasShadowScaleY          bool
+	ShadowScaleY             int64
+	HasShadowSkewX           bool
+	ShadowSkewX              int64
+	HasShadowSkewY           bool
+	ShadowSkewY              int64
 }
 
 // Render writes a PNG for one slide and returns the stable command result used
@@ -1604,6 +1626,27 @@ func parseShapeEffects(effectList *xmlNode, element *slideElement, theme themeCo
 	element.ShadowBlur = parseIntAttr(shadow.Attrs, "blurRad")
 	element.ShadowDistance = parseIntAttr(shadow.Attrs, "dist")
 	element.ShadowDirection = parseIntAttr(shadow.Attrs, "dir")
+	element.ShadowAlignment = attrValue(shadow.Attrs, "algn")
+	if value := attrValue(shadow.Attrs, "rotWithShape"); value != "" {
+		element.HasShadowRotateWithShape = true
+		element.ShadowRotateWithShape = boolAttrOn(value)
+	}
+	if value := attrValue(shadow.Attrs, "sx"); value != "" {
+		element.HasShadowScaleX = true
+		element.ShadowScaleX = parsePercentAttr(shadow.Attrs, "sx")
+	}
+	if value := attrValue(shadow.Attrs, "sy"); value != "" {
+		element.HasShadowScaleY = true
+		element.ShadowScaleY = parsePercentAttr(shadow.Attrs, "sy")
+	}
+	if value := attrValue(shadow.Attrs, "kx"); value != "" {
+		element.HasShadowSkewX = true
+		element.ShadowSkewX = parseIntAttr(shadow.Attrs, "kx")
+	}
+	if value := attrValue(shadow.Attrs, "ky"); value != "" {
+		element.HasShadowSkewY = true
+		element.ShadowSkewY = parseIntAttr(shadow.Attrs, "ky")
+	}
 	if shadowColor, ok := colorFromColorNodeWithTheme(shadow, theme); ok {
 		element.ShadowColor = shadowColor
 	} else {
@@ -1743,6 +1786,17 @@ func applyThemeEffectStyle(element *slideElement, effects themeEffectStyle) {
 		element.ShadowBlur = effects.ShadowBlur
 		element.ShadowDistance = effects.ShadowDistance
 		element.ShadowDirection = effects.ShadowDirection
+		element.ShadowAlignment = effects.ShadowAlignment
+		element.HasShadowRotateWithShape = effects.HasShadowRotateWithShape
+		element.ShadowRotateWithShape = effects.ShadowRotateWithShape
+		element.HasShadowScaleX = effects.HasShadowScaleX
+		element.ShadowScaleX = effects.ShadowScaleX
+		element.HasShadowScaleY = effects.HasShadowScaleY
+		element.ShadowScaleY = effects.ShadowScaleY
+		element.HasShadowSkewX = effects.HasShadowSkewX
+		element.ShadowSkewX = effects.ShadowSkewX
+		element.HasShadowSkewY = effects.HasShadowSkewY
+		element.ShadowSkewY = effects.ShadowSkewY
 	}
 }
 
@@ -3826,6 +3880,17 @@ func inheritPlaceholderVisualProperties(element *slideElement, source slideEleme
 		element.ShadowBlur = source.ShadowBlur
 		element.ShadowDistance = source.ShadowDistance
 		element.ShadowDirection = source.ShadowDirection
+		element.ShadowAlignment = source.ShadowAlignment
+		element.HasShadowRotateWithShape = source.HasShadowRotateWithShape
+		element.ShadowRotateWithShape = source.ShadowRotateWithShape
+		element.HasShadowScaleX = source.HasShadowScaleX
+		element.ShadowScaleX = source.ShadowScaleX
+		element.HasShadowScaleY = source.HasShadowScaleY
+		element.ShadowScaleY = source.ShadowScaleY
+		element.HasShadowSkewX = source.HasShadowSkewX
+		element.ShadowSkewX = source.ShadowSkewX
+		element.HasShadowSkewY = source.HasShadowSkewY
+		element.ShadowSkewY = source.ShadowSkewY
 		element.HasEffectProperties = source.HasEffectProperties
 		element.HasSoftEdge = source.HasSoftEdge
 		element.SoftEdgeRadius = source.SoftEdgeRadius
@@ -4412,11 +4477,22 @@ func parseThemeEffectStyle(style *xmlNode, theme themeColors) (themeEffectStyle,
 		return themeEffectStyle{}, false
 	}
 	return themeEffectStyle{
-		HasShadow:       true,
-		ShadowColor:     element.ShadowColor,
-		ShadowBlur:      element.ShadowBlur,
-		ShadowDistance:  element.ShadowDistance,
-		ShadowDirection: element.ShadowDirection,
+		HasShadow:                true,
+		ShadowColor:              element.ShadowColor,
+		ShadowBlur:               element.ShadowBlur,
+		ShadowDistance:           element.ShadowDistance,
+		ShadowDirection:          element.ShadowDirection,
+		ShadowAlignment:          element.ShadowAlignment,
+		HasShadowRotateWithShape: element.HasShadowRotateWithShape,
+		ShadowRotateWithShape:    element.ShadowRotateWithShape,
+		HasShadowScaleX:          element.HasShadowScaleX,
+		ShadowScaleX:             element.ShadowScaleX,
+		HasShadowScaleY:          element.HasShadowScaleY,
+		ShadowScaleY:             element.ShadowScaleY,
+		HasShadowSkewX:           element.HasShadowSkewX,
+		ShadowSkewX:              element.ShadowSkewX,
+		HasShadowSkewY:           element.HasShadowSkewY,
+		ShadowSkewY:              element.ShadowSkewY,
 	}, true
 }
 
@@ -5518,6 +5594,9 @@ func renderShape(slidePart string, size slideSize, img *image.RGBA, element *sli
 		return unsupported
 	}
 	if element.HasShadow {
+		for _, message := range shadowTransformUnsupportedMessages(*element) {
+			unsupported = append(unsupported, unsupportedItem(slidePart, partialUnsupportedCode, fmt.Sprintf("shape object %q %s", elementLabel(*element), message)))
+		}
 		if drawShapeShadow(img, target, *element, size) {
 			rendered = true
 		} else if element.ShadowColor.A != 0 {
@@ -6117,6 +6196,17 @@ func drawShapeShadow(img *image.RGBA, target image.Rectangle, element slideEleme
 		return false
 	}
 	return true
+}
+
+func shadowTransformUnsupportedMessages(element slideElement) []string {
+	var messages []string
+	if (element.HasShadowScaleX && element.ShadowScaleX != 100000) || (element.HasShadowScaleY && element.ShadowScaleY != 100000) || (element.HasShadowSkewX && element.ShadowSkewX != 0) || (element.HasShadowSkewY && element.ShadowSkewY != 0) {
+		messages = append(messages, "outer shadow scale/skew transform was not rendered")
+	}
+	if element.HasShadowRotateWithShape && !element.ShadowRotateWithShape && normalizedRotationDegrees(element.Rotation) != 0 {
+		messages = append(messages, "outer shadow rotate-with-shape transform was not rendered")
+	}
+	return messages
 }
 
 func shadowIntersectsCanvas(bounds image.Rectangle, blur int, canvas image.Rectangle) bool {
@@ -10684,6 +10774,9 @@ func renderPicture(pkg *pptx.Package, slidePart string, size slideSize, img *ima
 	)
 	var unsupported []model.SkipItem
 	if element.HasShadow {
+		for _, message := range shadowTransformUnsupportedMessages(*element) {
+			unsupported = append(unsupported, unsupportedItem(slidePart, partialUnsupportedCode, fmt.Sprintf("picture object %q %s", elementLabel(*element), message)))
+		}
 		if drawPictureShadow(img, target, *element, size) {
 			// Supported picture shadows are painted before the image so the image occludes the inner shadow area.
 		} else if element.ShadowColor.A != 0 {

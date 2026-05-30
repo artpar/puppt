@@ -866,6 +866,30 @@ func TestRenderShapeReportsUnsupportedShadowGeometry(t *testing.T) {
 	}
 }
 
+func TestRenderShapeReportsUnsupportedOuterShadowTransforms(t *testing.T) {
+	size := slideSize{CX: emuPerInch, CY: emuPerInch}
+	img := image.NewRGBA(image.Rect(0, 0, 96, 96))
+	element := slideElement{
+		Kind:            "sp",
+		Name:            "Scaled Shadow",
+		PrstGeom:        "rect",
+		HasTransform:    true,
+		ExtCX:           emuPerInch / 2,
+		ExtCY:           emuPerInch / 2,
+		HasShadow:       true,
+		ShadowColor:     color.RGBA{A: 128},
+		ShadowDistance:  91440,
+		ShadowDirection: 0,
+		HasShadowScaleX: true,
+		ShadowScaleX:    120000,
+	}
+
+	unsupported := renderShape("ppt/slides/slide1.xml", size, img, &element)
+	if len(unsupported) != 1 || unsupported[0].Code != partialUnsupportedCode || !strings.Contains(unsupported[0].Message, "outer shadow scale/skew transform") {
+		t.Fatalf("expected unsupported shadow transform report, got unsupported=%+v", unsupported)
+	}
+}
+
 func TestRenderShapePaintsCurvedArrowPresetGeometry(t *testing.T) {
 	size := slideSize{CX: emuPerInch, CY: emuPerInch}
 	img := image.NewRGBA(image.Rect(0, 0, 96, 96))
@@ -6427,7 +6451,7 @@ func TestParseSlideElementReadsOuterShadowEffect(t *testing.T) {
     <a:xfrm><a:off x="0" y="0"/><a:ext cx="1" cy="1"/></a:xfrm>
     <a:prstGeom prst="rect"><a:avLst/></a:prstGeom>
     <a:effectLst>
-      <a:outerShdw blurRad="50800" dist="38100" dir="2700000" algn="tl" rotWithShape="0">
+      <a:outerShdw blurRad="50800" dist="38100" dir="2700000" algn="tl" rotWithShape="0" sx="120000" sy="80000" kx="60000" ky="-60000">
         <a:prstClr val="black"><a:alpha val="40000"/></a:prstClr>
       </a:outerShdw>
     </a:effectLst>
@@ -6439,6 +6463,12 @@ func TestParseSlideElementReadsOuterShadowEffect(t *testing.T) {
 	got := parseSlideElementNode(root, renderTransform{ScaleX: 1, ScaleY: 1})
 	if !got.HasShadow || got.ShadowBlur != 50800 || got.ShadowDistance != 38100 || got.ShadowDirection != 2700000 {
 		t.Fatalf("unexpected parsed shadow metadata: %+v", got)
+	}
+	if got.ShadowAlignment != "tl" || !got.HasShadowRotateWithShape || got.ShadowRotateWithShape {
+		t.Fatalf("unexpected parsed shadow alignment/rotation: %+v", got)
+	}
+	if !got.HasShadowScaleX || got.ShadowScaleX != 120000 || !got.HasShadowScaleY || got.ShadowScaleY != 80000 || !got.HasShadowSkewX || got.ShadowSkewX != 60000 || !got.HasShadowSkewY || got.ShadowSkewY != -60000 {
+		t.Fatalf("unexpected parsed shadow transform metadata: %+v", got)
 	}
 	if got.ShadowColor.A != 102 {
 		t.Fatalf("expected alpha-modified shadow color, got %#v", got.ShadowColor)
