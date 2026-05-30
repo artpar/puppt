@@ -42,7 +42,7 @@ const (
 	defaultTextInsetXEMU   = 91440
 	defaultTextInsetYEMU   = 45720
 	defaultTextTabPixels   = defaultOutputDPI
-	customBezierSegments   = 24
+	customBezierSegments   = 48
 	unsupportedCode        = "render_unsupported_object"
 	partialUnsupportedCode = "render_partial_object"
 	diagramDataRelType     = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/diagramData"
