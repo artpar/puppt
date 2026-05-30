@@ -6304,6 +6304,34 @@ func TestColorFromColorNodeClampsScRGBBeforeSRGBTransfer(t *testing.T) {
 	}
 }
 
+func TestColorFromColorNodeParsesSystemColorLastColor(t *testing.T) {
+	root, err := parseXMLNode([]byte(`<a:solidFill xmlns:a="a"><a:sysClr val="windowText" lastClr="123456"><a:alpha val="50000"/></a:sysClr></a:solidFill>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, ok := colorFromColorNode(root)
+	if !ok {
+		t.Fatal("color was not parsed")
+	}
+	if got != (color.RGBA{R: 0x12, G: 0x34, B: 0x56, A: 127}) {
+		t.Fatalf("unexpected system color: %#v", got)
+	}
+}
+
+func TestColorFromColorNodeParsesPresetRed(t *testing.T) {
+	root, err := parseXMLNode([]byte(`<a:solidFill xmlns:a="a"><a:prstClr val="red"><a:alpha val="25000"/></a:prstClr></a:solidFill>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, ok := colorFromColorNode(root)
+	if !ok {
+		t.Fatal("color was not parsed")
+	}
+	if got != (color.RGBA{R: 255, A: 63}) {
+		t.Fatalf("unexpected preset red: %#v", got)
+	}
+}
+
 func TestParseSlideBackgroundSolidSRGB(t *testing.T) {
 	data := []byte(`<?xml version="1.0" encoding="UTF-8"?>
 <p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">

@@ -1787,11 +1787,18 @@ func colorFromColorNodeWithTheme(node *xmlNode, theme themeColors) (color.RGBA, 
 			return applyColorModifiers(c, scheme), true
 		}
 	}
+	if sys := firstChild(node, "sysClr"); sys != nil {
+		if c, ok := parseHexColor(attrValue(sys.Attrs, "lastClr")); ok {
+			return applyColorModifiers(c, sys), true
+		}
+	}
 	if preset := firstChild(node, "prstClr"); preset != nil {
 		var c color.RGBA
 		switch attrValue(preset.Attrs, "val") {
 		case "black":
 			c = color.RGBA{A: 255}
+		case "red":
+			c = color.RGBA{R: 255, A: 255}
 		case "white":
 			c = color.RGBA{R: 255, G: 255, B: 255, A: 255}
 		default:
