@@ -5116,18 +5116,84 @@ func radialGradientOuterRect(bounds image.Rectangle) floatRect {
 
 func radialGradientPosition(bounds image.Rectangle, x int, y int, gradient gradientPaint) int64 {
 	origin := radialGradientFocusPoint(bounds, gradient)
-	maxDistance := maxDistanceFromPointToBounds(origin.X, origin.Y, bounds)
-	if maxDistance <= 0 {
+	sampleX := float64(x) + 0.5
+	sampleY := float64(y) + 0.5
+	dx := sampleX - origin.X
+	dy := sampleY - origin.Y
+	distance := math.Hypot(dx, dy)
+	if distance <= 0 {
 		return 0
 	}
-	distance := math.Hypot(float64(x)+0.5-origin.X, float64(y)+0.5-origin.Y)
-	position := distance / maxDistance
+
+	outer := radialGradientOuterRect(bounds)
+	inner := gradientFocusRect(bounds, gradient)
+	if pointInEllipse(sampleX, sampleY, inner) {
+		return 0
+	}
+	innerDistance := rayEllipseExitDistance(origin, dx/distance, dy/distance, inner)
+	outerDistance := rayEllipseExitDistance(origin, dx/distance, dy/distance, outer)
+	if outerDistance <= innerDistance {
+		return 100000
+	}
+	position := (distance - innerDistance) / (outerDistance - innerDistance)
 	if position < 0 {
 		position = 0
 	} else if position > 1 {
 		position = 1
 	}
 	return int64(math.Round(position * 100000))
+}
+
+func pointInEllipse(x float64, y float64, rect floatRect) bool {
+	width := rect.MaxX - rect.MinX
+	height := rect.MaxY - rect.MinY
+	if width <= 0 || height <= 0 {
+		return false
+	}
+	rx := width / 2
+	ry := height / 2
+	cx := (rect.MinX + rect.MaxX) / 2
+	cy := (rect.MinY + rect.MaxY) / 2
+	nx := (x - cx) / rx
+	ny := (y - cy) / ry
+	return nx*nx+ny*ny <= 1
+}
+
+func rayEllipseExitDistance(origin floatPoint, unitX float64, unitY float64, rect floatRect) float64 {
+	width := rect.MaxX - rect.MinX
+	height := rect.MaxY - rect.MinY
+	if width <= 0 || height <= 0 {
+		return 0
+	}
+	rx := width / 2
+	ry := height / 2
+	cx := (rect.MinX + rect.MaxX) / 2
+	cy := (rect.MinY + rect.MaxY) / 2
+	ox := origin.X - cx
+	oy := origin.Y - cy
+	a := unitX*unitX/(rx*rx) + unitY*unitY/(ry*ry)
+	if a <= 0 {
+		return 0
+	}
+	b := 2 * (ox*unitX/(rx*rx) + oy*unitY/(ry*ry))
+	c := ox*ox/(rx*rx) + oy*oy/(ry*ry) - 1
+	discriminant := b*b - 4*a*c
+	if discriminant < 0 {
+		return 0
+	}
+	root := math.Sqrt(discriminant)
+	first := (-b - root) / (2 * a)
+	second := (-b + root) / (2 * a)
+	switch {
+	case first >= 0 && second >= 0:
+		return math.Max(first, second)
+	case second >= 0:
+		return second
+	case first >= 0:
+		return first
+	default:
+		return 0
+	}
 }
 
 type floatPoint struct {
@@ -5158,64 +5224,6 @@ func radialGradientFocusPoint(bounds image.Rectangle, gradient gradientPaint) fl
 		}
 	}
 	return point
-}
-
-func maxDistanceFromPointToBounds(x float64, y float64, bounds image.Rectangle) float64 {
-	points := []struct {
-		X float64
-		Y float64
-	}{
-		{X: float64(bounds.Min.X), Y: float64(bounds.Min.Y)},
-		{X: float64(bounds.Max.X), Y: float64(bounds.Min.Y)},
-		{X: float64(bounds.Min.X), Y: float64(bounds.Max.Y)},
-		{X: float64(bounds.Max.X), Y: float64(bounds.Max.Y)},
-	}
-	maxDistance := 0.0
-	for _, point := range points {
-		distance := math.Hypot(point.X-x, point.Y-y)
-		if distance > maxDistance {
-			maxDistance = distance
-		}
-	}
-	return maxDistance
-}
-
-func maxDistanceFromRectToBounds(rect floatRect, bounds image.Rectangle) float64 {
-	points := []struct {
-		X float64
-		Y float64
-	}{
-		{X: float64(bounds.Min.X), Y: float64(bounds.Min.Y)},
-		{X: float64(bounds.Max.X), Y: float64(bounds.Min.Y)},
-		{X: float64(bounds.Min.X), Y: float64(bounds.Max.Y)},
-		{X: float64(bounds.Max.X), Y: float64(bounds.Max.Y)},
-	}
-	maxDistance := 0.0
-	for _, point := range points {
-		distance := distanceFromPointToRect(point.X, point.Y, rect)
-		if distance > maxDistance {
-			maxDistance = distance
-		}
-	}
-	return maxDistance
-}
-
-func distanceFromPointToRect(x float64, y float64, rect floatRect) float64 {
-	dx := 0.0
-	switch {
-	case x < rect.MinX:
-		dx = rect.MinX - x
-	case x > rect.MaxX:
-		dx = x - rect.MaxX
-	}
-	dy := 0.0
-	switch {
-	case y < rect.MinY:
-		dy = rect.MinY - y
-	case y > rect.MaxY:
-		dy = y - rect.MaxY
-	}
-	return math.Hypot(dx, dy)
 }
 
 func colorAtGradientPositionForPath(stops []gradientStop, position int64, path string) color.RGBA {

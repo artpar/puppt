@@ -6378,14 +6378,6 @@ func TestDrawGradientBackgroundSamplesRadialGradientAtPixelCenters(t *testing.T)
 	}
 }
 
-func TestRadialGradientMaxDistanceUsesFullShapeBounds(t *testing.T) {
-	got := maxDistanceFromRectToBounds(floatRect{MinX: 0, MinY: 0, MaxX: 0, MaxY: 0}, image.Rect(0, 0, 10, 10))
-	want := math.Hypot(10, 10)
-	if math.Abs(got-want) > 0.001 {
-		t.Fatalf("expected radial gradient extent to use full shape bounds: got=%v want=%v", got, want)
-	}
-}
-
 func TestDrawGradientBackgroundUsesFillToRectFocus(t *testing.T) {
 	img := image.NewRGBA(image.Rect(0, 0, 20, 10))
 	drawGradientBackground(img, gradientPaint{
@@ -6533,6 +6525,20 @@ func TestRadialGradientFocusRectUsesCircumscribedCircleBounds(t *testing.T) {
 	if math.Abs((outer.MaxX-outer.MinX)-math.Hypot(100, 50)) > 0.000001 ||
 		math.Abs((outer.MaxY-outer.MinY)-math.Hypot(100, 50)) > 0.000001 {
 		t.Fatalf("expected radial outer rect to circumscribe anchor rectangle: %+v", outer)
+	}
+}
+
+func TestRadialGradientPositionKeepsFocusEllipseAtFirstStop(t *testing.T) {
+	gradient := gradientPaint{
+		Path:        "circle",
+		HasFillRect: true,
+		FillRect:    relativeRect{Left: 25000, Top: 25000, Right: 25000, Bottom: 25000},
+	}
+	if got := radialGradientPosition(image.Rect(0, 0, 100, 100), 50, 30, gradient); got != 0 {
+		t.Fatalf("expected sample inside focus ellipse to stay at first stop, got %d", got)
+	}
+	if got := radialGradientPosition(image.Rect(0, 0, 100, 100), 50, 90, gradient); got <= 0 {
+		t.Fatalf("expected sample outside focus ellipse to advance through radial range, got %d", got)
 	}
 }
 
