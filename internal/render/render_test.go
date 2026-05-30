@@ -1149,6 +1149,35 @@ func TestCollectSlideElementsParsesShapeBlackWhiteMode(t *testing.T) {
 	}
 }
 
+func TestCollectSlideElementsParsesBlipRotWithShape(t *testing.T) {
+	data := []byte(`<?xml version="1.0" encoding="UTF-8"?>
+<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <p:cSld>
+    <p:spTree>
+      <p:pic>
+        <p:nvPicPr><p:cNvPr id="5" name="Fixed Image Rotation"/></p:nvPicPr>
+        <p:blipFill rotWithShape="0"><a:blip r:embed="rId1"/></p:blipFill>
+        <p:spPr><a:xfrm rot="5400000"><a:off x="0" y="0"/><a:ext cx="914400" cy="914400"/></a:xfrm></p:spPr>
+      </p:pic>
+    </p:spTree>
+  </p:cSld>
+</p:sld>`)
+
+	elements := collectSlideElements(data)
+	if len(elements) != 1 {
+		t.Fatalf("expected one element, got %+v", elements)
+	}
+	if !elements[0].HasBlipRotWithShape || elements[0].BlipRotWithShape {
+		t.Fatalf("expected DrawingML blipFill rotWithShape=0 to be parsed, got %+v", elements[0])
+	}
+	if pictureRotatesWithShape(elements[0]) {
+		t.Fatalf("expected picture raster to ignore shape rotation when rotWithShape=0, got %+v", elements[0])
+	}
+	if !pictureRotatesWithShape(slideElement{}) {
+		t.Fatal("missing rotWithShape should default to rotating the blip with its shape")
+	}
+}
+
 func TestCollectSlideElementsParsesLineDash(t *testing.T) {
 	data := []byte(`<?xml version="1.0" encoding="UTF-8"?>
 	<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">

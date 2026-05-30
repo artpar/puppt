@@ -194,6 +194,8 @@ type slideElement struct {
 	FlipV                      bool
 	HasImageAlphaModFix        bool
 	ImageAlphaModFixPct        int64
+	HasBlipRotWithShape        bool
+	BlipRotWithShape           bool
 	BWMode                     string
 	HasRotation                bool
 	Rotation                   int
@@ -1030,6 +1032,12 @@ func parseSlideElementNodeWithThemeEffectsAndFills(node *xmlNode, transform rend
 	if blip := firstDescendant(node, "blip"); blip != nil {
 		element.EmbedID = attrValue(blip.Attrs, "embed")
 		parseBlipEffects(blip, &element)
+	}
+	if blipFill := firstDescendant(node, "blipFill"); blipFill != nil {
+		if value := attrValue(blipFill.Attrs, "rotWithShape"); value != "" {
+			element.HasBlipRotWithShape = true
+			element.BlipRotWithShape = boolAttrOn(value)
+		}
 	}
 	if svgBlip := firstDescendant(node, "svgBlip"); svgBlip != nil {
 		element.SVGEmbedID = attrValue(svgBlip.Attrs, "embed")
@@ -10434,6 +10442,9 @@ func renderPicture(pkg *pptx.Package, slidePart string, size slideSize, img *ima
 
 func drawPictureRaster(img *image.RGBA, target image.Rectangle, pictureImage image.Image, pictureBounds image.Rectangle, element slideElement, size slideSize) bool {
 	rotation := normalizedRotationDegrees(element.Rotation)
+	if !pictureRotatesWithShape(element) {
+		rotation = 0
+	}
 	if rotation == 0 {
 		return drawPictureRasterLayer(img, target, pictureImage, pictureBounds, element, size, img.Bounds().Dx())
 	}
@@ -10452,6 +10463,10 @@ func drawPictureRaster(img *image.RGBA, target image.Rectangle, pictureImage ima
 	dst := image.Rect(center.X-rotated.Bounds().Dx()/2, center.Y-rotated.Bounds().Dy()/2, center.X-rotated.Bounds().Dx()/2+rotated.Bounds().Dx(), center.Y-rotated.Bounds().Dy()/2+rotated.Bounds().Dy())
 	drawRGBAAt(img, dst, rotated)
 	return softEdgeRendered
+}
+
+func pictureRotatesWithShape(element slideElement) bool {
+	return !element.HasBlipRotWithShape || element.BlipRotWithShape
 }
 
 func drawPictureRasterLayer(img *image.RGBA, target image.Rectangle, pictureImage image.Image, pictureBounds image.Rectangle, element slideElement, size slideSize, outputWidth int) bool {
