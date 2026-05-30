@@ -125,10 +125,12 @@ type paragraphStyle struct {
 	DefaultTabSize   int64
 	Bullet           string
 	BulletFontFamily string
+	BulletFontTx     bool
 	BulletFontSize   int
 	BulletSizePct    int
 	HasBulletColor   bool
 	BulletColor      color.RGBA
+	BulletColorTx    bool
 	Bold             bool
 	Italic           bool
 	TextAlign        string
@@ -249,6 +251,7 @@ type textParagraph struct {
 	TextAlign        string
 	FontFamily       string
 	BulletFontFamily string
+	BulletFontTx     bool
 	FontSize         int
 	Bold             bool
 	Italic           bool
@@ -259,6 +262,7 @@ type textParagraph struct {
 	BulletSizePct    int
 	HasBulletColor   bool
 	BulletColor      color.RGBA
+	BulletColorTx    bool
 	HasMarginLeft    bool
 	MarginLeft       int64
 	HasMarginRight   bool
@@ -2151,7 +2155,16 @@ func textParagraphsFromNodeWithTheme(node *xmlNode, theme themeColors) []textPar
 					paragraph.BulletColor = bulletColor
 				}
 			}
+			if firstChild(pPr, "buClrTx") != nil {
+				paragraph.BulletColorTx = true
+				paragraph.HasBulletColor = false
+				paragraph.BulletColor = color.RGBA{}
+			}
 			paragraph.BulletFontFamily = bulletFontFamilyFromProperties(pPr)
+			if firstChild(pPr, "buFontTx") != nil {
+				paragraph.BulletFontTx = true
+				paragraph.BulletFontFamily = ""
+			}
 			if bullet := firstChild(pPr, "buChar"); bullet != nil {
 				paragraph.Bullet = normalizeBulletCharForFont(attrValue(bullet.Attrs, "char"), paragraph.BulletFontFamily)
 				paragraph.NoBullet = false
@@ -2326,12 +2339,21 @@ func applyParagraphStyle(paragraph *textParagraph, style paragraphStyle) {
 	} else if style.Bullet != "" && (paragraph.Bullet == "" || paragraph.Bullet == "•") {
 		paragraph.Bullet = style.Bullet
 	}
-	if paragraph.BulletFontFamily == "" {
+	if paragraph.BulletFontFamily == "" && !paragraph.BulletFontTx {
 		paragraph.BulletFontFamily = style.BulletFontFamily
 	}
-	if style.HasBulletColor && !paragraph.HasBulletColor {
+	if style.BulletFontTx && paragraph.BulletFontFamily == "" && !paragraph.BulletFontTx {
+		paragraph.BulletFontTx = true
+		paragraph.BulletFontFamily = ""
+	}
+	if style.HasBulletColor && !paragraph.HasBulletColor && !paragraph.BulletColorTx {
 		paragraph.HasBulletColor = true
 		paragraph.BulletColor = style.BulletColor
+	}
+	if style.BulletColorTx && !paragraph.HasBulletColor && !paragraph.BulletColorTx {
+		paragraph.BulletColorTx = true
+		paragraph.HasBulletColor = false
+		paragraph.BulletColor = color.RGBA{}
 	}
 }
 
@@ -2393,6 +2415,15 @@ func parseParagraphStyle(node *xmlNode, theme themeColors) paragraphStyle {
 			style.HasBulletColor = true
 			style.BulletColor = bulletColor
 		}
+	}
+	if firstChild(node, "buClrTx") != nil {
+		style.BulletColorTx = true
+		style.HasBulletColor = false
+		style.BulletColor = color.RGBA{}
+	}
+	if firstChild(node, "buFontTx") != nil {
+		style.BulletFontTx = true
+		style.BulletFontFamily = ""
 	}
 	if firstChild(node, "buAutoNum") != nil {
 		style.Bullet = "1."
@@ -3141,6 +3172,11 @@ func mergeParagraphStyle(base paragraphStyle, override paragraphStyle) paragraph
 	if merged.BulletFontFamily == "" {
 		merged.BulletFontFamily = base.BulletFontFamily
 	}
+	if merged.BulletFontTx {
+		merged.BulletFontFamily = ""
+	} else if merged.BulletFontFamily == "" {
+		merged.BulletFontTx = base.BulletFontTx
+	}
 	if merged.BulletFontSize == 0 {
 		merged.BulletFontSize = base.BulletFontSize
 	}
@@ -3150,6 +3186,12 @@ func mergeParagraphStyle(base paragraphStyle, override paragraphStyle) paragraph
 	if !merged.HasBulletColor {
 		merged.HasBulletColor = base.HasBulletColor
 		merged.BulletColor = base.BulletColor
+	}
+	if merged.BulletColorTx {
+		merged.HasBulletColor = false
+		merged.BulletColor = color.RGBA{}
+	} else if !merged.HasBulletColor {
+		merged.BulletColorTx = base.BulletColorTx
 	}
 	if !merged.Bold {
 		merged.Bold = base.Bold
@@ -6205,6 +6247,11 @@ func appendPrefixSegment(prefix string, paragraph textParagraph, segments []text
 		if paragraph.HasBulletColor {
 			bulletSegment.HasTextColor = true
 			bulletSegment.TextColor = paragraph.BulletColor
+		} else if paragraph.BulletColorTx {
+			if textColor, ok := bulletTextColor(paragraph, segments); ok {
+				bulletSegment.HasTextColor = true
+				bulletSegment.TextColor = textColor
+			}
 		}
 		spacer := textLineSegment{Text: strings.TrimPrefix(prefix, paragraph.Bullet), Bold: paragraph.Bold, Italic: paragraph.Italic, FontSize: paragraph.FontSize}
 		output := make([]textLineSegment, 0, len(segments)+2)
@@ -6217,6 +6264,11 @@ func appendPrefixSegment(prefix string, paragraph textParagraph, segments []text
 		if paragraph.HasBulletColor {
 			bulletSegment.HasTextColor = true
 			bulletSegment.TextColor = paragraph.BulletColor
+		} else if paragraph.BulletColorTx {
+			if textColor, ok := bulletTextColor(paragraph, segments); ok {
+				bulletSegment.HasTextColor = true
+				bulletSegment.TextColor = textColor
+			}
 		}
 		spacer := textLineSegment{Text: strings.TrimPrefix(prefix, paragraph.Bullet), Bold: paragraph.Bold, Italic: paragraph.Italic, FontSize: paragraph.FontSize}
 		output := make([]textLineSegment, 0, len(segments)+2)
@@ -6231,7 +6283,22 @@ func appendPrefixSegment(prefix string, paragraph textParagraph, segments []text
 	return output
 }
 
+func bulletTextColor(paragraph textParagraph, segments []textLineSegment) (color.RGBA, bool) {
+	for _, segment := range segments {
+		if segment.HasTextColor {
+			return segment.TextColor, true
+		}
+	}
+	if paragraph.HasTextColor {
+		return paragraph.TextColor, true
+	}
+	return color.RGBA{}, false
+}
+
 func bulletSegmentFontFamily(paragraph textParagraph) string {
+	if paragraph.BulletFontTx {
+		return paragraph.FontFamily
+	}
 	if symbolBulletRenderedAsUnicode(paragraph.Bullet, paragraph.BulletFontFamily) {
 		return paragraph.FontFamily
 	}

@@ -2001,13 +2001,14 @@ func TestTextParagraphsFromNodeDetectsBulletsAndLevels(t *testing.T) {
   <a:p><a:pPr lvl="2"><a:buSzPts val="1400"/><a:buChar char="-"/></a:pPr><a:r><a:t>Coal</a:t></a:r></a:p>
   <a:p><a:pPr lvl="1"><a:buFont typeface="Wingdings"/><a:buChar char="§"/></a:pPr><a:r><a:t>Wingdings square</a:t></a:r></a:p>
   <a:p><a:pPr><a:buNone/></a:pPr><a:r><a:t>No bullet</a:t></a:r></a:p>
+  <a:p><a:pPr><a:buClrTx/><a:buFontTx/><a:buChar char="•"/></a:pPr><a:r><a:t>Follow text</a:t></a:r></a:p>
 </p:txBody>`))
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	got := textParagraphsFromNode(root)
-	if len(got) != 5 {
+	if len(got) != 6 {
 		t.Fatalf("unexpected paragraph count: %+v", got)
 	}
 	if got[0].Text != "Primary energy resources" || !got[0].Bold || len(got[0].Runs) != 1 || !got[0].Runs[0].Bold {
@@ -2034,6 +2035,9 @@ func TestTextParagraphsFromNodeDetectsBulletsAndLevels(t *testing.T) {
 	}
 	if got[4].Text != "No bullet" || !got[4].NoBullet {
 		t.Fatalf("unexpected no-bullet paragraph: %+v", got[4])
+	}
+	if !got[5].BulletColorTx || !got[5].BulletFontTx {
+		t.Fatalf("expected bullet color/font to follow text, got %+v", got[5])
 	}
 }
 
@@ -2647,6 +2651,43 @@ func TestParseTextStylesNormalizesOfficeSymbolBullets(t *testing.T) {
 	}
 }
 
+func TestParseTextStylesCapturesBulletFollowTextProperties(t *testing.T) {
+	styles := parseTextStyles([]byte(`<p:sldMaster xmlns:p="p" xmlns:a="a">
+  <p:txStyles>
+    <p:bodyStyle>
+      <a:lvl1pPr>
+        <a:buClrTx/>
+        <a:buFontTx/>
+        <a:buChar char="•"/>
+        <a:defRPr sz="1800"><a:solidFill><a:srgbClr val="112233"/></a:solidFill><a:latin typeface="Arial"/></a:defRPr>
+      </a:lvl1pPr>
+    </p:bodyStyle>
+  </p:txStyles>
+</p:sldMaster>`), defaultThemeColors())
+	style := styles["body"].ParagraphStyles[0]
+	if !style.BulletColorTx || !style.BulletFontTx || style.HasBulletColor || style.BulletFontFamily != "" {
+		t.Fatalf("expected bullet follow-text properties, got %+v", style)
+	}
+}
+
+func TestApplyParagraphStyleKeepsLocalExplicitBulletProperties(t *testing.T) {
+	paragraph := textParagraph{
+		BulletFontFamily: "Arial",
+		HasBulletColor:   true,
+		BulletColor:      color.RGBA{R: 1, G: 2, B: 3, A: 255},
+	}
+	applyParagraphStyle(&paragraph, paragraphStyle{
+		BulletFontTx:  true,
+		BulletColorTx: true,
+	})
+	if paragraph.BulletFontTx || paragraph.BulletFontFamily != "Arial" {
+		t.Fatalf("local explicit bullet font should win over inherited buFontTx: %+v", paragraph)
+	}
+	if paragraph.BulletColorTx || !paragraph.HasBulletColor || paragraph.BulletColor.R != 1 {
+		t.Fatalf("local explicit bullet color should win over inherited buClrTx: %+v", paragraph)
+	}
+}
+
 func TestTextParagraphsFromNodeUsesParagraphDefaultRunProperties(t *testing.T) {
 	root, err := parseXMLNode([]byte(`<p:txBody xmlns:p="p" xmlns:a="a">
   <a:p>
@@ -3118,6 +3159,28 @@ func TestTextRenderLinesForElementUsesParagraphFontForBulletFontTx(t *testing.T)
 	}
 	if len(wingdings) < 1 || wingdings[0].FontFamily != expectedWingdingsFont {
 		t.Fatalf("unexpected mapped symbol bullet font, got %+v", wingdings)
+	}
+}
+
+func TestTextRenderLinesForElementAppliesBulletColorTx(t *testing.T) {
+	segments := appendPrefixSegment("• ", textParagraph{
+		Bullet:        "•",
+		BulletColorTx: true,
+		FontSize:      1800,
+		Runs: []textRun{{
+			Text:         "Body",
+			FontSize:     1800,
+			HasTextColor: true,
+			TextColor:    color.RGBA{R: 9, G: 8, B: 7, A: 255},
+		}},
+	}, []textLineSegment{{
+		Text:         "Body",
+		FontSize:     1800,
+		HasTextColor: true,
+		TextColor:    color.RGBA{R: 9, G: 8, B: 7, A: 255},
+	}})
+	if len(segments) < 1 || !segments[0].HasTextColor || segments[0].TextColor.R != 9 || segments[0].TextColor.G != 8 {
+		t.Fatalf("expected bullet color to follow text, got %+v", segments)
 	}
 }
 
