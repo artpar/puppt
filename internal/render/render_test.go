@@ -5716,6 +5716,72 @@ func TestInheritedPlaceholderSourcesMergeLayoutWithoutTransform(t *testing.T) {
 	}
 }
 
+func TestResolveSlidePlaceholdersInheritsVisualProperties(t *testing.T) {
+	elements := []slideElement{{
+		Kind:            "sp",
+		Name:            "Title 1",
+		Text:            "Slide title",
+		IsPlaceholder:   true,
+		PlaceholderType: "title",
+	}}
+	sources := map[string]slideElement{
+		"type:title": {
+			IsPlaceholder:   true,
+			PlaceholderType: "title",
+			HasFill:         true,
+			FillColor:       color.RGBA{R: 10, G: 20, B: 30, A: 255},
+			HasLine:         true,
+			LineColor:       color.RGBA{R: 40, G: 50, B: 60, A: 255},
+			HasLineWidth:    true,
+			LineWidth:       19050,
+			HasShadow:       true,
+			ShadowColor:     color.RGBA{A: 80},
+			ShadowBlur:      12700,
+		},
+	}
+
+	got := resolveSlidePlaceholders(elements, sources)
+	if !got[0].HasFill || got[0].FillColor.R != 10 {
+		t.Fatalf("placeholder fill was not inherited: %+v", got[0])
+	}
+	if !got[0].HasLine || got[0].LineColor.R != 40 || got[0].LineWidth != 19050 {
+		t.Fatalf("placeholder line was not inherited: %+v", got[0])
+	}
+	if !got[0].HasShadow || got[0].ShadowBlur != 12700 {
+		t.Fatalf("placeholder effects were not inherited: %+v", got[0])
+	}
+}
+
+func TestResolveSlidePlaceholdersKeepsLocalNoFillAndNoLine(t *testing.T) {
+	elements := []slideElement{{
+		Kind:            "sp",
+		Name:            "Title 1",
+		Text:            "Slide title",
+		IsPlaceholder:   true,
+		PlaceholderType: "title",
+		NoFill:          true,
+		NoLine:          true,
+	}}
+	sources := map[string]slideElement{
+		"type:title": {
+			IsPlaceholder:   true,
+			PlaceholderType: "title",
+			HasFill:         true,
+			FillColor:       color.RGBA{R: 10, A: 255},
+			HasLine:         true,
+			LineColor:       color.RGBA{R: 40, A: 255},
+		},
+	}
+
+	got := resolveSlidePlaceholders(elements, sources)
+	if got[0].HasFill || !got[0].NoFill {
+		t.Fatalf("local noFill should block inherited fill: %+v", got[0])
+	}
+	if got[0].HasLine || !got[0].NoLine {
+		t.Fatalf("local noLine should block inherited line: %+v", got[0])
+	}
+}
+
 func TestResolveSlidePlaceholdersKeepsLocalBodyProperties(t *testing.T) {
 	elements := []slideElement{{
 		Kind:              "sp",

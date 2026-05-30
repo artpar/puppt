@@ -3475,6 +3475,7 @@ func mergePlaceholderSource(base slideElement, override slideElement) slideEleme
 	if merged.PrstGeom == "" {
 		merged.PrstGeom = base.PrstGeom
 	}
+	inheritPlaceholderVisualProperties(&merged, base)
 	if !merged.HasInsets {
 		merged.HasInsets = base.HasInsets
 		merged.InsetLeft = base.InsetLeft
@@ -3621,6 +3622,7 @@ func resolveSlidePlaceholders(elements []slideElement, sources map[string]slideE
 		if element.PrstGeom == "" {
 			element.PrstGeom = source.PrstGeom
 		}
+		inheritPlaceholderVisualProperties(element, source)
 		if !element.HasInsets {
 			element.HasInsets = source.HasInsets
 			element.InsetLeft = source.InsetLeft
@@ -3668,6 +3670,42 @@ func resolveSlidePlaceholders(elements []slideElement, sources map[string]slideE
 		applyInheritedBodyBullets(element)
 	}
 	return elements
+}
+
+func inheritPlaceholderVisualProperties(element *slideElement, source slideElement) {
+	if element == nil {
+		return
+	}
+	if !element.HasFill && !element.NoFill {
+		element.HasFill = source.HasFill
+		element.FillColor = source.FillColor
+		element.HasFillGradient = source.HasFillGradient
+		element.FillGradient = source.FillGradient
+		element.NoFill = source.NoFill
+	}
+	if !element.HasLine && !element.NoLine {
+		element.HasLine = source.HasLine
+		element.LineColor = source.LineColor
+		element.HasLineWidth = source.HasLineWidth
+		element.LineWidth = source.LineWidth
+		element.HasLineDash = source.HasLineDash
+		element.LineDash = source.LineDash
+		element.HasLineCap = source.HasLineCap
+		element.LineCap = source.LineCap
+		element.HasLineAlign = source.HasLineAlign
+		element.LineAlign = source.LineAlign
+		element.NoLine = source.NoLine
+	}
+	if !element.HasShadow && !element.HasEffectProperties {
+		element.HasShadow = source.HasShadow
+		element.ShadowColor = source.ShadowColor
+		element.ShadowBlur = source.ShadowBlur
+		element.ShadowDistance = source.ShadowDistance
+		element.ShadowDirection = source.ShadowDirection
+		element.HasEffectProperties = source.HasEffectProperties
+		element.HasSoftEdge = source.HasSoftEdge
+		element.SoftEdgeRadius = source.SoftEdgeRadius
+	}
 }
 
 func mergeParagraphStyleMaps(base map[int]paragraphStyle, override map[int]paragraphStyle) map[int]paragraphStyle {
