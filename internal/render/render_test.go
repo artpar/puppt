@@ -1508,6 +1508,35 @@ func TestParseTableStylesReadsConditionalRegions(t *testing.T) {
 	}
 }
 
+func TestParseTableStylesReadsDirectTableTextFontAndItalic(t *testing.T) {
+	styles := parseTableStyles([]byte(`<a:tblStyleLst xmlns:a="a">
+		<a:tblStyle styleId="{STYLE-DIRECT}" styleName="Direct Font Style">
+			<a:wholeTbl>
+				<a:tcTxStyle i="on">
+					<a:font>
+						<a:latin typeface="Aptos"/>
+						<a:ea typeface="MS Mincho"/>
+						<a:cs typeface="Arial"/>
+					</a:font>
+					<a:srgbClr val="123456"/>
+				</a:tcTxStyle>
+			</a:wholeTbl>
+		</a:tblStyle>
+	</a:tblStyleLst>`), defaultThemeColors(), themeFonts{MinorLatin: "Calibri"})
+
+	style, ok := styles.Styles[normalizedTableStyleID("{STYLE-DIRECT}")]
+	if !ok {
+		t.Fatalf("expected parsed direct-font table style, got %+v", styles)
+	}
+	whole := style.Regions["wholeTbl"]
+	if whole.FontFamily != "Aptos" || !whole.HasItalic || !whole.Italic || !tableCellTextItalic(whole) {
+		t.Fatalf("unexpected direct table text style: %+v", whole)
+	}
+	if !whole.HasTextColor || whole.TextColor != (color.RGBA{R: 0x12, G: 0x34, B: 0x56, A: 0xff}) {
+		t.Fatalf("unexpected direct table text color: %+v", whole)
+	}
+}
+
 func TestResolvedTableCellStyleAppliesGenericRegionPrecedence(t *testing.T) {
 	styles := testTableStyleSet(t)
 	table := tableModel{

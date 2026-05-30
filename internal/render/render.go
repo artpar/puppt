@@ -379,6 +379,8 @@ type tableStyleRegion struct {
 	FontFamily   string
 	HasBold      bool
 	Bold         bool
+	HasItalic    bool
+	Italic       bool
 	Borders      tableStyleBorders
 }
 
@@ -1238,8 +1240,15 @@ func parseTableStyleRegion(node *xmlNode, theme themeColors, fonts themeFonts) t
 			region.HasBold = true
 			region.Bold = boolAttrOn(rawBold)
 		}
+		if rawItalic := attrValue(textStyle.Attrs, "i"); rawItalic != "" {
+			region.HasItalic = true
+			region.Italic = boolAttrOn(rawItalic)
+		}
 		if fontRef := firstChild(textStyle, "fontRef"); fontRef != nil {
 			region.FontFamily = tableStyleFontFamily(fontRef, fonts)
+		}
+		if region.FontFamily == "" {
+			region.FontFamily = tableStyleDirectFontFamily(textStyle)
 		}
 		if textColor, ok := colorFromColorNodeWithTheme(textStyle, theme); ok {
 			region.HasTextColor = true
@@ -1279,6 +1288,20 @@ func tableStyleFontFamily(fontRef *xmlNode, fonts themeFonts) string {
 	default:
 		return ""
 	}
+}
+
+func tableStyleDirectFontFamily(textStyle *xmlNode) string {
+	font := firstChild(textStyle, "font")
+	if font == nil {
+		return ""
+	}
+	if typeface := typefaceFromChild(font, "latin"); typeface != "" {
+		return typeface
+	}
+	if typeface := typefaceFromChild(font, "ea"); typeface != "" {
+		return typeface
+	}
+	return typefaceFromChild(font, "cs")
 }
 
 func parseTableStyleBorders(node *xmlNode, theme themeColors) tableStyleBorders {
@@ -3973,6 +3996,7 @@ func renderTableGraphicFrame(slidePart string, size slideSize, img *image.RGBA, 
 				Text:           cell.Text,
 				TextParagraphs: textParagraphs,
 				FontFamily:     fontFamily,
+				Italic:         tableCellTextItalic(style),
 				FontSize:       cell.FontSize,
 				HasTextColor:   hasTextColor,
 				TextColor:      textColor,
@@ -4180,6 +4204,10 @@ func tableCellTextBold(style tableStyleRegion) bool {
 	return style.HasBold && style.Bold
 }
 
+func tableCellTextItalic(style tableStyleRegion) bool {
+	return style.HasItalic && style.Italic
+}
+
 func tableCellTextFontFamily(style tableStyleRegion) string {
 	return style.FontFamily
 }
@@ -4303,6 +4331,10 @@ func mergeTableStyleRegion(dst *tableStyleRegion, src tableStyleRegion) {
 	if src.HasBold {
 		dst.HasBold = true
 		dst.Bold = src.Bold
+	}
+	if src.HasItalic {
+		dst.HasItalic = true
+		dst.Italic = src.Italic
 	}
 	mergeTableBorder(&dst.Borders.Left, src.Borders.Left)
 	mergeTableBorder(&dst.Borders.Right, src.Borders.Right)
