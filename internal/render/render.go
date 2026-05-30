@@ -132,6 +132,9 @@ type paragraphStyle struct {
 	BulletFontSize   int
 	BulletSizePct    int
 	BulletSizeTx     bool
+	HasAutoNumber    bool
+	AutoNumberType   string
+	AutoNumberStart  int
 	HasBulletColor   bool
 	BulletColor      color.RGBA
 	BulletColorTx    bool
@@ -2425,7 +2428,10 @@ func textParagraphsFromNodeWithTheme(node *xmlNode, theme themeColors) []textPar
 			paragraph.Level = int(parseIntAttr(pPr.Attrs, "lvl"))
 			paragraph.TextAlign = attrValue(pPr.Attrs, "algn")
 		}
-		applyParagraphStyle(&paragraph, styles[paragraph.Level])
+		style := styles[paragraph.Level]
+		applyParagraphStyle(&paragraph, style)
+		hasLocalBulletChoice := false
+		localAutoNumberApplied := false
 		if pPr := firstChild(paragraphNode, "pPr"); pPr != nil {
 			if value := attrValue(pPr.Attrs, "marL"); value != "" {
 				paragraph.MarginLeft = parseIntAttr(pPr.Attrs, "marL")
@@ -2473,10 +2479,13 @@ func textParagraphsFromNodeWithTheme(node *xmlNode, theme themeColors) []textPar
 				paragraph.BulletFontFamily = ""
 			}
 			if bullet := firstChild(pPr, "buChar"); bullet != nil {
+				hasLocalBulletChoice = true
 				paragraph.Bullet = normalizeBulletCharForFont(attrValue(bullet.Attrs, "char"), paragraph.BulletFontFamily)
 				paragraph.NoBullet = false
 			}
 			if autoNum := firstChild(pPr, "buAutoNum"); autoNum != nil {
+				hasLocalBulletChoice = true
+				localAutoNumberApplied = true
 				if startAt := int(parseIntAttr(autoNum.Attrs, "startAt")); startAt > 0 {
 					autoCounters[paragraph.Level] = startAt
 				} else {
@@ -2489,9 +2498,10 @@ func textParagraphsFromNodeWithTheme(node *xmlNode, theme themeColors) []textPar
 				paragraph.NoBullet = false
 			}
 			if firstChild(pPr, "buNone") != nil {
+				hasLocalBulletChoice = true
 				paragraph.NoBullet = true
 				paragraph.Bullet = ""
-			} else if paragraph.Bullet == "" && paragraph.Level > 0 {
+			} else if paragraph.Bullet == "" && paragraph.Level > 0 && !style.HasAutoNumber {
 				paragraph.Bullet = "•"
 			}
 			applyBulletSizePropertiesToParagraph(&paragraph, pPr)
@@ -2505,6 +2515,17 @@ func textParagraphsFromNodeWithTheme(node *xmlNode, theme themeColors) []textPar
 			if defRPr := firstChild(pPr, "defRPr"); defRPr != nil {
 				applyRunPropertiesToParagraphDefaults(&paragraph, defRPr, theme)
 			}
+		}
+		if !localAutoNumberApplied && !hasLocalBulletChoice && !paragraph.NoBullet && paragraph.Bullet == "" && style.HasAutoNumber {
+			if style.AutoNumberStart > 0 && autoCounters[paragraph.Level] == 0 {
+				autoCounters[paragraph.Level] = style.AutoNumberStart
+			} else {
+				autoCounters[paragraph.Level]++
+			}
+			for level := paragraph.Level + 1; level < 9; level++ {
+				delete(autoCounters, level)
+			}
+			paragraph.Bullet = autoNumberBullet(style.AutoNumberType, autoCounters[paragraph.Level])
 		}
 		if endParaRPr := firstChild(paragraphNode, "endParaRPr"); endParaRPr != nil && !textRunsHaveRunMetricProperties(paragraph.Runs) {
 			applyRunPropertiesToParagraphDefaults(&paragraph, endParaRPr, theme)
@@ -2748,8 +2769,14 @@ func parseParagraphStyle(node *xmlNode, theme themeColors) paragraphStyle {
 		style.BulletFontTx = true
 		style.BulletFontFamily = ""
 	}
-	if firstChild(node, "buAutoNum") != nil {
-		style.Bullet = "1."
+	if autoNum := firstChild(node, "buAutoNum"); autoNum != nil {
+		style.HasAutoNumber = true
+		style.Bullet = ""
+		style.NoBullet = false
+		style.AutoNumberType = attrValue(autoNum.Attrs, "type")
+		if startAt := int(parseIntAttr(autoNum.Attrs, "startAt")); startAt > 0 {
+			style.AutoNumberStart = startAt
+		}
 	}
 	if firstChild(node, "buNone") != nil {
 		style.NoBullet = true
@@ -3890,9 +3917,14 @@ func mergeParagraphStyle(base paragraphStyle, override paragraphStyle) paragraph
 		merged.HasDefaultTab = base.HasDefaultTab
 		merged.DefaultTabSize = base.DefaultTabSize
 	}
-	if merged.Bullet == "" && !merged.NoBullet {
+	if merged.Bullet == "" && !merged.NoBullet && !merged.HasAutoNumber {
 		merged.Bullet = base.Bullet
 		merged.NoBullet = base.NoBullet
+	}
+	if !merged.HasAutoNumber && merged.Bullet == "" && !merged.NoBullet {
+		merged.HasAutoNumber = base.HasAutoNumber
+		merged.AutoNumberType = base.AutoNumberType
+		merged.AutoNumberStart = base.AutoNumberStart
 	}
 	if merged.BulletFontFamily == "" {
 		merged.BulletFontFamily = base.BulletFontFamily

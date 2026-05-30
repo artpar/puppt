@@ -2767,6 +2767,67 @@ func TestTextParagraphsFromNodeNumbersAutoBullets(t *testing.T) {
 	}
 }
 
+func TestTextParagraphsFromNodeInheritsStyledAutoNumberBullets(t *testing.T) {
+	root, err := parseXMLNode([]byte(`<p:txBody xmlns:p="p" xmlns:a="a">
+  <a:lstStyle>
+    <a:lvl1pPr>
+      <a:buAutoNum type="alphaLcPeriod" startAt="3"/>
+      <a:defRPr sz="1800"/>
+    </a:lvl1pPr>
+    <a:lvl2pPr>
+      <a:buAutoNum type="arabicParenR" startAt="2"/>
+      <a:defRPr sz="1600"/>
+    </a:lvl2pPr>
+  </a:lstStyle>
+  <a:p><a:pPr/><a:r><a:t>Third</a:t></a:r></a:p>
+  <a:p><a:pPr/><a:r><a:t>Fourth</a:t></a:r></a:p>
+  <a:p><a:pPr lvl="1"/><a:r><a:t>Nested</a:t></a:r></a:p>
+  <a:p><a:pPr/><a:r><a:t>Fifth</a:t></a:r></a:p>
+</p:txBody>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got := textParagraphsFromNode(root)
+	if len(got) != 4 {
+		t.Fatalf("unexpected paragraph count: %+v", got)
+	}
+	if got[0].Bullet != "c." || got[1].Bullet != "d." || got[2].Bullet != "2)" || got[3].Bullet != "e." {
+		t.Fatalf("unexpected inherited auto-number bullets: %+v", got)
+	}
+}
+
+func TestTextParagraphsFromNodeLocalBulletChoiceBlocksStyledAutoNumber(t *testing.T) {
+	root, err := parseXMLNode([]byte(`<p:txBody xmlns:p="p" xmlns:a="a">
+  <a:lstStyle>
+    <a:lvl1pPr>
+      <a:buAutoNum type="arabicParenR"/>
+      <a:defRPr sz="1800"/>
+    </a:lvl1pPr>
+  </a:lstStyle>
+  <a:p><a:pPr><a:buChar char="•"/></a:pPr><a:r><a:t>Symbol</a:t></a:r></a:p>
+  <a:p><a:pPr><a:buNone/></a:pPr><a:r><a:t>No bullet</a:t></a:r></a:p>
+  <a:p><a:pPr/><a:r><a:t>Numbered</a:t></a:r></a:p>
+</p:txBody>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got := textParagraphsFromNode(root)
+	if len(got) != 3 {
+		t.Fatalf("unexpected paragraph count: %+v", got)
+	}
+	if got[0].Bullet != "•" || got[0].NoBullet {
+		t.Fatalf("local buChar should block styled auto-numbering, got %+v", got[0])
+	}
+	if got[1].Bullet != "" || !got[1].NoBullet {
+		t.Fatalf("local buNone should block styled auto-numbering, got %+v", got[1])
+	}
+	if got[2].Bullet != "1)" {
+		t.Fatalf("styled auto-numbering should still apply to later paragraphs, got %+v", got[2])
+	}
+}
+
 func TestTextParagraphsFromNodeCapturesBulletSizeFollowText(t *testing.T) {
 	root, err := parseXMLNode([]byte(`<p:txBody xmlns:p="p" xmlns:a="a">
   <a:p><a:pPr><a:buSzTx/><a:buChar char="•"/></a:pPr><a:r><a:rPr sz="2400"/><a:t>Follow text</a:t></a:r></a:p>
@@ -3547,6 +3608,47 @@ func TestParseTextStylesCapturesBulletSizeFollowText(t *testing.T) {
 	style := styles["body"].ParagraphStyles[0]
 	if !style.BulletSizeTx || style.BulletFontSize != 0 || style.BulletSizePct != 0 {
 		t.Fatalf("expected buSzTx to make bullet size follow text, got %+v", style)
+	}
+}
+
+func TestParseTextStylesCapturesAutoNumberBulletProperties(t *testing.T) {
+	styles := parseTextStyles([]byte(`<p:sldMaster xmlns:p="p" xmlns:a="a">
+  <p:txStyles>
+    <p:bodyStyle>
+      <a:lvl1pPr>
+        <a:buAutoNum type="arabicParenR" startAt="2"/>
+        <a:defRPr sz="1800"/>
+      </a:lvl1pPr>
+    </p:bodyStyle>
+  </p:txStyles>
+</p:sldMaster>`), defaultThemeColors())
+
+	style := styles["body"].ParagraphStyles[0]
+	if !style.HasAutoNumber || style.AutoNumberType != "arabicParenR" || style.AutoNumberStart != 2 || style.Bullet != "" || style.NoBullet {
+		t.Fatalf("expected auto-number bullet properties, got %+v", style)
+	}
+}
+
+func TestMergeParagraphStyleRespectsAutoNumberPrecedence(t *testing.T) {
+	autoNumber := paragraphStyle{
+		HasAutoNumber:   true,
+		AutoNumberType:  "alphaLcPeriod",
+		AutoNumberStart: 3,
+	}
+
+	fromBase := mergeParagraphStyle(autoNumber, paragraphStyle{})
+	if !fromBase.HasAutoNumber || fromBase.AutoNumberType != "alphaLcPeriod" || fromBase.AutoNumberStart != 3 {
+		t.Fatalf("expected empty override to inherit auto-number style, got %+v", fromBase)
+	}
+
+	explicitBullet := mergeParagraphStyle(autoNumber, paragraphStyle{Bullet: "•"})
+	if explicitBullet.HasAutoNumber || explicitBullet.Bullet != "•" {
+		t.Fatalf("explicit bullet should block inherited auto-number style, got %+v", explicitBullet)
+	}
+
+	autoOverride := mergeParagraphStyle(paragraphStyle{Bullet: "•"}, autoNumber)
+	if !autoOverride.HasAutoNumber || autoOverride.Bullet != "" {
+		t.Fatalf("auto-number override should block inherited bullet style, got %+v", autoOverride)
 	}
 }
 
