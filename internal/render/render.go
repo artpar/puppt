@@ -3528,16 +3528,60 @@ func inheritedTextStyles(pkg *pptx.Package, renderParts []string, slidePart stri
 }
 
 func inheritedTextStylesWithThemeResolver(pkg *pptx.Package, renderParts []string, slidePart string, themeForPart func(string) themeColors) map[string]textStyle {
-	styles := map[string]textStyle{}
+	styles := presentationDefaultTextStyles(pkg, themeForPart(pkg.PresentationPath))
 	for _, renderPart := range renderParts {
 		if renderPart == slidePart {
 			continue
 		}
 		for key, style := range parseTextStyles(pkg.Parts[renderPart], themeForPart(renderPart)) {
-			styles[key] = style
+			styles[key] = mergeTextStyle(styles[key], style)
 		}
 	}
 	return styles
+}
+
+func presentationDefaultTextStyles(pkg *pptx.Package, theme themeColors) map[string]textStyle {
+	styles := map[string]textStyle{}
+	if pkg == nil || pkg.PresentationPath == "" {
+		return styles
+	}
+	style, ok := parsePresentationDefaultTextStyle(pkg.Parts[pkg.PresentationPath], theme)
+	if !ok {
+		return styles
+	}
+	styles["default"] = style
+	return styles
+}
+
+func parsePresentationDefaultTextStyle(data []byte, theme themeColors) (textStyle, bool) {
+	root, err := parseXMLNode(data)
+	if err != nil {
+		return textStyle{}, false
+	}
+	defaultTextStyle := firstDescendant(root, "defaultTextStyle")
+	if defaultTextStyle == nil {
+		return textStyle{}, false
+	}
+	return parseTextStyle(defaultTextStyle, theme)
+}
+
+func mergeTextStyle(base textStyle, override textStyle) textStyle {
+	merged := override
+	if merged.FontSize == 0 {
+		merged.FontSize = base.FontSize
+	}
+	if !merged.Bold {
+		merged.Bold = base.Bold
+	}
+	if !merged.HasTextColor {
+		merged.HasTextColor = base.HasTextColor
+		merged.TextColor = base.TextColor
+	}
+	if merged.TextAlign == "" {
+		merged.TextAlign = base.TextAlign
+	}
+	merged.ParagraphStyles = mergeParagraphStyleMaps(base.ParagraphStyles, merged.ParagraphStyles)
+	return merged
 }
 
 func parseTextStyles(data []byte, theme themeColors) map[string]textStyle {

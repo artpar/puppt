@@ -6260,6 +6260,34 @@ func TestApplyInheritedTextStylesAppliesTitleButSkipsBodyPlaceholders(t *testing
 	}
 }
 
+func TestInheritedTextStylesUsePresentationDefaultAsBase(t *testing.T) {
+	pkg := &pptx.Package{
+		PresentationPath: "ppt/presentation.xml",
+		Parts: map[string][]byte{
+			"ppt/presentation.xml": []byte(`<p:presentation xmlns:p="p" xmlns:a="a">
+			  <p:defaultTextStyle>
+			    <a:lvl1pPr marR="914400"><a:defRPr sz="1400"><a:solidFill><a:srgbClr val="112233"/></a:solidFill><a:latin typeface="Arial"/></a:defRPr></a:lvl1pPr>
+			  </p:defaultTextStyle>
+			</p:presentation>`),
+			"ppt/slideMasters/slideMaster1.xml": []byte(`<p:sldMaster xmlns:p="p" xmlns:a="a">
+			  <p:txStyles><p:otherStyle><a:lvl1pPr algn="ctr"><a:defRPr sz="1800"/></a:lvl1pPr></p:otherStyle></p:txStyles>
+			</p:sldMaster>`),
+			"ppt/slides/slide1.xml": []byte(`<p:sld xmlns:p="p" xmlns:a="a"/>`),
+		},
+	}
+
+	styles := inheritedTextStylesWithThemeResolver(pkg, []string{"ppt/slideMasters/slideMaster1.xml", "ppt/slides/slide1.xml"}, "ppt/slides/slide1.xml", func(string) themeColors {
+		return defaultThemeColors()
+	})
+	style := styles["default"].ParagraphStyles[0]
+	if style.FontSize != 1800 || style.TextAlign != "ctr" {
+		t.Fatalf("master style should override presentation default font size and alignment, got %+v", style)
+	}
+	if !style.HasMarginRight || style.MarginRight != 914400 || style.FontFamily != "Arial" || !style.HasTextColor || style.TextColor != (color.RGBA{R: 0x11, G: 0x22, B: 0x33, A: 255}) {
+		t.Fatalf("presentation default properties should remain as base values, got %+v", style)
+	}
+}
+
 func TestParseBodyPropertiesReadsTextAnchor(t *testing.T) {
 	root, err := parseXMLNode([]byte(`<a:bodyPr xmlns:a="a" anchor="ctr" wrap="square" vert="eaVert" rot="5400000" numCol="2" anchorCtr="1" spcFirstLastPara="1"><a:spAutoFit/><a:normAutofit fontScale="85000" lnSpcReduction="20000"/></a:bodyPr>`))
 	if err != nil {
