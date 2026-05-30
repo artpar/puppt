@@ -252,6 +252,8 @@ type slideElement struct {
 	ShadowSkewY                int64
 	HasSoftEdge                bool
 	SoftEdgeRadius             int64
+	HasShape3D                 bool
+	Shape3DFeatures            []string
 	CustomPath                 []pathPoint
 	CustomPathUnsupported      []string
 	FontFamily                 string
@@ -509,6 +511,8 @@ type themeEffectStyle struct {
 	ShadowSkewX              int64
 	HasShadowSkewY           bool
 	ShadowSkewY              int64
+	HasShape3D               bool
+	Shape3DFeatures          []string
 }
 
 // Render writes a PNG for one slide and returns the stable command result used
@@ -1609,6 +1613,61 @@ func parseShapeProperties(spPr *xmlNode, transform renderTransform, element *sli
 	} else if firstChild(spPr, "effectDag") != nil {
 		element.HasEffectProperties = true
 	}
+	if sp3d := firstChild(spPr, "sp3d"); sp3d != nil {
+		parseShape3DProperties(sp3d, element)
+	}
+}
+
+func parseShape3DProperties(sp3d *xmlNode, element *slideElement) {
+	features := visibleShape3DFeatures(sp3d)
+	if len(features) == 0 {
+		return
+	}
+	element.HasShape3D = true
+	element.Shape3DFeatures = appendDistinctStrings(element.Shape3DFeatures, features...)
+	element.HasEffectProperties = true
+}
+
+func visibleShape3DFeatures(sp3d *xmlNode) []string {
+	if sp3d == nil {
+		return nil
+	}
+	var features []string
+	if parseIntAttr(sp3d.Attrs, "extrusionH") > 0 {
+		features = append(features, "3-D extrusion")
+	}
+	if parseIntAttr(sp3d.Attrs, "contourW") > 0 {
+		features = append(features, "3-D contour")
+	}
+	if bevelHasVisibleSize(firstChild(sp3d, "bevelT")) {
+		features = append(features, "3-D top bevel")
+	}
+	if bevelHasVisibleSize(firstChild(sp3d, "bevelB")) {
+		features = append(features, "3-D bottom bevel")
+	}
+	return features
+}
+
+func bevelHasVisibleSize(bevel *xmlNode) bool {
+	if bevel == nil {
+		return false
+	}
+	return parseIntAttr(bevel.Attrs, "w") > 0 || parseIntAttr(bevel.Attrs, "h") > 0
+}
+
+func appendDistinctStrings(base []string, values ...string) []string {
+	seen := map[string]bool{}
+	for _, value := range base {
+		seen[value] = true
+	}
+	for _, value := range values {
+		if value == "" || seen[value] {
+			continue
+		}
+		base = append(base, value)
+		seen[value] = true
+	}
+	return base
 }
 
 func parseShapeEffects(effectList *xmlNode, element *slideElement, theme themeColors) {
@@ -1797,6 +1856,11 @@ func applyThemeEffectStyle(element *slideElement, effects themeEffectStyle) {
 		element.ShadowSkewX = effects.ShadowSkewX
 		element.HasShadowSkewY = effects.HasShadowSkewY
 		element.ShadowSkewY = effects.ShadowSkewY
+	}
+	if effects.HasShape3D && !element.HasShape3D {
+		element.HasShape3D = true
+		element.Shape3DFeatures = append([]string{}, effects.Shape3DFeatures...)
+		element.HasEffectProperties = true
 	}
 }
 
@@ -3894,6 +3958,8 @@ func inheritPlaceholderVisualProperties(element *slideElement, source slideEleme
 		element.HasEffectProperties = source.HasEffectProperties
 		element.HasSoftEdge = source.HasSoftEdge
 		element.SoftEdgeRadius = source.SoftEdgeRadius
+		element.HasShape3D = source.HasShape3D
+		element.Shape3DFeatures = append([]string{}, source.Shape3DFeatures...)
 	}
 }
 
@@ -4467,13 +4533,14 @@ func (styles themeEffectStyles) Style(idx int64, theme themeColors) (themeEffect
 }
 
 func parseThemeEffectStyle(style *xmlNode, theme themeColors) (themeEffectStyle, bool) {
-	effectList := firstChild(style, "effectLst")
-	if effectList == nil {
-		return themeEffectStyle{}, false
-	}
 	var element slideElement
-	parseShapeEffects(effectList, &element, theme)
-	if !element.HasShadow {
+	if effectList := firstChild(style, "effectLst"); effectList != nil {
+		parseShapeEffects(effectList, &element, theme)
+	}
+	if sp3d := firstChild(style, "sp3d"); sp3d != nil {
+		parseShape3DProperties(sp3d, &element)
+	}
+	if !element.HasShadow && !element.HasShape3D {
 		return themeEffectStyle{}, false
 	}
 	return themeEffectStyle{
@@ -4493,6 +4560,8 @@ func parseThemeEffectStyle(style *xmlNode, theme themeColors) (themeEffectStyle,
 		ShadowSkewX:              element.ShadowSkewX,
 		HasShadowSkewY:           element.HasShadowSkewY,
 		ShadowSkewY:              element.ShadowSkewY,
+		HasShape3D:               element.HasShape3D,
+		Shape3DFeatures:          append([]string{}, element.Shape3DFeatures...),
 	}, true
 }
 
@@ -5615,6 +5684,9 @@ func renderShape(slidePart string, size slideSize, img *image.RGBA, element *sli
 			unsupported = append(unsupported, unsupportedItem(slidePart, partialUnsupportedCode, fmt.Sprintf("shape object %q outer shadow geometry was not rendered", elementLabel(*element))))
 		}
 	}
+	for _, message := range shape3DUnsupportedMessages(*element) {
+		unsupported = append(unsupported, unsupportedItem(slidePart, partialUnsupportedCode, fmt.Sprintf("shape object %q %s", elementLabel(*element), message)))
+	}
 	gradientFillRendered := false
 	if element.HasFillGradient && !element.NoFill {
 		switch element.PrstGeom {
@@ -6219,6 +6291,18 @@ func shadowTransformUnsupportedMessages(element slideElement) []string {
 		messages = append(messages, "outer shadow rotate-with-shape transform was not rendered")
 	}
 	return messages
+}
+
+func shape3DUnsupportedMessages(element slideElement) []string {
+	if !element.HasShape3D {
+		return nil
+	}
+	if len(element.Shape3DFeatures) == 0 {
+		return []string{"3-D shape properties were not rendered"}
+	}
+	features := append([]string{}, element.Shape3DFeatures...)
+	sort.Strings(features)
+	return []string{fmt.Sprintf("%s were not rendered", strings.Join(features, ", "))}
 }
 
 func shadowIntersectsCanvas(bounds image.Rectangle, blur int, canvas image.Rectangle) bool {
@@ -10794,6 +10878,9 @@ func renderPicture(pkg *pptx.Package, slidePart string, size slideSize, img *ima
 		} else if element.ShadowColor.A != 0 {
 			unsupported = append(unsupported, unsupportedItem(slidePart, partialUnsupportedCode, fmt.Sprintf("picture object %q outer shadow geometry was not rendered", elementLabel(*element))))
 		}
+	}
+	for _, message := range shape3DUnsupportedMessages(*element) {
+		unsupported = append(unsupported, unsupportedItem(slidePart, partialUnsupportedCode, fmt.Sprintf("picture object %q %s", elementLabel(*element), message)))
 	}
 	pictureImage, pictureBounds := pictureSourceForElement(source, *element)
 	softEdgeRendered := drawPictureRaster(img, target, pictureImage, pictureBounds, *element, size)

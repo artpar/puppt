@@ -890,6 +890,28 @@ func TestRenderShapeReportsUnsupportedOuterShadowTransforms(t *testing.T) {
 	}
 }
 
+func TestRenderShapeReportsUnsupportedVisibleShape3DProperties(t *testing.T) {
+	size := slideSize{CX: emuPerInch, CY: emuPerInch}
+	img := image.NewRGBA(image.Rect(0, 0, 96, 96))
+	element := slideElement{
+		Kind:            "sp",
+		Name:            "Beveled Shape",
+		PrstGeom:        "rect",
+		HasTransform:    true,
+		ExtCX:           emuPerInch / 2,
+		ExtCY:           emuPerInch / 2,
+		HasFill:         true,
+		FillColor:       color.RGBA{R: 255, A: 255},
+		HasShape3D:      true,
+		Shape3DFeatures: []string{"3-D top bevel"},
+	}
+
+	unsupported := renderShape("ppt/slides/slide1.xml", size, img, &element)
+	if len(unsupported) != 1 || unsupported[0].Code != partialUnsupportedCode || !strings.Contains(unsupported[0].Message, "3-D top bevel") || !element.Rendered {
+		t.Fatalf("expected unsupported 3-D shape report with flat render, got unsupported=%+v rendered=%v", unsupported, element.Rendered)
+	}
+}
+
 func TestRenderShapePaintsCurvedArrowPresetGeometry(t *testing.T) {
 	size := slideSize{CX: emuPerInch, CY: emuPerInch}
 	img := image.NewRGBA(image.Rect(0, 0, 96, 96))
@@ -1287,6 +1309,47 @@ func TestCollectSlideElementsParsesSoftEdge(t *testing.T) {
 	}
 	if !elements[0].HasSoftEdge || elements[0].SoftEdgeRadius != 203200 {
 		t.Fatalf("expected soft edge to be parsed, got %+v", elements[0])
+	}
+}
+
+func TestCollectSlideElementsParsesVisibleShape3DProperties(t *testing.T) {
+	data := []byte(`<?xml version="1.0" encoding="UTF-8"?>
+<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+  <p:cSld>
+    <p:spTree>
+      <p:sp>
+        <p:nvSpPr><p:cNvPr id="12" name="Beveled Shape"/></p:nvSpPr>
+        <p:spPr>
+          <a:xfrm><a:off x="0" y="0"/><a:ext cx="914400" cy="914400"/></a:xfrm>
+          <a:prstGeom prst="rect"/>
+          <a:sp3d extrusionH="165100" contourW="50800"><a:bevelT w="63500" h="25400"/></a:sp3d>
+        </p:spPr>
+      </p:sp>
+    </p:spTree>
+  </p:cSld>
+</p:sld>`)
+
+	elements := collectSlideElements(data)
+	if len(elements) != 1 {
+		t.Fatalf("expected one shape element, got %+v", elements)
+	}
+	if !elements[0].HasShape3D || !slices.Contains(elements[0].Shape3DFeatures, "3-D top bevel") || !slices.Contains(elements[0].Shape3DFeatures, "3-D extrusion") || !slices.Contains(elements[0].Shape3DFeatures, "3-D contour") {
+		t.Fatalf("expected visible 3-D properties to be parsed, got %+v", elements[0])
+	}
+}
+
+func TestCollectSlideElementsIgnoresZeroSizedShape3DBevel(t *testing.T) {
+	root, err := parseXMLNode([]byte(`<p:sp xmlns:p="p" xmlns:a="a">
+	  <p:nvSpPr><p:cNvPr id="12" name="Flat 3D Defaults"/></p:nvSpPr>
+	  <p:spPr><a:sp3d prstMaterial="plastic"><a:bevelT w="0" h="0"/></a:sp3d></p:spPr>
+	</p:sp>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got := parseSlideElementNode(root, renderTransform{ScaleX: 1, ScaleY: 1})
+	if got.HasShape3D {
+		t.Fatalf("zero-sized 3-D defaults should not be reported as visible content: %+v", got)
 	}
 }
 
@@ -8389,6 +8452,30 @@ func TestParseStylePropertiesAppliesThemeEffectReference(t *testing.T) {
 	}
 	if got.ShadowColor != (color.RGBA{R: 10, G: 20, B: 30, A: 127}) {
 		t.Fatalf("expected effectRef color to bind phClr, got %#v", got.ShadowColor)
+	}
+}
+
+func TestParseStylePropertiesAppliesThemeShape3DEffectReference(t *testing.T) {
+	effectStyles := parseThemeEffectStyles([]byte(`<a:theme xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+	  <a:themeElements><a:fmtScheme name="Office"><a:effectStyleLst>
+	    <a:effectStyle>
+	      <a:scene3d><a:camera prst="orthographicFront"/><a:lightRig rig="threePt" dir="t"/></a:scene3d>
+	      <a:sp3d><a:bevelT w="63500" h="25400"/></a:sp3d>
+	    </a:effectStyle>
+	  </a:effectStyleLst></a:fmtScheme></a:themeElements>
+	</a:theme>`))
+	root, err := parseXMLNode([]byte(`<p:sp xmlns:p="p" xmlns:a="a">
+	  <p:nvSpPr><p:cNvPr id="2" name="Styled Bevel"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>
+	  <p:spPr><a:prstGeom prst="rect"/></p:spPr>
+	  <p:style><a:effectRef idx="1"><a:schemeClr val="accent1"/></a:effectRef></p:style>
+	</p:sp>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got := parseSlideElementNodeWithThemeAndEffects(root, renderTransform{ScaleX: 1, ScaleY: 1}, defaultThemeColors(), effectStyles)
+	if !got.HasShape3D || !slices.Contains(got.Shape3DFeatures, "3-D top bevel") {
+		t.Fatalf("expected effectRef to apply theme 3-D shape properties, got %+v", got)
 	}
 }
 
