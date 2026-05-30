@@ -327,8 +327,9 @@ type tableModel struct {
 }
 
 type tableRow struct {
-	Height int64
-	Cells  []tableCell
+	Height    int64
+	HasHeight bool
+	Cells     []tableCell
 }
 
 type tableCell struct {
@@ -1033,7 +1034,11 @@ func parseTableModel(tableNode *xmlNode, theme themeColors) tableModel {
 		}
 	}
 	for _, rowNode := range childrenByName(tableNode, "tr") {
-		row := tableRow{Height: parseIntAttr(rowNode.Attrs, "h")}
+		row := tableRow{}
+		if attrValue(rowNode.Attrs, "h") != "" {
+			row.HasHeight = true
+			row.Height = parseIntAttr(rowNode.Attrs, "h")
+		}
 		for _, cellNode := range childrenByName(rowNode, "tc") {
 			row.Cells = append(row.Cells, parseTableCell(cellNode, theme))
 		}
@@ -4522,7 +4527,7 @@ func tableRowWeights(table tableModel) []int64 {
 	}
 	weights := make([]int64, len(table.Rows))
 	for index, row := range table.Rows {
-		if row.Height > 0 {
+		if row.HasHeight {
 			weights[index] = row.Height
 		} else {
 			weights[index] = 1

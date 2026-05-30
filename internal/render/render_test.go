@@ -1448,6 +1448,20 @@ func TestTableGridOffsetsScaleUnderfilledExtentsToFrame(t *testing.T) {
 	}
 }
 
+func TestTableRowWeightsPreserveExplicitZeroHeightRows(t *testing.T) {
+	table := tableModel{Rows: []tableRow{
+		{HasHeight: true, Height: 300},
+		{HasHeight: true, Height: 0},
+		{Cells: []tableCell{{}}},
+	}}
+
+	got := tableRowWeights(table)
+	want := []int64{300, 0, 1}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("expected explicit zero-height table row to stay zero, got %v want %v", got, want)
+	}
+}
+
 func TestTableGridOffsetsPreserveAuthoredExtentsWhenTheyMatchFrame(t *testing.T) {
 	got := tableGridOffsets([]int64{emuPerInch / 4, emuPerInch / 4}, 10, 110, emuPerInch/10, emuPerInch/2, emuPerInch, 100)
 	want := []int{10, 35, 60}
