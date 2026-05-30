@@ -8,6 +8,7 @@ import (
 	"encoding/xml"
 	"errors"
 	"fmt"
+	"hash/crc32"
 	"image"
 	"image/color"
 	"image/draw"
@@ -557,7 +558,7 @@ func Render(ctx context.Context, inputPath string, options Options) (model.Comma
 		unsupported = append(unsupported, unsupportedItems(renderPart, elements)...)
 	}
 	applyDisplayP3OutputTransform(img)
-	if err := writePNG(options.OutputPath, img); err != nil {
+	if err := writePNGWithDPI(options.OutputPath, img, dpi); err != nil {
 		return result, err
 	}
 
@@ -11677,6 +11678,10 @@ func objectKindLabel(kind string) string {
 }
 
 func writePNG(outputPath string, img image.Image) error {
+	return writePNGWithDPI(outputPath, img, defaultOutputDPI)
+}
+
+func writePNGWithDPI(outputPath string, img image.Image, dpi int) error {
 	if err := os.MkdirAll(filepath.Dir(outputPath), 0o755); err != nil {
 		return err
 	}
@@ -11685,5 +11690,51 @@ func writePNG(outputPath string, img image.Image) error {
 		return err
 	}
 	defer file.Close()
-	return png.Encode(file, img)
+	var data bytes.Buffer
+	if err := png.Encode(&data, img); err != nil {
+		return err
+	}
+	_, err = file.Write(pngWithPhysicalPixelDensity(data.Bytes(), normalizeOutputDPI(dpi)))
+	return err
+}
+
+func pngWithPhysicalPixelDensity(data []byte, dpi int) []byte {
+	if len(data) < 33 || !bytes.Equal(data[:8], []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'}) {
+		return data
+	}
+	if string(data[12:16]) != "IHDR" {
+		return data
+	}
+	pixelsPerMeter := uint32(math.Round(float64(normalizeOutputDPI(dpi)) / 0.0254))
+	chunkData := make([]byte, 9)
+	writeUint32BE(chunkData[0:4], pixelsPerMeter)
+	writeUint32BE(chunkData[4:8], pixelsPerMeter)
+	chunkData[8] = 1
+	chunk := pngChunk("pHYs", chunkData)
+	output := make([]byte, 0, len(data)+len(chunk))
+	output = append(output, data[:33]...)
+	output = append(output, chunk...)
+	output = append(output, data[33:]...)
+	return output
+}
+
+func pngChunk(chunkType string, data []byte) []byte {
+	chunk := make([]byte, 8+len(data)+4)
+	writeUint32BE(chunk[0:4], uint32(len(data)))
+	copy(chunk[4:8], chunkType)
+	copy(chunk[8:8+len(data)], data)
+	crc := crc32.NewIEEE()
+	_, _ = crc.Write(chunk[4 : 8+len(data)])
+	writeUint32BE(chunk[8+len(data):], crc.Sum32())
+	return chunk
+}
+
+func writeUint32BE(data []byte, value uint32) {
+	if len(data) < 4 {
+		return
+	}
+	data[0] = byte(value >> 24)
+	data[1] = byte(value >> 16)
+	data[2] = byte(value >> 8)
+	data[3] = byte(value)
 }

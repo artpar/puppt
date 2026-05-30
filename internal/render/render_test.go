@@ -56,6 +56,13 @@ func TestRenderWritesPNGAndReportsUnsupportedTextShape(t *testing.T) {
 	if got := img.Bounds().Dy(); got != 540 {
 		t.Fatalf("unexpected rendered height: %d", got)
 	}
+	xDensity, yDensity, ok := pngPhysicalPixelsPerMeter(t, outputPath)
+	if !ok {
+		t.Fatal("rendered PNG did not include pHYs density metadata")
+	}
+	if xDensity != 2835 || yDensity != 2835 {
+		t.Fatalf("unexpected default PNG density: got=%dx%d pixels/meter", xDensity, yDensity)
+	}
 }
 
 func TestRenderHonorsOutputDPI(t *testing.T) {
@@ -76,6 +83,13 @@ func TestRenderHonorsOutputDPI(t *testing.T) {
 	img := decodePNG(t, outputPath)
 	if img.Bounds().Dx() != 1280 || img.Bounds().Dy() != 720 {
 		t.Fatalf("unexpected 96-DPI PNG bounds: %v", img.Bounds())
+	}
+	xDensity, yDensity, ok := pngPhysicalPixelsPerMeter(t, outputPath)
+	if !ok {
+		t.Fatal("96-DPI rendered PNG did not include pHYs density metadata")
+	}
+	if xDensity != 3780 || yDensity != 3780 {
+		t.Fatalf("unexpected 96-DPI PNG density: got=%dx%d pixels/meter", xDensity, yDensity)
 	}
 }
 
@@ -7893,9 +7907,9 @@ func TestRenderShapeRendersAndReportsPartialCircleGradientFill(t *testing.T) {
 		PrstGeom:        "rect",
 		HasFillGradient: true,
 		FillGradient: gradientPaint{
-			Path:           "circle",
-			HasFillRect:    true,
-			FillRect:       relativeRect{Left: 50000, Top: 50000, Right: 50000, Bottom: 50000},
+			Path:        "circle",
+			HasFillRect: true,
+			FillRect:    relativeRect{Left: 50000, Top: 50000, Right: 50000, Bottom: 50000},
 			Stops: []gradientStop{
 				{Position: 0, Color: color.RGBA{R: 255, A: 255}},
 				{Position: 100000, Color: color.RGBA{B: 255, A: 255}},
@@ -8726,6 +8740,38 @@ func decodePNG(t *testing.T, path string) image.Image {
 		t.Fatalf("decode png: %v", err)
 	}
 	return img
+}
+
+func pngPhysicalPixelsPerMeter(t *testing.T, path string) (uint32, uint32, bool) {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read png: %v", err)
+	}
+	if len(data) < 8 || !bytes.Equal(data[:8], []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'}) {
+		t.Fatalf("not a png: %s", path)
+	}
+	offset := 8
+	for offset+8 <= len(data) {
+		length := int(readUint32BE(data[offset : offset+4]))
+		chunkType := string(data[offset+4 : offset+8])
+		offset += 8
+		if length < 0 || offset+length+4 > len(data) {
+			t.Fatalf("invalid png chunk %q in %s", chunkType, path)
+		}
+		chunk := data[offset : offset+length]
+		offset += length + 4
+		if chunkType == "pHYs" {
+			if len(chunk) != 9 || chunk[8] != 1 {
+				t.Fatalf("invalid pHYs chunk in %s: %v", path, chunk)
+			}
+			return readUint32BE(chunk[0:4]), readUint32BE(chunk[4:8]), true
+		}
+		if chunkType == "IEND" {
+			break
+		}
+	}
+	return 0, 0, false
 }
 
 func hasOpaquePixel(img image.Image) bool {
