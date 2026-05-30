@@ -5531,9 +5531,9 @@ func fitNormalAutofitElement(element slideElement, bounds image.Rectangle, dpiOv
 		startScale = element.FontScalePct
 	}
 	bestScale := startScale
-	requireSingleLine := shouldFitNormalAutofitSingleLine(element)
+	maxLines := normalAutofitMaxSoftLines(element)
 	for _, scale := range normalAutofitProbeScales(startScale) {
-		if textFitsAtScale(element, bounds, scale, requireSingleLine, dpi) {
+		if textFitsAtScale(element, bounds, scale, maxLines, dpi) {
 			bestScale = scale
 			break
 		}
@@ -5567,22 +5567,41 @@ func normalAutofitHasAuthoredScale(element slideElement) bool {
 	return element.HasNormAutofit && (element.HasFontScalePct || element.HasLineSpacingReductionPct)
 }
 
-func shouldFitNormalAutofitSingleLine(element slideElement) bool {
-	if element.TextWrap != "none" {
-		return false
-	}
+func normalAutofitMaxSoftLines(element slideElement) int {
 	if len(element.TextParagraphs) != 1 {
-		return false
+		return 0
 	}
-	if strings.Contains(element.Text, "\n") || strings.Contains(element.TextParagraphs[0].Text, "\n") {
-		return false
+	if element.TextWrap != "none" {
+		count := explicitTextLineCount(element)
+		if count > 1 {
+			return count
+		}
+		return 0
+	}
+	count := explicitTextLineCount(element)
+	if count < 1 {
+		return 1
+	}
+	return count
+}
+
+func explicitTextLineCount(element slideElement) int {
+	if len(element.TextParagraphs) != 1 {
+		return 0
+	}
+	count := 1
+	if strings.Contains(element.Text, "\n") {
+		count = maxInt(count, strings.Count(element.Text, "\n")+1)
+	}
+	if strings.Contains(element.TextParagraphs[0].Text, "\n") {
+		count = maxInt(count, strings.Count(element.TextParagraphs[0].Text, "\n")+1)
 	}
 	for _, run := range element.TextParagraphs[0].Runs {
 		if strings.Contains(run.Text, "\n") {
-			return false
+			count = maxInt(count, strings.Count(run.Text, "\n")+1)
 		}
 	}
-	return true
+	return count
 }
 
 func drawTextSegmentWithTabs(drawer *font.Drawer, face font.Face, text string, x int, lineStart int, baseline int) int {
@@ -5637,7 +5656,7 @@ func drawJustifiedTextSegment(drawer *font.Drawer, face font.Face, text string, 
 	return x
 }
 
-func textFitsAtScale(element slideElement, bounds image.Rectangle, scale int, requireSingleLine bool, dpi int) bool {
+func textFitsAtScale(element slideElement, bounds image.Rectangle, scale int, maxLines int, dpi int) bool {
 	candidate := element
 	candidate.FontScalePct = scale
 	candidate = scaledTextElement(candidate, dpi)
@@ -5655,7 +5674,7 @@ func textFitsAtScale(element slideElement, bounds image.Rectangle, scale int, re
 	if err != nil {
 		return false
 	}
-	if requireSingleLine && len(lines) > 1 {
+	if maxLines > 0 && len(lines) > maxLines {
 		return false
 	}
 	measured, err := measureTextRenderLines(faces, lines, candidate.FontSize)
@@ -8371,7 +8390,7 @@ func normalAutofitRequiresSimplifiedSizing(element slideElement, bounds image.Re
 	if bounds.Empty() {
 		return true
 	}
-	return !textFitsAtScale(element, bounds, minimumNormalAutofitFontScalePct, shouldFitNormalAutofitSingleLine(element), dpi)
+	return !textFitsAtScale(element, bounds, minimumNormalAutofitFontScalePct, normalAutofitMaxSoftLines(element), dpi)
 }
 
 func shapeAutofitLayoutSupported(element slideElement) bool {

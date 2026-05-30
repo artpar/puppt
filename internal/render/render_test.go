@@ -5304,41 +5304,41 @@ func TestFitNormalAutofitElementCanScaleBelowFiftyPercent(t *testing.T) {
 	if got.FontScalePct >= 50000 || got.FontScalePct < minimumNormalAutofitFontScalePct {
 		t.Fatalf("expected normal autofit to use the supported scale range below 50%%, got %+v", got)
 	}
-	if !textFitsAtScale(got, image.Rect(0, 0, 180, 30), got.FontScalePct, shouldFitNormalAutofitSingleLine(got), defaultOutputDPI) {
+	if !textFitsAtScale(got, image.Rect(0, 0, 180, 30), got.FontScalePct, normalAutofitMaxSoftLines(got), defaultOutputDPI) {
 		t.Fatalf("selected scale should fit in the target bounds, got %+v", got)
 	}
 }
 
-func TestShouldFitNormalAutofitSingleLineHonorsWrapNoneAndHardBreaks(t *testing.T) {
-	if shouldFitNormalAutofitSingleLine(slideElement{
+func TestNormalAutofitMaxSoftLinesHonorsWrapNoneAndHardBreaks(t *testing.T) {
+	if got := normalAutofitMaxSoftLines(slideElement{
 		TextWrap: "square",
 		Text:     "Single line title",
 		TextParagraphs: []textParagraph{{
 			Text: "Single line title",
 			Runs: []textRun{{Text: "Single line title"}},
 		}},
-	}) {
-		t.Fatal("wrapping text should not require a single-line autofit")
+	}); got != 0 {
+		t.Fatalf("wrapping text without hard breaks should not cap soft lines, got %d", got)
 	}
-	if !shouldFitNormalAutofitSingleLine(slideElement{
+	if got := normalAutofitMaxSoftLines(slideElement{
 		TextWrap: "none",
 		Text:     "Single line title",
 		TextParagraphs: []textParagraph{{
 			Text: "Single line title",
 			Runs: []textRun{{Text: "Single line title"}},
 		}},
-	}) {
-		t.Fatal(`expected wrap="none" text without hard breaks to require single-line fit`)
+	}); got != 1 {
+		t.Fatalf(`expected wrap="none" text without hard breaks to require single-line fit, got %d`, got)
 	}
-	if shouldFitNormalAutofitSingleLine(slideElement{
-		TextWrap: "none",
+	if got := normalAutofitMaxSoftLines(slideElement{
+		TextWrap: "square",
 		Text:     "Line one\nLine two",
 		TextParagraphs: []textParagraph{{
 			Text: "Line one\nLine two",
 			Runs: []textRun{{Text: "Line one\nLine two"}},
 		}},
-	}) {
-		t.Fatal("hard breaks should not require a single-line autofit")
+	}); got != 2 {
+		t.Fatalf("hard breaks should cap normal-autofit soft lines to authored line count, got %d", got)
 	}
 }
 
@@ -5387,8 +5387,8 @@ func TestFitNormalAutofitAllowsWrappingWithinHardBreakLines(t *testing.T) {
 			},
 		}},
 	}, image.Rect(0, 0, 520, 150))
-	if got.FontScalePct != 90000 {
-		t.Fatalf("hard breaks should not force autofit to avoid extra wrapped lines, got %+v", got)
+	if got.FontScalePct == 90000 {
+		t.Fatalf("hard-break segments that soft-wrap should trigger normal autofit scaling, got %+v", got)
 	}
 }
 
