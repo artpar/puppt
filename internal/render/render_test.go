@@ -6277,8 +6277,22 @@ func TestColorFromColorNodeParsesScRGB(t *testing.T) {
 	if !ok {
 		t.Fatal("color was not parsed")
 	}
-	if got.R != 127 || got.G != 0 || got.B != 255 || got.A != 127 {
+	if got.R != 188 || got.G != 0 || got.B != 255 || got.A != 127 {
 		t.Fatalf("unexpected scrgb color: %#v", got)
+	}
+}
+
+func TestColorFromColorNodeClampsScRGBBeforeSRGBTransfer(t *testing.T) {
+	root, err := parseXMLNode([]byte(`<a:solidFill xmlns:a="a"><a:scrgbClr r="-50000" g="150000" b="25000"/></a:solidFill>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, ok := colorFromColorNode(root)
+	if !ok {
+		t.Fatal("color was not parsed")
+	}
+	if got != (color.RGBA{R: 0, G: 255, B: 137, A: 255}) {
+		t.Fatalf("unexpected clamped scrgb color: %#v", got)
 	}
 }
 

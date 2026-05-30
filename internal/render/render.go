@@ -1803,16 +1803,21 @@ func colorFromColorNodeWithTheme(node *xmlNode, theme themeColors) (color.RGBA, 
 }
 
 func parseScRGBColor(node *xmlNode) (color.RGBA, bool) {
-	r, okR := parsePercentageColorAttr(node, "r")
-	g, okG := parsePercentageColorAttr(node, "g")
-	b, okB := parsePercentageColorAttr(node, "b")
+	r, okR := parseScRGBLinearAttr(node, "r")
+	g, okG := parseScRGBLinearAttr(node, "g")
+	b, okB := parseScRGBLinearAttr(node, "b")
 	if !okR || !okG || !okB {
 		return color.RGBA{}, false
 	}
-	return color.RGBA{R: r, G: g, B: b, A: 255}, true
+	return color.RGBA{
+		R: linearToSRGBByte(r),
+		G: linearToSRGBByte(g),
+		B: linearToSRGBByte(b),
+		A: 255,
+	}, true
 }
 
-func parsePercentageColorAttr(node *xmlNode, name string) (uint8, bool) {
+func parseScRGBLinearAttr(node *xmlNode, name string) (float64, bool) {
 	raw := attrValue(node.Attrs, name)
 	if raw == "" {
 		return 0, false
@@ -1821,7 +1826,7 @@ func parsePercentageColorAttr(node *xmlNode, name string) (uint8, bool) {
 	if err != nil {
 		return 0, false
 	}
-	return clampColor(value * 255 / 100000), true
+	return clampFloat(float64(value)/100000, 0, 1), true
 }
 
 func applyColorModifiers(c color.RGBA, node *xmlNode) color.RGBA {
