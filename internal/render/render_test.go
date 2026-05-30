@@ -4762,6 +4762,67 @@ func TestPictureSourceForElementAppliesGrayBlackWhiteMode(t *testing.T) {
 	}
 }
 
+func TestRenderShapeAppliesGrayBlackWhiteModeToFillAndLine(t *testing.T) {
+	img := image.NewRGBA(image.Rect(0, 0, 96, 96))
+	element := slideElement{
+		Kind:         "sp",
+		Name:         "Gray Shape",
+		BWMode:       "gray",
+		HasTransform: true,
+		ExtCX:        emuPerInch,
+		ExtCY:        emuPerInch,
+		PrstGeom:     "rect",
+		HasFill:      true,
+		FillColor:    color.RGBA{R: 255, A: 255},
+		HasLine:      true,
+		LineColor:    color.RGBA{B: 255, A: 255},
+		LineWidth:    emuPerInch / 12,
+	}
+
+	unsupported := renderShape("ppt/slides/slide1.xml", slideSize{CX: emuPerInch, CY: emuPerInch}, img, &element)
+	if len(unsupported) != 0 || !element.Rendered {
+		t.Fatalf("unexpected gray shape render result: unsupported=%+v rendered=%v", unsupported, element.Rendered)
+	}
+	if got := img.RGBAAt(48, 48); got != (color.RGBA{R: 76, G: 76, B: 76, A: 255}) {
+		t.Fatalf("expected red fill to render as gray, got %#v", got)
+	}
+	if got := img.RGBAAt(0, 48); got.R != got.G || got.G != got.B || got.B == 255 || got.A == 0 {
+		t.Fatalf("expected blue outline to render as gray, got %#v", got)
+	}
+}
+
+func TestApplyElementBWModeGraysTextColors(t *testing.T) {
+	element := slideElement{
+		BWMode:       "gray",
+		HasTextColor: true,
+		TextColor:    color.RGBA{R: 10, G: 20, B: 30, A: 200},
+		TextParagraphs: []textParagraph{{
+			HasBulletColor: true,
+			BulletColor:    color.RGBA{G: 255, A: 255},
+			Runs: []textRun{{
+				HasTextColor:      true,
+				TextColor:         color.RGBA{B: 255, A: 255},
+				HasHighlightColor: true,
+				HighlightColor:    color.RGBA{R: 255, G: 255, A: 180},
+			}},
+		}},
+	}
+
+	applyElementBWMode(&element)
+	if element.TextColor != (color.RGBA{R: 18, G: 18, B: 18, A: 200}) {
+		t.Fatalf("expected element text color to be grayed, got %#v", element.TextColor)
+	}
+	if element.TextParagraphs[0].BulletColor != (color.RGBA{R: 150, G: 150, B: 150, A: 255}) {
+		t.Fatalf("expected bullet color to be grayed, got %#v", element.TextParagraphs[0].BulletColor)
+	}
+	if got := element.TextParagraphs[0].Runs[0].TextColor; got != (color.RGBA{R: 29, G: 29, B: 29, A: 255}) {
+		t.Fatalf("expected run color to be grayed, got %#v", got)
+	}
+	if got := element.TextParagraphs[0].Runs[0].HighlightColor; got != (color.RGBA{R: 226, G: 226, B: 226, A: 180}) {
+		t.Fatalf("expected highlight color to be grayed, got %#v", got)
+	}
+}
+
 func TestParseBlipEffectsReadsAlphaModFixAmount(t *testing.T) {
 	root, err := parseXMLNode([]byte(`<a:blip xmlns:a="a" r:embed="rId1" xmlns:r="r"><a:alphaModFix amt="40000"/></a:blip>`))
 	if err != nil {

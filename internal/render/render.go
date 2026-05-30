@@ -4893,6 +4893,7 @@ func diagramElementExtents(elements []slideElement) (int64, int64) {
 }
 
 func renderShape(slidePart string, size slideSize, img *image.RGBA, element *slideElement) []model.SkipItem {
+	applyElementBWMode(element)
 	if !element.HasTransform {
 		return nil
 	}
@@ -9780,6 +9781,7 @@ func firstExistingPath(paths []string) string {
 }
 
 func renderPicture(pkg *pptx.Package, slidePart string, size slideSize, img *image.RGBA, element *slideElement, relationships map[string]pptx.Relationship) []model.SkipItem {
+	applyElementBWMode(element)
 	if element.EmbedID == "" {
 		return []model.SkipItem{pictureUnsupported(slidePart, element, fmt.Sprintf("picture object %q has no embedded image relationship", elementLabel(*element)))}
 	}
@@ -10744,6 +10746,58 @@ func shouldApplyImageBWMode(element slideElement) bool {
 	return element.BWMode == "gray"
 }
 
+func applyElementBWMode(element *slideElement) {
+	if element == nil || element.BWMode != "gray" {
+		return
+	}
+	if element.HasFill {
+		element.FillColor = applyBWModeToColor(element.FillColor, element.BWMode)
+	}
+	if element.HasFillGradient {
+		for index := range element.FillGradient.Stops {
+			element.FillGradient.Stops[index].Color = applyBWModeToColor(element.FillGradient.Stops[index].Color, element.BWMode)
+		}
+	}
+	if element.HasLine {
+		element.LineColor = applyBWModeToColor(element.LineColor, element.BWMode)
+	}
+	if element.HasShadow {
+		element.ShadowColor = applyBWModeToColor(element.ShadowColor, element.BWMode)
+	}
+	if element.HasTextColor {
+		element.TextColor = applyBWModeToColor(element.TextColor, element.BWMode)
+	}
+	for paragraphIndex := range element.TextParagraphs {
+		paragraph := &element.TextParagraphs[paragraphIndex]
+		if paragraph.HasTextColor {
+			paragraph.TextColor = applyBWModeToColor(paragraph.TextColor, element.BWMode)
+		}
+		if paragraph.HasBulletColor {
+			paragraph.BulletColor = applyBWModeToColor(paragraph.BulletColor, element.BWMode)
+		}
+		for runIndex := range paragraph.Runs {
+			run := &paragraph.Runs[runIndex]
+			if run.HasTextColor {
+				run.TextColor = applyBWModeToColor(run.TextColor, element.BWMode)
+			}
+			if run.HasHighlightColor {
+				run.HighlightColor = applyBWModeToColor(run.HighlightColor, element.BWMode)
+			}
+		}
+	}
+}
+
+func applyBWModeToColor(c color.RGBA, mode string) color.RGBA {
+	if mode != "gray" {
+		return c
+	}
+	luma := grayLuma(c)
+	c.R = luma
+	c.G = luma
+	c.B = luma
+	return c
+}
+
 func transformedPictureImage(src image.Image, srcBounds image.Rectangle, element slideElement) *image.RGBA {
 	width := srcBounds.Dx()
 	height := srcBounds.Dy()
@@ -10771,11 +10825,12 @@ func applyImageBWMode(c color.RGBA, element slideElement) color.RGBA {
 	if !shouldApplyImageBWMode(element) {
 		return c
 	}
+	return applyBWModeToColor(c, element.BWMode)
+}
+
+func grayLuma(c color.RGBA) uint8 {
 	luma := uint8((299*int(c.R) + 587*int(c.G) + 114*int(c.B) + 500) / 1000)
-	c.R = luma
-	c.G = luma
-	c.B = luma
-	return c
+	return luma
 }
 
 func applyImageAlphaModFix(c color.RGBA, element slideElement) color.RGBA {
