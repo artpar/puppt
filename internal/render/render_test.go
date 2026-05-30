@@ -6553,6 +6553,20 @@ func TestColorFromColorNodeAppliesDrawingMLModifiers(t *testing.T) {
 	}
 }
 
+func TestColorFromColorNodeAcceptsDrawingMLPercentStringModifiers(t *testing.T) {
+	root, err := parseXMLNode([]byte(`<a:solidFill xmlns:a="a"><a:schemeClr val="accent5"><a:lumMod val="20%"/><a:lumOff val="80.000%"/><a:alpha val="50%"/></a:schemeClr></a:solidFill>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, ok := colorFromColorNode(root)
+	if !ok {
+		t.Fatal("color was not parsed")
+	}
+	if got.R != 219 || got.G != 238 || got.B != 244 || got.A != 127 {
+		t.Fatalf("unexpected percent-string modified color: %#v", got)
+	}
+}
+
 func TestColorFromColorNodeRoundsLuminanceModifier(t *testing.T) {
 	root, err := parseXMLNode([]byte(`<a:solidFill xmlns:a="a"><a:schemeClr val="accent6"><a:lumMod val="50000"/></a:schemeClr></a:solidFill>`))
 	if err != nil {

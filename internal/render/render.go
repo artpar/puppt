@@ -1984,24 +1984,24 @@ func applyColorModifiers(c color.RGBA, node *xmlNode) color.RGBA {
 			if hasPendingLuminance && pendingLumOff != 0 {
 				flushLuminance()
 			}
-			pendingLumMod = pendingLumMod * parseIntAttr(child.Attrs, "val") / 100000
+			pendingLumMod = pendingLumMod * parsePercentAttr(child.Attrs, "val") / 100000
 			hasPendingLuminance = true
 		case "shade":
 			flushLuminance()
-			value := parseIntAttr(child.Attrs, "val")
+			value := parsePercentAttr(child.Attrs, "val")
 			c.R = shadeChannel(c.R, value)
 			c.G = shadeChannel(c.G, value)
 			c.B = shadeChannel(c.B, value)
 		case "lumOff":
-			pendingLumOff += parseIntAttr(child.Attrs, "val")
+			pendingLumOff += parsePercentAttr(child.Attrs, "val")
 			hasPendingLuminance = true
 		case "alpha":
 			flushLuminance()
-			value := parseIntAttr(child.Attrs, "val")
+			value := parsePercentAttr(child.Attrs, "val")
 			c.A = scaleColorChannel(c.A, value)
 		case "alphaOff":
 			flushLuminance()
-			value := parseIntAttr(child.Attrs, "val")
+			value := parsePercentAttr(child.Attrs, "val")
 			c.A = offsetColorChannel(c.A, value)
 		case "hueOff":
 			flushLuminance()
@@ -2009,17 +2009,17 @@ func applyColorModifiers(c color.RGBA, node *xmlNode) color.RGBA {
 			c = applyHueOffset(c, value)
 		case "tint":
 			flushLuminance()
-			value := parseIntAttr(child.Attrs, "val")
+			value := parsePercentAttr(child.Attrs, "val")
 			c.R = tintChannel(c.R, value)
 			c.G = tintChannel(c.G, value)
 			c.B = tintChannel(c.B, value)
 		case "satMod":
 			flushLuminance()
-			value := parseIntAttr(child.Attrs, "val")
+			value := parsePercentAttr(child.Attrs, "val")
 			c = applySaturationModifier(c, value)
 		case "satOff":
 			flushLuminance()
-			value := parseIntAttr(child.Attrs, "val")
+			value := parsePercentAttr(child.Attrs, "val")
 			c = applySaturationOffset(c, value)
 		}
 	}
