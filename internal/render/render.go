@@ -9007,7 +9007,15 @@ func normalAutofitRequiresSimplifiedSizing(element slideElement, bounds image.Re
 	if bounds.Empty() {
 		return true
 	}
-	return !textFitsAtScale(element, bounds, minimumNormalAutofitFontScalePct, normalAutofitMaxSoftLines(element), dpi)
+	if element.HasFontScalePct {
+		return false
+	}
+	startScale := element.FontScalePct
+	if startScale <= 0 {
+		startScale = 100000
+	}
+	maxLines := normalAutofitMaxSoftLines(element)
+	return !textFitsAtScale(element, bounds, startScale, maxLines, dpi)
 }
 
 func shapeAutofitLayoutSupported(element slideElement) bool {

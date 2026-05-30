@@ -5542,6 +5542,34 @@ func TestRenderShapeDoesNotReportImplicitNormalAutofitWhenTextAlreadyFits(t *tes
 	}
 }
 
+func TestRenderShapeReportsDerivedNormalAutofitScale(t *testing.T) {
+	size := slideSize{CX: emuPerInch, CY: emuPerInch}
+	img := image.NewRGBA(image.Rect(0, 0, 140, 70))
+	element := slideElement{
+		Kind:           "sp",
+		Name:           "Derived Autofit Text",
+		PrstGeom:       "rect",
+		HasTransform:   true,
+		ExtCX:          emuPerInch,
+		ExtCY:          emuPerInch / 2,
+		Text:           "Wide Heading With Several Words",
+		FontFamily:     "Carlito",
+		FontSize:       2400,
+		HasNormAutofit: true,
+		TextParagraphs: []textParagraph{{
+			Text:     "Wide Heading With Several Words",
+			FontSize: 2400,
+			Runs:     []textRun{{Text: "Wide Heading With Several Words", FontSize: 2400}},
+		}},
+	}
+
+	unsupported := renderShape("ppt/slides/slide1.xml", size, img, &element)
+	got := unsupportedMessages(unsupported)
+	if !strings.Contains(got, "normal autofit was rendered with simplified sizing") {
+		t.Fatalf("derived normal-autofit scaling should be reported as partial, got %s", got)
+	}
+}
+
 func TestRenderShapeDoesNotReportAuthoredNormalAutofitScaleAsSimplified(t *testing.T) {
 	size := slideSize{CX: emuPerInch, CY: emuPerInch}
 	img := image.NewRGBA(image.Rect(0, 0, 96, 96))
