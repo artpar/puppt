@@ -2062,9 +2062,7 @@ func applyColorModifiers(c color.RGBA, node *xmlNode) color.RGBA {
 		case "shade":
 			flushLuminance()
 			value := parsePercentAttr(child.Attrs, "val")
-			c.R = shadeChannel(c.R, value)
-			c.G = shadeChannel(c.G, value)
-			c.B = shadeChannel(c.B, value)
+			c = applyShadeModifier(c, value)
 		case "lumOff":
 			pendingLumOff += parsePercentAttr(child.Attrs, "val")
 			hasPendingLuminance = true
@@ -2083,9 +2081,7 @@ func applyColorModifiers(c color.RGBA, node *xmlNode) color.RGBA {
 		case "tint":
 			flushLuminance()
 			value := parsePercentAttr(child.Attrs, "val")
-			c.R = tintChannel(c.R, value)
-			c.G = tintChannel(c.G, value)
-			c.B = tintChannel(c.B, value)
+			c = applyTintModifier(c, value)
 		case "satMod":
 			flushLuminance()
 			value := parsePercentAttr(child.Attrs, "val")
@@ -2126,21 +2122,31 @@ func offsetColorChannel(channel uint8, value int64) uint8 {
 	return clampColor(int64(math.Round(float64(channel) + float64(value)*255/100000)))
 }
 
-func tintChannel(channel uint8, value int64) uint8 {
-	return linearBlendChannel(channel, 255, value)
-}
-
-func shadeChannel(channel uint8, value int64) uint8 {
-	return linearBlendChannel(channel, 0, value)
-}
-
-func linearBlendChannel(channel uint8, target uint8, value int64) uint8 {
+func applyTintModifier(c color.RGBA, value int64) color.RGBA {
 	if value < 0 {
 		value = 0
 	} else if value > 100000 {
 		value = 100000
 	}
-	return clampColor((int64(channel)*value + int64(target)*(100000-value) + 50000) / 100000)
+	h, s, l := rgbToHSL(c)
+	l = l*float64(value)/100000 + (1 - float64(value)/100000)
+	if l > 1 {
+		l = 1
+	}
+	c.R, c.G, c.B = hslToRGB(h, s, l)
+	return c
+}
+
+func applyShadeModifier(c color.RGBA, value int64) color.RGBA {
+	if value < 0 {
+		value = 0
+	} else if value > 100000 {
+		value = 100000
+	}
+	h, s, l := rgbToHSL(c)
+	l *= float64(value) / 100000
+	c.R, c.G, c.B = hslToRGB(h, s, l)
+	return c
 }
 
 func applySaturationModifier(c color.RGBA, value int64) color.RGBA {

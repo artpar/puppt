@@ -7050,7 +7050,7 @@ func TestColorFromColorNodeAppliesDrawingMLShade(t *testing.T) {
 	if !ok {
 		t.Fatal("color was not parsed")
 	}
-	if got != (color.RGBA{R: 27, G: 46, B: 78, A: 255}) {
+	if got != (color.RGBA{R: 25, G: 45, B: 80, A: 255}) {
 		t.Fatalf("unexpected shaded color: %#v", got)
 	}
 }
