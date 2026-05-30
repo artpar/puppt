@@ -1939,18 +1939,32 @@ func TestRenderGraphicFrameUsesPackageThemeForDiagramDrawing(t *testing.T) {
 	}
 }
 
-func TestDiagramDrawingElementsResolvePackageThemeFonts(t *testing.T) {
+func TestDiagramDrawingElementsResolveSlideThemeColorMapAndFonts(t *testing.T) {
 	pkg := &pptx.Package{Parts: map[string][]byte{
-		"ppt/theme/theme1.xml":      []byte(`<a:theme xmlns:a="a"><a:themeElements><a:fontScheme name="Custom"><a:majorFont><a:latin typeface="Trebuchet MS"/></a:majorFont><a:minorFont><a:latin typeface="Arial"/></a:minorFont></a:fontScheme></a:themeElements></a:theme>`),
-		"ppt/diagrams/drawing1.xml": []byte(`<dsp:drawing xmlns:dsp="dsp" xmlns:a="a"><dsp:spTree><dsp:sp><dsp:nvSpPr><dsp:cNvPr id="1" name="Diagram Shape"/></dsp:nvSpPr><dsp:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="914400" cy="914400"/></a:xfrm><a:prstGeom prst="rect"/></dsp:spPr><dsp:style><a:fontRef idx="minor"/></dsp:style><dsp:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:t>Diagram</a:t></a:r></a:p></dsp:txBody></dsp:sp></dsp:spTree></dsp:drawing>`),
+		"ppt/slides/_rels/slide1.xml.rels": []byte(`<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout" Target="../slideLayouts/slideLayout1.xml"/>
+</Relationships>`),
+		"ppt/slideLayouts/_rels/slideLayout1.xml.rels": []byte(`<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideMaster" Target="../slideMasters/slideMaster1.xml"/>
+</Relationships>`),
+		"ppt/slideMasters/slideMaster1.xml": []byte(`<p:sldMaster xmlns:p="p"><p:clrMap bg1="lt1" tx1="dk1" bg2="lt2" tx2="dk2" accent1="accent6"/></p:sldMaster>`),
+		"ppt/slideMasters/_rels/slideMaster1.xml.rels": []byte(`<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme" Target="../theme/theme2.xml"/>
+</Relationships>`),
+		"ppt/theme/theme1.xml": []byte(`<a:theme xmlns:a="a"><a:themeElements><a:clrScheme name="Fallback"><a:accent1><a:srgbClr val="FF0000"/></a:accent1></a:clrScheme><a:fontScheme name="Fallback"><a:minorFont><a:latin typeface="Fallback"/></a:minorFont></a:fontScheme></a:themeElements></a:theme>`),
+		"ppt/theme/theme2.xml": []byte(`<a:theme xmlns:a="a"><a:themeElements><a:clrScheme name="Slide"><a:accent1><a:srgbClr val="0000FF"/></a:accent1><a:accent6><a:srgbClr val="70AD47"/></a:accent6></a:clrScheme><a:fontScheme name="Slide"><a:majorFont><a:latin typeface="Trebuchet MS"/></a:majorFont><a:minorFont><a:latin typeface="Arial"/></a:minorFont></a:fontScheme></a:themeElements></a:theme>`),
+		"ppt/diagrams/drawing1.xml": []byte(`<dsp:drawing xmlns:dsp="dsp" xmlns:a="a"><dsp:spTree><dsp:sp><dsp:nvSpPr><dsp:cNvPr id="1" name="Diagram Shape"/></dsp:nvSpPr><dsp:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="914400" cy="914400"/></a:xfrm><a:prstGeom prst="rect"/><a:solidFill><a:schemeClr val="accent1"/></a:solidFill></dsp:spPr><dsp:style><a:fontRef idx="minor"/></dsp:style><dsp:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:t>Diagram</a:t></a:r></a:p></dsp:txBody></dsp:sp></dsp:spTree></dsp:drawing>`),
 	}}
 
-	got := diagramDrawingElements(pkg, "ppt/diagrams/drawing1.xml")
+	got := diagramDrawingElements(pkg, "ppt/slides/slide1.xml", "ppt/diagrams/drawing1.xml")
 	if len(got) != 1 {
 		t.Fatalf("expected one diagram element, got %d", len(got))
 	}
+	if got[0].FillColor != (color.RGBA{R: 0x70, G: 0xad, B: 0x47, A: 0xff}) {
+		t.Fatalf("expected diagram scheme color to resolve through slide master color map, got %+v", got[0].FillColor)
+	}
 	if got[0].FontFamily != "Arial" {
-		t.Fatalf("expected diagram fontRef minor to resolve through package theme fonts, got %+v", got[0])
+		t.Fatalf("expected diagram fontRef minor to resolve through slide theme fonts, got %+v", got[0])
 	}
 }
 

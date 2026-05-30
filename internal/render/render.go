@@ -4588,7 +4588,7 @@ func renderDiagramGraphicFrame(pkg *pptx.Package, slidePart string, size slideSi
 	if !ok {
 		return nil
 	}
-	diagramElements := diagramDrawingElements(pkg, drawingPart)
+	diagramElements := diagramDrawingElements(pkg, slidePart, drawingPart)
 	diagramElements = fitDiagramElementsToFrame(diagramElements, *element)
 	var unsupported []model.SkipItem
 	renderedSupportedElement := false
@@ -4608,9 +4608,11 @@ func renderDiagramGraphicFrame(pkg *pptx.Package, slidePart string, size slideSi
 	return unsupported
 }
 
-func diagramDrawingElements(pkg *pptx.Package, drawingPart string) []slideElement {
-	elements := collectSlideElementsWithTheme(pkg.Parts[drawingPart], packageThemeColors(pkg))
-	return applyThemeFontFamilies(elements, packageThemeFonts(pkg))
+func diagramDrawingElements(pkg *pptx.Package, slidePart, drawingPart string) []slideElement {
+	colors := themeColorsForPart(pkg, slidePart, packageThemeColors(pkg))
+	fonts := themeFontsForPart(pkg, slidePart, packageThemeFonts(pkg))
+	elements := collectSlideElementsWithTheme(pkg.Parts[drawingPart], colors)
+	return applyThemeFontFamilies(elements, fonts)
 }
 
 func diagramDrawingPart(pkg *pptx.Package, slidePart string, diagramDataID string, relationships map[string]pptx.Relationship) (string, bool, error) {
