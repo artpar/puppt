@@ -3338,8 +3338,8 @@ func TestApplyLineSpacingUsesDrawingMLFontSizeForPercentSpacing(t *testing.T) {
 	if got := applyLineSpacingAtDPI(32, 150000, 1700, 96); got != 35 {
 		t.Fatalf("expected 96-DPI line spacing from 17pt font size, got %d", got)
 	}
-	if got := applyLineSpacingAtDPI(32, 100000, 1700, 72); got != 32 {
-		t.Fatalf("100%% explicit line spacing should preserve drawable metric height, got %d", got)
+	if got := applyLineSpacingAtDPI(32, 100000, 1700, 72); got != 17 {
+		t.Fatalf("100%% explicit line spacing should use DrawingML font-size spacing, got %d", got)
 	}
 }
 

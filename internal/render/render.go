@@ -7455,7 +7455,7 @@ func applyLineSpacing(height int, pct int) int {
 }
 
 func applyLineSpacingAtDPI(height int, pct int, fontSize int, dpi int) int {
-	if pct <= 0 || pct == 100000 {
+	if pct <= 0 {
 		return height
 	}
 	base := height
