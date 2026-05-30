@@ -2690,6 +2690,31 @@ func TestTextParagraphsFromNodeCapturesRunUnderline(t *testing.T) {
 	}
 }
 
+func TestTextParagraphsFromNodeCapturesRunStrikethrough(t *testing.T) {
+	root, err := parseXMLNode([]byte(`<p:txBody xmlns:p="p" xmlns:a="a">
+  <a:p>
+    <a:r><a:rPr sz="1800" strike="sngStrike"/><a:t>Single</a:t></a:r>
+    <a:r><a:rPr sz="1800" strike="dblStrike"/><a:t>Double</a:t></a:r>
+    <a:r><a:rPr sz="1800" strike="noStrike"/><a:t>Plain</a:t></a:r>
+  </a:p>
+</p:txBody>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got := textParagraphsFromNode(root)
+	if len(got) != 1 || len(got[0].Runs) != 3 {
+		t.Fatalf("unexpected run parse: %+v", got)
+	}
+	if got[0].Runs[0].Strike != "sngStrike" || got[0].Runs[1].Strike != "dblStrike" || got[0].Runs[2].Strike != "" {
+		t.Fatalf("expected DrawingML strike enum to be preserved, got %+v", got[0].Runs)
+	}
+	segment := runToSegment(got[0].Runs[1], got[0])
+	if segment.Strike != "dblStrike" {
+		t.Fatalf("expected strike on render segment, got %+v", segment)
+	}
+}
+
 func TestTextParagraphsFromNodeKeepsParagraphAlignmentScoped(t *testing.T) {
 	root, err := parseXMLNode([]byte(`<p:txBody xmlns:p="p" xmlns:a="a">
   <a:p><a:pPr algn="ctr"/><a:r><a:t>Centered</a:t></a:r></a:p>
@@ -2812,6 +2837,47 @@ func TestDrawTextUnderlinePaintsBelowBaseline(t *testing.T) {
 	drawTextUnderline(img, face, 10, 20, 60, color.RGBA{R: 255, A: 255})
 	if !hasColorPixel(img, color.RGBA{R: 255, A: 255}) {
 		t.Fatal("expected underline to paint red pixels")
+	}
+}
+
+func TestDrawTextStrikethroughPaintsThroughTextMiddle(t *testing.T) {
+	img := image.NewRGBA(image.Rect(0, 0, 120, 40))
+	draw.Draw(img, img.Bounds(), &image.Uniform{C: color.White}, image.Point{}, draw.Src)
+	face, err := openFontFace(1800, false, false, 0, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer face.Close()
+
+	baseline := 24
+	metrics := face.Metrics()
+	center := baseline - metrics.Ascent.Ceil() + (metrics.Ascent.Ceil()+metrics.Descent.Ceil())/2
+	drawTextStrikethrough(img, face, 10, baseline, 60, "sngStrike", color.RGBA{R: 255, A: 255})
+	if got := img.RGBAAt(20, center); got != (color.RGBA{R: 255, A: 255}) {
+		t.Fatalf("expected single strikethrough at text middle y=%d, got %#v", center, got)
+	}
+}
+
+func TestDrawTextStrikethroughPaintsDoubleStrike(t *testing.T) {
+	img := image.NewRGBA(image.Rect(0, 0, 120, 40))
+	draw.Draw(img, img.Bounds(), &image.Uniform{C: color.White}, image.Point{}, draw.Src)
+	face, err := openFontFace(1800, false, false, 0, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer face.Close()
+
+	baseline := 24
+	metrics := face.Metrics()
+	center := baseline - metrics.Ascent.Ceil() + (metrics.Ascent.Ceil()+metrics.Descent.Ceil())/2
+	lineWidth := maxInt(1, metrics.Height.Ceil()/16)
+	gap := maxInt(2, lineWidth*2)
+	drawTextStrikethrough(img, face, 10, baseline, 60, "dblStrike", color.RGBA{R: 255, A: 255})
+	if got := img.RGBAAt(20, center-gap/2); got != (color.RGBA{R: 255, A: 255}) {
+		t.Fatalf("expected upper double strikethrough at y=%d, got %#v", center-gap/2, got)
+	}
+	if got := img.RGBAAt(20, center+gap/2); got != (color.RGBA{R: 255, A: 255}) {
+		t.Fatalf("expected lower double strikethrough at y=%d, got %#v", center+gap/2, got)
 	}
 }
 

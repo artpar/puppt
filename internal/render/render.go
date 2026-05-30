@@ -312,6 +312,7 @@ type textRun struct {
 	HasItalic         bool
 	Italic            bool
 	Underline         bool
+	Strike            string
 	Baseline          int
 	HasCharSpacing    bool
 	CharSpacing       int
@@ -2814,6 +2815,7 @@ func applyRunPropertiesToRun(run *textRun, rPr *xmlNode, text string, theme them
 		run.Italic = boolAttrOn(value)
 	}
 	run.Underline = isUnderlineStyle(attrValue(rPr.Attrs, "u"))
+	run.Strike = textStrikeType(attrValue(rPr.Attrs, "strike"))
 	run.Baseline = int(parseIntAttr(rPr.Attrs, "baseline"))
 	if value := attrValue(rPr.Attrs, "kern"); value != "" {
 		run.HasKern = true
@@ -2881,6 +2883,15 @@ func isUnderlineStyle(value string) bool {
 	return value != "" && value != "none"
 }
 
+func textStrikeType(value string) string {
+	switch value {
+	case "sngStrike", "dblStrike":
+		return value
+	default:
+		return ""
+	}
+}
+
 func textParagraphsHaveRunColor(paragraphs []textParagraph) bool {
 	for _, paragraph := range paragraphs {
 		for _, run := range paragraph.Runs {
@@ -2894,7 +2905,7 @@ func textParagraphsHaveRunColor(paragraphs []textParagraph) bool {
 
 func textRunsHaveRunMetricProperties(runs []textRun) bool {
 	for _, run := range runs {
-		if run.FontSize != 0 || strings.TrimSpace(run.FontFamily) != "" || run.HasBold || run.HasItalic || run.Underline || run.Baseline != 0 || run.HasCharSpacing || run.HasKern {
+		if run.FontSize != 0 || strings.TrimSpace(run.FontFamily) != "" || run.HasBold || run.HasItalic || run.Underline || run.Strike != "" || run.Baseline != 0 || run.HasCharSpacing || run.HasKern {
 			return true
 		}
 	}
@@ -5978,6 +5989,9 @@ func drawShapeTextLayerWithDPI(img *image.RGBA, bounds image.Rectangle, element 
 				if segment.Underline {
 					drawTextUnderline(img, segmentFace, segmentStart, segmentBaseline, x-segmentStart, textColorForSegment(segment, textColor))
 				}
+				if segment.Strike != "" {
+					drawTextStrikethrough(img, segmentFace, segmentStart, segmentBaseline, x-segmentStart, segment.Strike, textColorForSegment(segment, textColor))
+				}
 			}
 		} else {
 			drawer.Src = image.NewUniform(textColor)
@@ -6019,6 +6033,27 @@ func drawTextUnderline(img *image.RGBA, face font.Face, x int, baseline int, wid
 	y := baseline + maxInt(1, metrics.Descent.Ceil()/3)
 	lineWidth := maxInt(1, metrics.Height.Ceil()/16)
 	drawLine(img, x, y, x+width-1, y, c, lineWidth)
+}
+
+func drawTextStrikethrough(img *image.RGBA, face font.Face, x int, baseline int, width int, strike string, c color.RGBA) {
+	if width <= 0 || c.A == 0 || strike == "" {
+		return
+	}
+	metrics := face.Metrics()
+	top := baseline - metrics.Ascent.Ceil()
+	bottom := baseline + metrics.Descent.Ceil()
+	if bottom <= top {
+		bottom = top + metrics.Height.Ceil()
+	}
+	lineWidth := maxInt(1, metrics.Height.Ceil()/16)
+	center := top + (bottom-top)/2
+	if strike == "dblStrike" {
+		gap := maxInt(2, lineWidth*2)
+		drawLine(img, x, center-gap/2, x+width-1, center-gap/2, c, lineWidth)
+		drawLine(img, x, center+gap/2, x+width-1, center+gap/2, c, lineWidth)
+		return
+	}
+	drawLine(img, x, center, x+width-1, center, c, lineWidth)
 }
 
 func textColorForSegment(segment textLineSegment, fallback color.RGBA) color.RGBA {
@@ -6615,6 +6650,7 @@ func runToSegment(run textRun, paragraph textParagraph) textLineSegment {
 		Bold:              resolvedRunBold(run, paragraph),
 		Italic:            resolvedRunItalic(run, paragraph),
 		Underline:         run.Underline,
+		Strike:            run.Strike,
 		FontSize:          fontSize,
 		Baseline:          run.Baseline,
 		BaselineFontSize:  baselineFontSize,
@@ -7211,6 +7247,7 @@ type textLineSegment struct {
 	Bold              bool
 	Italic            bool
 	Underline         bool
+	Strike            string
 	FontSize          int
 	Baseline          int
 	BaselineFontSize  int
