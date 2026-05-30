@@ -7708,6 +7708,7 @@ func TestMeasuredTextAnchorHeightUsesVisibleInkBoxForCenteredText(t *testing.T) 
 		Ascent:      30,
 		Descent:     8,
 		Height:      48,
+		HasText:     true,
 		SpaceBefore: 2,
 		SpaceAfter:  3,
 	}}
@@ -7720,6 +7721,20 @@ func TestMeasuredTextAnchorHeightUsesVisibleInkBoxForCenteredText(t *testing.T) 
 	}
 	if got := measuredTextAnchorHeight(lines, ""); got != 53 {
 		t.Fatalf("top anchored text should keep full line advance, got %d", got)
+	}
+}
+
+func TestMeasuredTextAnchorHeightKeepsEmptyParagraphAdvance(t *testing.T) {
+	lines := []measuredTextLine{{
+		Ascent:      30,
+		Descent:     8,
+		Height:      48,
+		SpaceBefore: 2,
+		SpaceAfter:  3,
+	}}
+
+	if got := measuredTextAnchorHeight(lines, "ctr"); got != 53 {
+		t.Fatalf("centered empty paragraph should use authored line advance, got %d", got)
 	}
 }
 

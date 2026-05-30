@@ -8513,6 +8513,7 @@ type measuredTextLine struct {
 	Ascent         int
 	Descent        int
 	Height         int
+	HasText        bool
 	SpaceBefore    int
 	SpaceBeforePct int
 	SpaceAfter     int
@@ -8591,6 +8592,7 @@ func measureTextRenderLines(faces *fontFaceCache, lines []textRenderLine, fallba
 			current.SpaceAfter = line.SpaceAfter
 			current.SpaceAfterPct = line.SpaceAfterPct
 			current.LineSpacingPct = line.LineSpacingPct
+			current.HasText = true
 			fontSize := lineFontSize(line, fallbackFontSize)
 			current.SpaceBefore += paragraphSpacingPercentPixelsAtDPI(current.SpaceBeforePct, fontSize, faces.DPI)
 			current.SpaceAfter += paragraphSpacingPercentPixelsAtDPI(current.SpaceAfterPct, fontSize, faces.DPI)
@@ -8612,6 +8614,7 @@ func measureTextRenderLines(faces *fontFaceCache, lines []textRenderLine, fallba
 			Face:    face,
 			Ascent:  metrics.Ascent.Ceil(),
 			Descent: metrics.Descent.Ceil(),
+			HasText: line.Text != "",
 			Height: visibleLineAdvance(
 				applyLineSpacingAtDPI(height, line.LineSpacingPct, fontSize, faces.DPI),
 				measuredTextLine{Ascent: metrics.Ascent.Ceil(), Descent: metrics.Descent.Ceil()},
@@ -8740,6 +8743,9 @@ func measuredTextAnchorHeight(lines []measuredTextLine, anchor string) int {
 	height := 0
 	for _, line := range lines {
 		visible := line.Ascent + line.Descent
+		if !line.HasText {
+			visible = line.Height
+		}
 		if visible <= 0 {
 			visible = line.Height
 		}
