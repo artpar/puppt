@@ -2767,6 +2767,23 @@ func TestTextParagraphsFromNodeNumbersAutoBullets(t *testing.T) {
 	}
 }
 
+func TestTextParagraphsFromNodeCapturesBulletSizeFollowText(t *testing.T) {
+	root, err := parseXMLNode([]byte(`<p:txBody xmlns:p="p" xmlns:a="a">
+  <a:p><a:pPr><a:buSzTx/><a:buChar char="•"/></a:pPr><a:r><a:rPr sz="2400"/><a:t>Follow text</a:t></a:r></a:p>
+</p:txBody>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got := textParagraphsFromNode(root)
+	if len(got) != 1 || !got[0].BulletSizeTx || got[0].BulletFontSize != 0 || got[0].BulletSizePct != 0 {
+		t.Fatalf("expected paragraph buSzTx bullet size, got %+v", got)
+	}
+	if size := bulletSegmentFontSize(got[0]); size != 2400 {
+		t.Fatalf("buSzTx bullet should follow text size, got %d", size)
+	}
+}
+
 func TestTextParagraphsPreservesSingleLeadingRunSpace(t *testing.T) {
 	root, err := parseXMLNode([]byte(`<p:txBody xmlns:p="p" xmlns:a="a">
   <a:p><a:r><a:t> Welcome</a:t></a:r></a:p>
@@ -3515,6 +3532,24 @@ func TestParseTextStylesCapturesBulletFollowTextProperties(t *testing.T) {
 	}
 }
 
+func TestParseTextStylesCapturesBulletSizeFollowText(t *testing.T) {
+	styles := parseTextStyles([]byte(`<p:sldMaster xmlns:p="p" xmlns:a="a">
+  <p:txStyles>
+    <p:bodyStyle>
+      <a:lvl1pPr>
+        <a:buSzTx/>
+        <a:buChar char="•"/>
+        <a:defRPr sz="2200"/>
+      </a:lvl1pPr>
+    </p:bodyStyle>
+  </p:txStyles>
+</p:sldMaster>`), defaultThemeColors())
+	style := styles["body"].ParagraphStyles[0]
+	if !style.BulletSizeTx || style.BulletFontSize != 0 || style.BulletSizePct != 0 {
+		t.Fatalf("expected buSzTx to make bullet size follow text, got %+v", style)
+	}
+}
+
 func TestApplyParagraphStyleKeepsLocalExplicitBulletProperties(t *testing.T) {
 	paragraph := textParagraph{
 		BulletFontFamily: "Arial",
@@ -3530,6 +3565,39 @@ func TestApplyParagraphStyleKeepsLocalExplicitBulletProperties(t *testing.T) {
 	}
 	if paragraph.BulletColorTx || !paragraph.HasBulletColor || paragraph.BulletColor.R != 1 {
 		t.Fatalf("local explicit bullet color should win over inherited buClrTx: %+v", paragraph)
+	}
+}
+
+func TestApplyParagraphStyleKeepsLocalBulletSizeFollowText(t *testing.T) {
+	paragraph := textParagraph{
+		Bullet:       "•",
+		FontSize:     2200,
+		BulletSizeTx: true,
+	}
+
+	applyParagraphStyle(&paragraph, paragraphStyle{BulletSizePct: 80000})
+
+	if !paragraph.BulletSizeTx || paragraph.BulletSizePct != 0 || paragraph.BulletFontSize != 0 {
+		t.Fatalf("local buSzTx should block inherited bullet size, got %+v", paragraph)
+	}
+	if got := bulletSegmentFontSize(paragraph); got != 2200 {
+		t.Fatalf("buSzTx bullet should follow paragraph font size, got %d", got)
+	}
+}
+
+func TestApplyParagraphStyleInheritsBulletSizeFollowText(t *testing.T) {
+	paragraph := textParagraph{
+		Bullet:   "•",
+		FontSize: 1800,
+	}
+
+	applyParagraphStyle(&paragraph, paragraphStyle{BulletSizeTx: true})
+
+	if !paragraph.BulletSizeTx || paragraph.BulletSizePct != 0 || paragraph.BulletFontSize != 0 {
+		t.Fatalf("expected inherited buSzTx bullet size, got %+v", paragraph)
+	}
+	if got := bulletSegmentFontSize(paragraph); got != 1800 {
+		t.Fatalf("inherited buSzTx bullet should follow paragraph font size, got %d", got)
 	}
 }
 

@@ -131,6 +131,7 @@ type paragraphStyle struct {
 	BulletFontTx     bool
 	BulletFontSize   int
 	BulletSizePct    int
+	BulletSizeTx     bool
 	HasBulletColor   bool
 	BulletColor      color.RGBA
 	BulletColorTx    bool
@@ -297,6 +298,7 @@ type textParagraph struct {
 	NoBullet         bool
 	BulletFontSize   int
 	BulletSizePct    int
+	BulletSizeTx     bool
 	HasBulletColor   bool
 	BulletColor      color.RGBA
 	BulletColorTx    bool
@@ -2613,11 +2615,19 @@ func applyParagraphStyle(paragraph *textParagraph, style paragraphStyle) {
 		paragraph.HasLineSpacing = true
 		paragraph.LineSpacingPct = style.LineSpacingPct
 	}
-	if paragraph.BulletFontSize == 0 {
+	if paragraph.BulletSizeTx {
+		paragraph.BulletFontSize = 0
+		paragraph.BulletSizePct = 0
+	} else if paragraph.BulletFontSize == 0 {
 		paragraph.BulletFontSize = style.BulletFontSize
 	}
-	if paragraph.BulletSizePct == 0 {
+	if paragraph.BulletSizeTx {
+		// Local buSzTx blocks inherited fixed or percentage bullet sizing.
+	} else if paragraph.BulletSizePct == 0 {
 		paragraph.BulletSizePct = style.BulletSizePct
+	}
+	if style.BulletSizeTx && paragraph.BulletFontSize == 0 && paragraph.BulletSizePct == 0 {
+		paragraph.BulletSizeTx = true
 	}
 	if paragraph.FontFamily == "" {
 		paragraph.FontFamily = concreteParagraphFontFamily(style.FontFamily)
@@ -2780,28 +2790,44 @@ func parseParagraphStyle(node *xmlNode, theme themeColors) paragraphStyle {
 }
 
 func applyBulletSizePropertiesToParagraphStyle(style *paragraphStyle, node *xmlNode) {
+	if firstChild(node, "buSzTx") != nil {
+		style.BulletSizeTx = true
+		style.BulletFontSize = 0
+		style.BulletSizePct = 0
+		return
+	}
 	if bulletSize := firstChild(node, "buSzPts"); bulletSize != nil {
 		if size := int(parseIntAttr(bulletSize.Attrs, "val")); size > 0 {
+			style.BulletSizeTx = false
 			style.BulletFontSize = size
 			style.BulletSizePct = 0
 		}
 	}
 	if bulletSize := firstChild(node, "buSzPct"); bulletSize != nil && style.BulletFontSize == 0 {
 		if pct := int(parseIntAttr(bulletSize.Attrs, "val")); pct > 0 {
+			style.BulletSizeTx = false
 			style.BulletSizePct = pct
 		}
 	}
 }
 
 func applyBulletSizePropertiesToParagraph(paragraph *textParagraph, node *xmlNode) {
+	if firstChild(node, "buSzTx") != nil {
+		paragraph.BulletSizeTx = true
+		paragraph.BulletFontSize = 0
+		paragraph.BulletSizePct = 0
+		return
+	}
 	if bulletSize := firstChild(node, "buSzPts"); bulletSize != nil {
 		if size := int(parseIntAttr(bulletSize.Attrs, "val")); size > 0 {
+			paragraph.BulletSizeTx = false
 			paragraph.BulletFontSize = size
 			paragraph.BulletSizePct = 0
 		}
 	}
 	if bulletSize := firstChild(node, "buSzPct"); bulletSize != nil && paragraph.BulletFontSize == 0 {
 		if pct := int(parseIntAttr(bulletSize.Attrs, "val")); pct > 0 {
+			paragraph.BulletSizeTx = false
 			paragraph.BulletSizePct = pct
 		}
 	}
@@ -3876,11 +3902,19 @@ func mergeParagraphStyle(base paragraphStyle, override paragraphStyle) paragraph
 	} else if merged.BulletFontFamily == "" {
 		merged.BulletFontTx = base.BulletFontTx
 	}
-	if merged.BulletFontSize == 0 {
+	if merged.BulletSizeTx {
+		merged.BulletFontSize = 0
+		merged.BulletSizePct = 0
+	} else if merged.BulletFontSize == 0 {
 		merged.BulletFontSize = base.BulletFontSize
 	}
-	if merged.BulletSizePct == 0 {
+	if merged.BulletSizeTx {
+		// Local buSzTx blocks inherited fixed or percentage bullet sizing.
+	} else if merged.BulletSizePct == 0 {
 		merged.BulletSizePct = base.BulletSizePct
+	}
+	if base.BulletSizeTx && merged.BulletFontSize == 0 && merged.BulletSizePct == 0 {
+		merged.BulletSizeTx = true
 	}
 	if !merged.HasBulletColor {
 		merged.HasBulletColor = base.HasBulletColor
