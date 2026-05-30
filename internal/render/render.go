@@ -3451,9 +3451,6 @@ func inheritedPlaceholderSourcesWithThemeResolver(pkg *pptx.Package, renderParts
 			continue
 		}
 		for _, element := range collectSlideElementsWithTheme(pkg.Parts[renderPart], themeForPart(renderPart)) {
-			if !element.HasTransform {
-				continue
-			}
 			for _, key := range placeholderKeys(element) {
 				if existing, ok := sources[key]; ok {
 					sources[key] = mergePlaceholderSource(existing, element)

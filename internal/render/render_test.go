@@ -5674,6 +5674,48 @@ func TestResolveSlidePlaceholdersAppliesInheritedPlaceholderParagraphStyle(t *te
 	}
 }
 
+func TestInheritedPlaceholderSourcesMergeLayoutWithoutTransform(t *testing.T) {
+	pkg := &pptx.Package{Parts: map[string][]byte{
+		"ppt/slideMasters/slideMaster1.xml": []byte(`<p:sldMaster xmlns:p="p" xmlns:a="a">
+  <p:cSld><p:spTree>
+    <p:sp>
+      <p:nvSpPr><p:cNvPr id="1" name="Master Body"/><p:nvPr><p:ph type="body" idx="1"/></p:nvPr></p:nvSpPr>
+      <p:spPr><a:xfrm><a:off x="10" y="20"/><a:ext cx="300" cy="400"/></a:xfrm></p:spPr>
+      <p:txBody><a:bodyPr anchor="t"/><a:lstStyle><a:lvl1pPr><a:defRPr sz="1800"/></a:lvl1pPr></a:lstStyle></p:txBody>
+    </p:sp>
+  </p:spTree></p:cSld>
+</p:sldMaster>`),
+		"ppt/slideLayouts/slideLayout1.xml": []byte(`<p:sldLayout xmlns:p="p" xmlns:a="a">
+  <p:cSld><p:spTree>
+    <p:sp>
+      <p:nvSpPr><p:cNvPr id="2" name="Layout Body"/><p:nvPr><p:ph type="body" idx="1"/></p:nvPr></p:nvSpPr>
+      <p:spPr/>
+      <p:txBody><a:bodyPr anchor="b"/><a:lstStyle><a:lvl1pPr><a:defRPr sz="2400"/></a:lvl1pPr></a:lstStyle></p:txBody>
+    </p:sp>
+  </p:spTree></p:cSld>
+</p:sldLayout>`),
+	}}
+
+	sources := inheritedPlaceholderSourcesWithThemeResolver(pkg, []string{
+		"ppt/slideMasters/slideMaster1.xml",
+		"ppt/slideLayouts/slideLayout1.xml",
+		"ppt/slides/slide1.xml",
+	}, "ppt/slides/slide1.xml", func(string) themeColors { return defaultThemeColors() })
+	got, ok := sources["type:body"]
+	if !ok {
+		t.Fatalf("expected body placeholder source, got %+v", sources)
+	}
+	if !got.HasTransform || got.OffX != 10 || got.ExtCX != 300 {
+		t.Fatalf("layout placeholder without transform should retain master geometry, got %+v", got)
+	}
+	if got.TextAnchor != "b" {
+		t.Fatalf("layout placeholder body properties should override master text anchor, got %+v", got)
+	}
+	if got.PlaceholderParagraphStyles[0].FontSize != 2400 {
+		t.Fatalf("layout placeholder paragraph style should override master style, got %+v", got.PlaceholderParagraphStyles)
+	}
+}
+
 func TestResolveSlidePlaceholdersKeepsLocalBodyProperties(t *testing.T) {
 	elements := []slideElement{{
 		Kind:              "sp",
