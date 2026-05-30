@@ -3920,8 +3920,8 @@ func renderTableGraphicFrame(slidePart string, size slideSize, img *image.RGBA, 
 	if target.Empty() {
 		return nil
 	}
-	columnOffsets := tableGridOffsets(tableColumnWeights(element.Table), target.Min.X, target.Max.X, element.ExtCX, size.CX, img.Bounds().Dx())
-	rowOffsets := tableGridOffsets(tableRowWeights(element.Table), target.Min.Y, target.Max.Y, element.ExtCY, size.CY, img.Bounds().Dy())
+	columnOffsets := tableGridOffsets(tableColumnWeights(element.Table), target.Min.X, target.Max.X, element.OffX, element.ExtCX, size.CX, img.Bounds().Dx())
+	rowOffsets := tableGridOffsets(tableRowWeights(element.Table), target.Min.Y, target.Max.Y, element.OffY, element.ExtCY, size.CY, img.Bounds().Dy())
 	for rowIndex, row := range element.Table.Rows {
 		for columnIndex, cell := range row.Cells {
 			if cell.HMerge || cell.VMerge || columnIndex+1 >= len(columnOffsets) || rowIndex+1 >= len(rowOffsets) {
@@ -4368,7 +4368,7 @@ func tableRowWeights(table tableModel) []int64 {
 	return weights
 }
 
-func tableGridOffsets(weights []int64, min int, max int, frameEMU int64, slideEMU int64, canvasPixels int) []int {
+func tableGridOffsets(weights []int64, min int, max int, originEMU int64, frameEMU int64, slideEMU int64, canvasPixels int) []int {
 	total := int64(0)
 	for _, weight := range weights {
 		total += weight
@@ -4379,7 +4379,7 @@ func tableGridOffsets(weights []int64, min int, max int, frameEMU int64, slideEM
 		running := int64(0)
 		for index, weight := range weights {
 			running += weight
-			offsets[index+1] = min + scaleEMU(running, slideEMU, canvasPixels)
+			offsets[index+1] = scaleEMU(originEMU+running, slideEMU, canvasPixels)
 		}
 		return offsets
 	}

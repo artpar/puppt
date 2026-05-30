@@ -1441,7 +1441,7 @@ func TestRenderGraphicFrameUsesExplicitTableCellBorders(t *testing.T) {
 }
 
 func TestTableGridOffsetsScaleUnderfilledExtentsToFrame(t *testing.T) {
-	got := tableGridOffsets([]int64{emuPerInch / 4, emuPerInch / 4}, 10, 110, emuPerInch, emuPerInch, 100)
+	got := tableGridOffsets([]int64{emuPerInch / 4, emuPerInch / 4}, 10, 110, emuPerInch/10, emuPerInch, emuPerInch, 100)
 	want := []int{10, 60, 110}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("expected underfilled table row heights to scale to frame, got %v want %v", got, want)
@@ -1449,15 +1449,23 @@ func TestTableGridOffsetsScaleUnderfilledExtentsToFrame(t *testing.T) {
 }
 
 func TestTableGridOffsetsPreserveAuthoredExtentsWhenTheyMatchFrame(t *testing.T) {
-	got := tableGridOffsets([]int64{emuPerInch / 4, emuPerInch / 4}, 10, 110, emuPerInch/2, emuPerInch, 100)
+	got := tableGridOffsets([]int64{emuPerInch / 4, emuPerInch / 4}, 10, 110, emuPerInch/10, emuPerInch/2, emuPerInch, 100)
 	want := []int{10, 35, 60}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("expected matching authored table row heights to be preserved, got %v want %v", got, want)
 	}
 }
 
+func TestTableGridOffsetsPreserveAuthoredExtentsFromAbsoluteOrigin(t *testing.T) {
+	got := tableGridOffsets([]int64{15, 15}, 2, 5, 15, 30, 100, 10)
+	want := []int{2, 3, 5}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("expected matching authored grid lines to scale from absolute origin, got %v want %v", got, want)
+	}
+}
+
 func TestTableGridOffsetsScaleOverflowingExtentsToFrame(t *testing.T) {
-	got := tableGridOffsets([]int64{emuPerInch, emuPerInch}, 10, 110, emuPerInch, emuPerInch, 100)
+	got := tableGridOffsets([]int64{emuPerInch, emuPerInch}, 10, 110, emuPerInch/10, emuPerInch, emuPerInch, 100)
 	want := []int{10, 60, 110}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("expected overflowing table row heights to scale to frame, got %v want %v", got, want)
@@ -1465,7 +1473,7 @@ func TestTableGridOffsetsScaleOverflowingExtentsToFrame(t *testing.T) {
 }
 
 func TestTableGridOffsetsScalesFallbackWeightsToFrame(t *testing.T) {
-	got := tableGridOffsets([]int64{1, 1}, 10, 110, emuPerInch, emuPerInch, 100)
+	got := tableGridOffsets([]int64{1, 1}, 10, 110, emuPerInch/10, emuPerInch, emuPerInch, 100)
 	want := []int{10, 60, 110}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("expected fallback table weights to scale to frame, got %v want %v", got, want)
