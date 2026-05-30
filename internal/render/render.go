@@ -249,11 +249,15 @@ type slideElement struct {
 	PlaceholderParagraphStyles map[int]paragraphStyle
 	HasBodyProperties          bool
 	TextAnchor                 string
+	HasTextWrap                bool
 	TextWrap                   string
+	HasTextVertical            bool
 	TextVertical               string
 	HasTextBodyRotation        bool
 	TextBodyRotation           int
+	HasTextColumns             bool
 	TextColumnCount            int
+	HasTextAnchorCenter        bool
 	TextAnchorCenter           bool
 	IncludeFirstLastSpacing    bool
 	HasFirstLastSpacing        bool
@@ -1896,22 +1900,28 @@ func parseTextProperties(node *xmlNode, element *slideElement, theme themeColors
 func parseBodyProperties(node *xmlNode, element *slideElement) {
 	element.HasBodyProperties = true
 	if wrap := attrValue(node.Attrs, "wrap"); wrap != "" {
+		element.HasTextWrap = true
 		element.TextWrap = wrap
 	}
 	if anchor := attrValue(node.Attrs, "anchor"); anchor != "" {
 		element.TextAnchor = anchor
 	}
 	if vertical := attrValue(node.Attrs, "vert"); vertical != "" {
+		element.HasTextVertical = true
 		element.TextVertical = vertical
 	}
 	if rotation := attrValue(node.Attrs, "rot"); rotation != "" {
 		element.TextBodyRotation = int(parseIntAttr(node.Attrs, "rot"))
 		element.HasTextBodyRotation = true
 	}
-	if columns := int(parseIntAttr(node.Attrs, "numCol")); columns > 0 {
-		element.TextColumnCount = columns
+	if attrValue(node.Attrs, "numCol") != "" {
+		element.HasTextColumns = true
+		if columns := int(parseIntAttr(node.Attrs, "numCol")); columns > 0 {
+			element.TextColumnCount = columns
+		}
 	}
 	if value := attrValue(node.Attrs, "anchorCtr"); value != "" {
+		element.HasTextAnchorCenter = true
 		element.TextAnchorCenter = boolAttrOn(value)
 	}
 	if value := attrValue(node.Attrs, "spcFirstLastPara"); value != "" {
@@ -3491,6 +3501,7 @@ func mergePlaceholderSource(base slideElement, override slideElement) slideEleme
 	} else if shouldDefaultCenterTitleTextAnchor(merged) {
 		merged.TextAnchor = "ctr"
 	}
+	inheritPlaceholderBodyTextProperties(&merged, base)
 	if !merged.HasFirstLastSpacing && !merged.IncludeFirstLastSpacing {
 		merged.IncludeFirstLastSpacing = base.IncludeFirstLastSpacing
 		merged.HasFirstLastSpacing = base.HasFirstLastSpacing
@@ -3682,6 +3693,7 @@ func resolveSlidePlaceholders(elements []slideElement, sources map[string]slideE
 		} else if shouldDefaultCenterTitleTextAnchor(*element) {
 			element.TextAnchor = "ctr"
 		}
+		inheritPlaceholderBodyTextProperties(element, source)
 		if !element.HasFirstLastSpacing && !element.IncludeFirstLastSpacing {
 			element.IncludeFirstLastSpacing = source.IncludeFirstLastSpacing
 			element.HasFirstLastSpacing = source.HasFirstLastSpacing
@@ -3749,6 +3761,32 @@ func inheritPlaceholderVisualProperties(element *slideElement, source slideEleme
 		element.HasEffectProperties = source.HasEffectProperties
 		element.HasSoftEdge = source.HasSoftEdge
 		element.SoftEdgeRadius = source.SoftEdgeRadius
+	}
+}
+
+func inheritPlaceholderBodyTextProperties(element *slideElement, source slideElement) {
+	if element == nil {
+		return
+	}
+	if !element.HasTextWrap {
+		element.HasTextWrap = source.HasTextWrap
+		element.TextWrap = source.TextWrap
+	}
+	if !element.HasTextVertical {
+		element.HasTextVertical = source.HasTextVertical
+		element.TextVertical = source.TextVertical
+	}
+	if !element.HasTextBodyRotation {
+		element.HasTextBodyRotation = source.HasTextBodyRotation
+		element.TextBodyRotation = source.TextBodyRotation
+	}
+	if !element.HasTextColumns {
+		element.HasTextColumns = source.HasTextColumns
+		element.TextColumnCount = source.TextColumnCount
+	}
+	if !element.HasTextAnchorCenter {
+		element.HasTextAnchorCenter = source.HasTextAnchorCenter
+		element.TextAnchorCenter = source.TextAnchorCenter
 	}
 }
 

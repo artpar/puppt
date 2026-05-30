@@ -5818,6 +5818,45 @@ func TestResolveSlidePlaceholdersKeepsLocalBodyProperties(t *testing.T) {
 	}
 }
 
+func TestResolveSlidePlaceholdersInheritsUnspecifiedBodyTextProperties(t *testing.T) {
+	elements := []slideElement{{
+		Kind:              "sp",
+		Name:              "Content Placeholder 1",
+		Text:              "Slide body",
+		IsPlaceholder:     true,
+		PlaceholderType:   "body",
+		HasBodyProperties: true,
+		HasTextWrap:       true,
+		TextWrap:          "square",
+	}}
+	sources := map[string]slideElement{
+		"type:body": {
+			IsPlaceholder:           true,
+			PlaceholderType:         "body",
+			HasTextWrap:             true,
+			TextWrap:                "none",
+			HasTextVertical:         true,
+			TextVertical:            "eaVert",
+			HasTextBodyRotation:     true,
+			TextBodyRotation:        5400000,
+			HasTextColumns:          true,
+			TextColumnCount:         2,
+			HasTextAnchorCenter:     true,
+			TextAnchorCenter:        true,
+			HasFirstLastSpacing:     true,
+			IncludeFirstLastSpacing: true,
+		},
+	}
+
+	got := resolveSlidePlaceholders(elements, sources)
+	if got[0].TextWrap != "square" {
+		t.Fatalf("local body wrap should block inherited wrap: %+v", got[0])
+	}
+	if got[0].TextVertical != "eaVert" || !got[0].HasTextBodyRotation || got[0].TextBodyRotation != 5400000 || !got[0].HasTextColumns || got[0].TextColumnCount != 2 || !got[0].TextAnchorCenter {
+		t.Fatalf("unspecified body text properties were not inherited: %+v", got[0])
+	}
+}
+
 func TestResolveSlidePlaceholdersInheritsUnspecifiedFirstLastSpacing(t *testing.T) {
 	elements := []slideElement{{
 		Kind:              "sp",
@@ -6295,10 +6334,10 @@ func TestParseBodyPropertiesReadsTextAnchor(t *testing.T) {
 	}
 	var element slideElement
 	parseBodyProperties(root, &element)
-	if element.TextAnchor != "ctr" || element.TextWrap != "square" {
+	if element.TextAnchor != "ctr" || !element.HasTextWrap || element.TextWrap != "square" {
 		t.Fatalf("unexpected body properties: %+v", element)
 	}
-	if element.TextVertical != "eaVert" || !element.HasTextBodyRotation || element.TextBodyRotation != 5400000 || element.TextColumnCount != 2 || !element.TextAnchorCenter {
+	if !element.HasTextVertical || element.TextVertical != "eaVert" || !element.HasTextBodyRotation || element.TextBodyRotation != 5400000 || !element.HasTextColumns || element.TextColumnCount != 2 || !element.HasTextAnchorCenter || !element.TextAnchorCenter {
 		t.Fatalf("expected text layout body properties: %+v", element)
 	}
 	if !element.HasFirstLastSpacing || !element.IncludeFirstLastSpacing {
