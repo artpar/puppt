@@ -5711,7 +5711,6 @@ func diagramElementExtents(elements []slideElement) (int64, int64) {
 }
 
 func renderShape(slidePart string, size slideSize, img *image.RGBA, element *slideElement) []model.SkipItem {
-	applyElementBWMode(element)
 	if !element.HasTransform {
 		return nil
 	}
@@ -5891,9 +5890,6 @@ func renderShape(slidePart string, size slideSize, img *image.RGBA, element *sli
 			return []model.SkipItem{unsupportedItem(slidePart, unsupportedCode, fmt.Sprintf("shape object %q text could not be rendered: %v", elementLabel(*element), err))}
 		}
 		rendered = true
-	}
-	if item, ok := unsupportedBWModeItem(slidePart, *element); ok {
-		unsupported = append(unsupported, item)
 	}
 	element.Rendered = rendered
 	return unsupported
@@ -10940,7 +10936,6 @@ func firstExistingPath(paths []string) string {
 }
 
 func renderPicture(pkg *pptx.Package, slidePart string, size slideSize, img *image.RGBA, element *slideElement, relationships map[string]pptx.Relationship) []model.SkipItem {
-	applyElementBWMode(element)
 	if element.EmbedID == "" {
 		return []model.SkipItem{pictureUnsupported(slidePart, element, fmt.Sprintf("picture object %q has no embedded image relationship", elementLabel(*element)))}
 	}
@@ -10994,9 +10989,6 @@ func renderPicture(pkg *pptx.Package, slidePart string, size slideSize, img *ima
 		for _, message := range element.CustomPathUnsupported {
 			unsupported = append(unsupported, unsupportedItem(slidePart, partialUnsupportedCode, fmt.Sprintf("picture object %q %s", elementLabel(*element), message)))
 		}
-	}
-	if item, ok := unsupportedBWModeItem(slidePart, *element); ok {
-		unsupported = append(unsupported, item)
 	}
 	if element.HasSoftEdge {
 		if !softEdgeRendered {
@@ -12046,7 +12038,7 @@ func cropPixels(total int, percentage int64) int {
 
 func pictureSourceForElement(src image.Image, element slideElement) (image.Image, image.Rectangle) {
 	srcBounds := sourceCropRect(src.Bounds(), element)
-	if !element.FlipH && !element.FlipV && !shouldApplyImageAlphaModFix(element) && !shouldApplyImageBWMode(element) {
+	if !element.FlipH && !element.FlipV && !shouldApplyImageAlphaModFix(element) {
 		return src, srcBounds
 	}
 	return transformedPictureImage(src, srcBounds, element), image.Rect(0, 0, srcBounds.Dx(), srcBounds.Dy())
@@ -12054,77 +12046,6 @@ func pictureSourceForElement(src image.Image, element slideElement) (image.Image
 
 func shouldApplyImageAlphaModFix(element slideElement) bool {
 	return element.HasImageAlphaModFix && element.ImageAlphaModFixPct > 0 && element.ImageAlphaModFixPct != 100000
-}
-
-func shouldApplyImageBWMode(element slideElement) bool {
-	return bwModeTransformsColor(element.BWMode)
-}
-
-func applyElementBWMode(element *slideElement) {
-	if element == nil || !bwModeTransformsColor(element.BWMode) {
-		return
-	}
-	if element.HasFill {
-		element.FillColor = applyBWModeToColor(element.FillColor, element.BWMode)
-	}
-	if element.HasFillGradient {
-		for index := range element.FillGradient.Stops {
-			element.FillGradient.Stops[index].Color = applyBWModeToColor(element.FillGradient.Stops[index].Color, element.BWMode)
-		}
-	}
-	if element.HasLine {
-		element.LineColor = applyBWModeToColor(element.LineColor, element.BWMode)
-	}
-	if element.HasShadow {
-		element.ShadowColor = applyBWModeToColor(element.ShadowColor, element.BWMode)
-	}
-	if element.HasTextColor {
-		element.TextColor = applyBWModeToColor(element.TextColor, element.BWMode)
-	}
-	for paragraphIndex := range element.TextParagraphs {
-		paragraph := &element.TextParagraphs[paragraphIndex]
-		if paragraph.HasTextColor {
-			paragraph.TextColor = applyBWModeToColor(paragraph.TextColor, element.BWMode)
-		}
-		if paragraph.HasBulletColor {
-			paragraph.BulletColor = applyBWModeToColor(paragraph.BulletColor, element.BWMode)
-		}
-		for runIndex := range paragraph.Runs {
-			run := &paragraph.Runs[runIndex]
-			if run.HasTextColor {
-				run.TextColor = applyBWModeToColor(run.TextColor, element.BWMode)
-			}
-			if run.HasHighlightColor {
-				run.HighlightColor = applyBWModeToColor(run.HighlightColor, element.BWMode)
-			}
-		}
-	}
-}
-
-func applyBWModeToColor(c color.RGBA, mode string) color.RGBA {
-	switch strings.TrimSpace(mode) {
-	case "gray":
-		luma := grayLuma(c)
-		c.R = luma
-		c.G = luma
-		c.B = luma
-		return c
-	case "black":
-		c.R = 0
-		c.G = 0
-		c.B = 0
-		return c
-	case "white":
-		c.R = 255
-		c.G = 255
-		c.B = 255
-		return c
-	case "hidden":
-		c.A = 0
-		return c
-	default:
-		return c
-	}
 }
 
 func transformedPictureImage(src image.Image, srcBounds image.Rectangle, element slideElement) *image.RGBA {
@@ -12142,43 +12063,11 @@ func transformedPictureImage(src image.Image, srcBounds image.Rectangle, element
 				srcX = srcBounds.Max.X - 1 - x
 			}
 			pixel := color.RGBAModel.Convert(src.At(srcX, srcY)).(color.RGBA)
-			pixel = applyImageBWMode(pixel, element)
 			pixel = applyImageAlphaModFix(pixel, element)
 			dst.SetRGBA(x, y, pixel)
 		}
 	}
 	return dst
-}
-
-func applyImageBWMode(c color.RGBA, element slideElement) color.RGBA {
-	if !shouldApplyImageBWMode(element) {
-		return c
-	}
-	return applyBWModeToColor(c, element.BWMode)
-}
-
-func grayLuma(c color.RGBA) uint8 {
-	luma := uint8((299*int(c.R) + 587*int(c.G) + 114*int(c.B) + 500) / 1000)
-	return luma
-}
-
-func bwModeTransformsColor(mode string) bool {
-	switch strings.TrimSpace(mode) {
-	case "gray", "black", "white", "hidden":
-		return true
-	default:
-		return false
-	}
-}
-
-func unsupportedBWModeItem(slidePart string, element slideElement) (model.SkipItem, bool) {
-	mode := strings.TrimSpace(element.BWMode)
-	switch mode {
-	case "", "auto", "clr", "gray", "black", "white", "hidden":
-		return model.SkipItem{}, false
-	default:
-		return unsupportedItem(slidePart, partialUnsupportedCode, fmt.Sprintf("%s object %q black-and-white mode %q was not rendered", objectKindLabel(element.Kind), elementLabel(element), mode)), true
-	}
 }
 
 func applyImageAlphaModFix(c color.RGBA, element slideElement) color.RGBA {
