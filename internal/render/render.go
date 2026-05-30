@@ -405,9 +405,11 @@ type tableStyleSet struct {
 }
 
 type tableStyle struct {
-	ID      string
-	Name    string
-	Regions map[string]tableStyleRegion
+	ID            string
+	Name          string
+	HasBackground bool
+	Background    backgroundPaint
+	Regions       map[string]tableStyleRegion
 }
 
 type tableStyleRegion struct {
@@ -511,8 +513,6 @@ func Render(ctx context.Context, inputPath string, options Options) (model.Comma
 	fontsForPart := func(part string) themeFonts {
 		return themeFontsForPart(pkg, part, fonts)
 	}
-	lineStyles := packageThemeLineStyles(pkg)
-	tableStyles := packageTableStyles(pkg, theme, fonts, lineStyles)
 	renderParts := inheritedRenderParts(pkg, slidePart)
 	paintParts := visibleRenderParts(pkg, slidePart, renderParts)
 	placeholderSources := inheritedPlaceholderSourcesWithThemeResolver(pkg, renderParts, slidePart, themeForPart)
@@ -540,6 +540,7 @@ func Render(ctx context.Context, inputPath string, options Options) (model.Comma
 		partLineStyles := themeLineStylesForPart(pkg, renderPart)
 		effectStyles := themeEffectStylesForPart(pkg, renderPart)
 		fillStyles := themeFillStylesForPart(pkg, renderPart)
+		tableStyles := packageTableStyles(pkg, partTheme, partFonts, fillStyles, partLineStyles)
 		elements := collectSlideElementsWithThemeEffectsAndFills(pkg.Parts[renderPart], partTheme, effectStyles, fillStyles, partLineStyles)
 		if renderPart != slidePart {
 			elements = filterInheritedPlaceholdersForRender(elements, placeholderSources, headerFooter, renderPart == inheritedHeaderFooterPart)
@@ -1270,14 +1271,14 @@ func parseTableLineNode(line *xmlNode, theme themeColors, specified bool) tableC
 	return border
 }
 
-func packageTableStyles(pkg *pptx.Package, theme themeColors, fonts themeFonts, lineStyles themeLineStyles) tableStyleSet {
+func packageTableStyles(pkg *pptx.Package, theme themeColors, fonts themeFonts, fillStyles themeFillStyles, lineStyles themeLineStyles) tableStyleSet {
 	if data, ok := pkg.Parts["ppt/tableStyles.xml"]; ok {
-		return parseTableStyles(data, theme, fonts, lineStyles)
+		return parseTableStyles(data, theme, fonts, fillStyles, lineStyles)
 	}
 	return tableStyleSet{}
 }
 
-func parseTableStyles(data []byte, theme themeColors, fonts themeFonts, lineStyles themeLineStyles) tableStyleSet {
+func parseTableStyles(data []byte, theme themeColors, fonts themeFonts, fillStyles themeFillStyles, lineStyles themeLineStyles) tableStyleSet {
 	root, err := parseXMLNode(data)
 	if err != nil {
 		return tableStyleSet{}
@@ -1293,6 +1294,13 @@ func parseTableStyles(data []byte, theme themeColors, fonts themeFonts, lineStyl
 			Regions: map[string]tableStyleRegion{},
 		}
 		for _, child := range node.Children {
+			if child.Name == "tblBg" {
+				if background, ok := parseTableStyleBackground(child, theme, fillStyles); ok {
+					style.HasBackground = true
+					style.Background = background
+				}
+				continue
+			}
 			if !isTableStyleRegionName(child.Name) {
 				continue
 			}
@@ -1303,6 +1311,25 @@ func parseTableStyles(data []byte, theme themeColors, fonts themeFonts, lineStyl
 		}
 	}
 	return styles
+}
+
+func parseTableStyleBackground(node *xmlNode, theme themeColors, fillStyles themeFillStyles) (backgroundPaint, bool) {
+	if fillRef := firstChild(node, "fillRef"); fillRef != nil && attrValue(fillRef.Attrs, "idx") != "0" {
+		placeholderColor, hasPlaceholderColor := colorFromColorNodeWithTheme(fillRef, theme)
+		if hasPlaceholderColor {
+			if paint, ok := fillStyles.Style(parseIntAttr(fillRef.Attrs, "idx"), themeWithPlaceholderColor(theme, placeholderColor)); ok {
+				return paint, true
+			}
+			return backgroundPaint{Color: placeholderColor}, true
+		}
+	}
+	if solidFill := firstChild(node, "solidFill"); solidFill != nil {
+		return backgroundPaintFromFillNode(solidFill, theme)
+	}
+	if gradFill := firstChild(node, "gradFill"); gradFill != nil {
+		return backgroundPaintFromFillNode(gradFill, theme)
+	}
+	return backgroundPaint{}, false
 }
 
 func isTableStyleRegionName(name string) bool {
@@ -4443,6 +4470,7 @@ func renderTableGraphicFrame(slidePart string, size slideSize, img *image.RGBA, 
 	}
 	columnOffsets := tableGridOffsets(tableColumnWeights(element.Table), target.Min.X, target.Max.X, element.OffX, element.ExtCX, size.CX, img.Bounds().Dx())
 	rowOffsets := tableGridOffsets(tableRowWeights(element.Table), target.Min.Y, target.Max.Y, element.OffY, element.ExtCY, size.CY, img.Bounds().Dy())
+	style, hasStyle := tableStyleForTable(element.Table, tableStyles)
 	for rowIndex, row := range element.Table.Rows {
 		for columnIndex, cell := range row.Cells {
 			if cell.HMerge || cell.VMerge || columnIndex+1 >= len(columnOffsets) || rowIndex+1 >= len(rowOffsets) {
@@ -4509,6 +4537,9 @@ func renderTableGraphicFrame(slidePart string, size slideSize, img *image.RGBA, 
 	unsupported := make([]model.SkipItem, 0, len(fontMessages)+1)
 	for _, message := range sortedKeys(fontMessages) {
 		unsupported = append(unsupported, unsupportedItem(slidePart, partialUnsupportedCode, fmt.Sprintf("graphic frame object %q table %s", elementLabel(*element), message)))
+	}
+	if hasStyle && style.HasBackground {
+		unsupported = append(unsupported, unsupportedItem(slidePart, partialUnsupportedCode, fmt.Sprintf("graphic frame object %q table background fill was not rendered", elementLabel(*element))))
 	}
 	for _, message := range element.Table.UnsupportedFeatures {
 		unsupported = append(unsupported, unsupportedItem(slidePart, partialUnsupportedCode, fmt.Sprintf("graphic frame object %q table %s", elementLabel(*element), message)))

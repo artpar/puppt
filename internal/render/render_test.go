@@ -1467,6 +1467,39 @@ func TestRenderGraphicFramePaintsSupportedTableGrid(t *testing.T) {
 	}
 }
 
+func TestRenderGraphicFrameReportsTableStyleBackgroundPartial(t *testing.T) {
+	size := slideSize{CX: emuPerInch, CY: emuPerInch}
+	img := image.NewRGBA(image.Rect(0, 0, 96, 96))
+	element := slideElement{
+		Kind:         "graphicFrame",
+		Name:         "Table 1",
+		HasTransform: true,
+		ExtCX:        emuPerInch,
+		ExtCY:        emuPerInch,
+		HasTable:     true,
+		Table: tableModel{
+			StyleID: "{STYLE-BG}",
+			Columns: []int64{1},
+			Rows:    []tableRow{{Height: 1, Cells: []tableCell{{}}}},
+		},
+	}
+	styles := tableStyleSet{Styles: map[string]tableStyle{
+		normalizedTableStyleID("{STYLE-BG}"): {
+			ID:            "{STYLE-BG}",
+			HasBackground: true,
+			Background:    backgroundPaint{Color: color.RGBA{R: 0x12, G: 0x34, B: 0x56, A: 0xff}},
+		},
+	}}
+
+	unsupported := renderGraphicFrame(&pptx.Package{}, "ppt/slides/slide1.xml", size, img, &element, nil, styles)
+	if len(unsupported) != 1 || unsupported[0].Code != partialUnsupportedCode || !strings.Contains(unsupported[0].Message, "table background fill") || !element.Rendered {
+		t.Fatalf("unexpected table render result: unsupported=%+v rendered=%v", unsupported, element.Rendered)
+	}
+	if got := img.RGBAAt(48, 48); got.A != 0 {
+		t.Fatalf("unimplemented table background should not paint pixels, got %#v", got)
+	}
+}
+
 func TestRenderGraphicFrameDrawsSharedTableBordersOnce(t *testing.T) {
 	size := slideSize{CX: emuPerInch, CY: emuPerInch}
 	img := image.NewRGBA(image.Rect(0, 0, 96, 96))
@@ -1621,6 +1654,28 @@ func TestParseTableStylesReadsConditionalRegions(t *testing.T) {
 	}
 }
 
+func TestParseTableStylesReadsTableBackgroundFillReference(t *testing.T) {
+	fillStyles := parseThemeFillStyles([]byte(`<a:theme xmlns:a="a">
+		<a:themeElements><a:fmtScheme name="Office"><a:fillStyleLst>
+			<a:solidFill><a:schemeClr val="phClr"/></a:solidFill>
+		</a:fillStyleLst></a:fmtScheme></a:themeElements>
+	</a:theme>`))
+	styles := parseTableStyles([]byte(`<a:tblStyleLst xmlns:a="a">
+		<a:tblStyle styleId="{STYLE-BG}" styleName="Background Style">
+			<a:tblBg><a:fillRef idx="1"><a:schemeClr val="accent2"/></a:fillRef></a:tblBg>
+			<a:wholeTbl><a:tcStyle><a:fill><a:noFill/></a:fill></a:tcStyle></a:wholeTbl>
+		</a:tblStyle>
+	</a:tblStyleLst>`), themeColors{"accent2": {R: 0x22, G: 0x44, B: 0x66, A: 0xff}}, themeFonts{}, fillStyles, themeLineStyles{})
+
+	style, ok := styles.Styles[normalizedTableStyleID("{STYLE-BG}")]
+	if !ok || !style.HasBackground {
+		t.Fatalf("expected table background style, got %+v", styles)
+	}
+	if style.Background.Color != (color.RGBA{R: 0x22, G: 0x44, B: 0x66, A: 0xff}) {
+		t.Fatalf("unexpected table background fill: %+v", style.Background)
+	}
+}
+
 func TestParseTableStylesReadsDirectTableTextFontAndItalic(t *testing.T) {
 	styles := parseTableStyles([]byte(`<a:tblStyleLst xmlns:a="a">
 		<a:tblStyle styleId="{STYLE-DIRECT}" styleName="Direct Font Style">
@@ -1635,7 +1690,7 @@ func TestParseTableStylesReadsDirectTableTextFontAndItalic(t *testing.T) {
 				</a:tcTxStyle>
 			</a:wholeTbl>
 		</a:tblStyle>
-	</a:tblStyleLst>`), defaultThemeColors(), themeFonts{MinorLatin: "Calibri"}, themeLineStyles{})
+	</a:tblStyleLst>`), defaultThemeColors(), themeFonts{MinorLatin: "Calibri"}, themeFillStyles{}, themeLineStyles{})
 
 	style, ok := styles.Styles[normalizedTableStyleID("{STYLE-DIRECT}")]
 	if !ok {
@@ -1666,7 +1721,7 @@ func TestParseTableStylesResolvesThemeLineReferences(t *testing.T) {
 				</a:tcBdr></a:tcStyle>
 			</a:wholeTbl>
 		</a:tblStyle>
-	</a:tblStyleLst>`), themeColors{"accent2": {R: 12, G: 34, B: 56, A: 255}}, themeFonts{}, lineStyles)
+	</a:tblStyleLst>`), themeColors{"accent2": {R: 12, G: 34, B: 56, A: 255}}, themeFonts{}, themeFillStyles{}, lineStyles)
 
 	style := styles.Styles[normalizedTableStyleID("{STYLE-LINE}")]
 	left := style.Regions["wholeTbl"].Borders.Left
@@ -2017,7 +2072,7 @@ func testTableStyleSet(t *testing.T) tableStyleSet {
 				</a:tcStyle>
 			</a:firstRow>
 		</a:tblStyle>
-	</a:tblStyleLst>`), defaultThemeColors(), themeFonts{MinorLatin: "Calibri"}, themeLineStyles{})
+	</a:tblStyleLst>`), defaultThemeColors(), themeFonts{MinorLatin: "Calibri"}, themeFillStyles{}, themeLineStyles{})
 	if len(styles.Styles) == 0 {
 		t.Fatal("expected test table style XML to parse")
 	}
