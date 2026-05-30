@@ -7091,8 +7091,22 @@ func TestColorFromColorNodeAppliesDrawingMLTint(t *testing.T) {
 	if !ok {
 		t.Fatal("color was not parsed")
 	}
-	if got != (color.RGBA{R: 218, G: 227, B: 243, A: 255}) {
+	if got != (color.RGBA{R: 233, G: 235, B: 245, A: 255}) {
 		t.Fatalf("unexpected tinted color: %#v", got)
+	}
+}
+
+func TestColorFromColorNodeAppliesDrawingMLTintInLinearLight(t *testing.T) {
+	root, err := parseXMLNode([]byte(`<a:solidFill xmlns:a="a"><a:srgbClr val="00FF00"><a:tint val="50%"/></a:srgbClr></a:solidFill>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, ok := colorFromColorNode(root)
+	if !ok {
+		t.Fatal("color was not parsed")
+	}
+	if got != (color.RGBA{R: 0xbc, G: 0xff, B: 0xbc, A: 255}) {
+		t.Fatalf("unexpected linear-light tinted color: %#v", got)
 	}
 }
 
@@ -7105,7 +7119,7 @@ func TestColorFromColorNodeAppliesDrawingMLShade(t *testing.T) {
 	if !ok {
 		t.Fatal("color was not parsed")
 	}
-	if got != (color.RGBA{R: 25, G: 45, B: 80, A: 255}) {
+	if got != (color.RGBA{R: 42, G: 73, B: 129, A: 255}) {
 		t.Fatalf("unexpected shaded color: %#v", got)
 	}
 }
@@ -7200,7 +7214,7 @@ func TestColorFromColorNodeAppliesModifiersInDocumentOrder(t *testing.T) {
 	if got == reversed {
 		t.Fatalf("modifier order should affect color: ordered=%#v reversed=%#v", got, reversed)
 	}
-	if got != (color.RGBA{R: 96, G: 96, B: 96, A: 255}) {
+	if got != (color.RGBA{R: 150, G: 150, B: 150, A: 255}) {
 		t.Fatalf("unexpected ordered color: %#v", got)
 	}
 }

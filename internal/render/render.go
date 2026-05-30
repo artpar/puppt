@@ -2150,30 +2150,28 @@ func offsetColorChannel(channel uint8, value int64) uint8 {
 }
 
 func applyTintModifier(c color.RGBA, value int64) color.RGBA {
-	if value < 0 {
-		value = 0
-	} else if value > 100000 {
-		value = 100000
-	}
-	h, s, l := rgbToHSL(c)
-	l = l*float64(value)/100000 + (1 - float64(value)/100000)
-	if l > 1 {
-		l = 1
-	}
-	c.R, c.G, c.B = hslToRGB(h, s, l)
+	c.R = blendSRGBChannelLinear(c.R, 255, value)
+	c.G = blendSRGBChannelLinear(c.G, 255, value)
+	c.B = blendSRGBChannelLinear(c.B, 255, value)
 	return c
 }
 
 func applyShadeModifier(c color.RGBA, value int64) color.RGBA {
+	c.R = blendSRGBChannelLinear(c.R, 0, value)
+	c.G = blendSRGBChannelLinear(c.G, 0, value)
+	c.B = blendSRGBChannelLinear(c.B, 0, value)
+	return c
+}
+
+func blendSRGBChannelLinear(channel uint8, target uint8, value int64) uint8 {
 	if value < 0 {
 		value = 0
 	} else if value > 100000 {
 		value = 100000
 	}
-	h, s, l := rgbToHSL(c)
-	l *= float64(value) / 100000
-	c.R, c.G, c.B = hslToRGB(h, s, l)
-	return c
+	t := float64(value) / 100000
+	linear := srgbByteToLinear(channel)*t + srgbByteToLinear(target)*(1-t)
+	return linearToSRGBByte(linear)
 }
 
 func applySaturationModifier(c color.RGBA, value int64) color.RGBA {
