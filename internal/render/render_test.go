@@ -6940,7 +6940,7 @@ func TestColorFromColorNodeAppliesDrawingMLTint(t *testing.T) {
 	if !ok {
 		t.Fatal("color was not parsed")
 	}
-	if got != (color.RGBA{R: 233, G: 235, B: 245, A: 255}) {
+	if got != (color.RGBA{R: 218, G: 227, B: 243, A: 255}) {
 		t.Fatalf("unexpected tinted color: %#v", got)
 	}
 }
@@ -6954,7 +6954,7 @@ func TestColorFromColorNodeAppliesDrawingMLShade(t *testing.T) {
 	if !ok {
 		t.Fatal("color was not parsed")
 	}
-	if got != (color.RGBA{R: 42, G: 73, B: 129, A: 255}) {
+	if got != (color.RGBA{R: 27, G: 46, B: 78, A: 255}) {
 		t.Fatalf("unexpected shaded color: %#v", got)
 	}
 }
@@ -7049,7 +7049,7 @@ func TestColorFromColorNodeAppliesModifiersInDocumentOrder(t *testing.T) {
 	if got == reversed {
 		t.Fatalf("modifier order should affect color: ordered=%#v reversed=%#v", got, reversed)
 	}
-	if got != (color.RGBA{R: 150, G: 150, B: 150, A: 255}) {
+	if got != (color.RGBA{R: 96, G: 96, B: 96, A: 255}) {
 		t.Fatalf("unexpected ordered color: %#v", got)
 	}
 }

@@ -2093,14 +2093,12 @@ func shadeChannel(channel uint8, value int64) uint8 {
 }
 
 func linearBlendChannel(channel uint8, target uint8, value int64) uint8 {
-	sourceWeight := float64(value) / 100000
-	if sourceWeight < 0 {
-		sourceWeight = 0
-	} else if sourceWeight > 1 {
-		sourceWeight = 1
+	if value < 0 {
+		value = 0
+	} else if value > 100000 {
+		value = 100000
 	}
-	linear := srgbByteToLinear(channel)*sourceWeight + srgbByteToLinear(target)*(1-sourceWeight)
-	return linearToSRGBByte(linear)
+	return clampColor((int64(channel)*value + int64(target)*(100000-value) + 50000) / 100000)
 }
 
 func applySaturationModifier(c color.RGBA, value int64) color.RGBA {
