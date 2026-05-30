@@ -1948,6 +1948,47 @@ func TestResolvedTableCellStyleAppliesGenericRegionPrecedence(t *testing.T) {
 	if !band2.HasFill || band2.FillColor != (color.RGBA{R: 0xdd, G: 0xee, B: 0xff, A: 0xff}) {
 		t.Fatalf("unexpected band2 style: %+v", band2)
 	}
+
+	table.FirstRow = false
+	noHeaderBand1 := resolvedTableCellStyle(table, styles, 0, 1)
+	if !noHeaderBand1.HasFill || noHeaderBand1.FillColor != (color.RGBA{R: 0xaa, G: 0xbb, B: 0xcc, A: 0xff}) {
+		t.Fatalf("expected first non-header row to use band1 style, got %+v", noHeaderBand1)
+	}
+	noHeaderBand2 := resolvedTableCellStyle(table, styles, 1, 1)
+	if !noHeaderBand2.HasFill || noHeaderBand2.FillColor != (color.RGBA{R: 0xdd, G: 0xee, B: 0xff, A: 0xff}) {
+		t.Fatalf("expected second non-header row to use band2 style, got %+v", noHeaderBand2)
+	}
+}
+
+func TestTableStyleRegionNamesStartBandsAfterHeaderRegions(t *testing.T) {
+	table := tableModel{
+		Columns:  []int64{1, 1, 1},
+		FirstRow: true,
+		FirstCol: true,
+		BandRow:  true,
+		BandCol:  true,
+		Rows: []tableRow{
+			{Cells: []tableCell{{}, {}, {}}},
+			{Cells: []tableCell{{}, {}, {}}},
+			{Cells: []tableCell{{}, {}, {}}},
+		},
+	}
+
+	if got := tableStyleRegionNamesForCell(table, 1, 1); !slices.Contains(got, "band1H") || !slices.Contains(got, "band1V") {
+		t.Fatalf("expected first non-header row/column to use band1 regions, got %v", got)
+	}
+	if got := tableStyleRegionNamesForCell(table, 2, 2); !slices.Contains(got, "band2H") || !slices.Contains(got, "band2V") {
+		t.Fatalf("expected second non-header row/column to use band2 regions, got %v", got)
+	}
+
+	table.FirstRow = false
+	table.FirstCol = false
+	if got := tableStyleRegionNamesForCell(table, 0, 0); !slices.Contains(got, "band1H") || !slices.Contains(got, "band1V") {
+		t.Fatalf("expected first row/column without headers to use band1 regions, got %v", got)
+	}
+	if got := tableStyleRegionNamesForCell(table, 1, 1); !slices.Contains(got, "band2H") || !slices.Contains(got, "band2V") {
+		t.Fatalf("expected second row/column without headers to use band2 regions, got %v", got)
+	}
 }
 
 func TestTableEdgeBorderUsesInsideBordersForInternalEdges(t *testing.T) {

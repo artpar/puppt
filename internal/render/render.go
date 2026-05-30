@@ -5220,16 +5220,18 @@ func tableStyleRegionNamesForCell(table tableModel, rowIndex int, columnIndex in
 	columnCount := tableColumnCount(table)
 	names := []string{"wholeTbl"}
 	if table.BandRow {
-		if rowIndex%2 == 1 {
+		switch tableBandIndex(rowIndex, table.FirstRow) {
+		case 0:
 			names = append(names, "band1H")
-		} else {
+		case 1:
 			names = append(names, "band2H")
 		}
 	}
 	if table.BandCol {
-		if columnIndex%2 == 1 {
+		switch tableBandIndex(columnIndex, table.FirstCol) {
+		case 0:
 			names = append(names, "band1V")
-		} else {
+		case 1:
 			names = append(names, "band2V")
 		}
 	}
@@ -5258,6 +5260,16 @@ func tableStyleRegionNamesForCell(table tableModel, rowIndex int, columnIndex in
 		names = append(names, "seCell")
 	}
 	return names
+}
+
+func tableBandIndex(index int, skipFirst bool) int {
+	if skipFirst {
+		index--
+	}
+	if index < 0 {
+		return -1
+	}
+	return index % 2
 }
 
 func tableColumnCount(table tableModel) int {
