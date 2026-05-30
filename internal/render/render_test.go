@@ -1901,6 +1901,40 @@ func TestTableGridOffsetsScaleUnderfilledExtentsToFrame(t *testing.T) {
 	}
 }
 
+func TestTableRowOffsetsPreserveSpanningFirstRowHeightBeforeStretchingBody(t *testing.T) {
+	table := tableModel{
+		FirstRow: true,
+		Rows: []tableRow{
+			{HasHeight: true, Height: emuPerInch / 4, Cells: []tableCell{{ColSpan: 2}}},
+			{HasHeight: true, Height: emuPerInch / 4, Cells: []tableCell{{}, {}}},
+			{HasHeight: true, Height: emuPerInch / 4, Cells: []tableCell{{}, {}}},
+		},
+	}
+
+	got := tableRowOffsets(table, 0, 100, 0, emuPerInch, emuPerInch, 100)
+	want := []int{0, 25, 63, 100}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("expected spanning first row to keep authored height and body rows to fill frame, got %v want %v", got, want)
+	}
+}
+
+func TestTableRowOffsetsScaleOrdinaryFirstRowWithTableFrame(t *testing.T) {
+	table := tableModel{
+		FirstRow: true,
+		Rows: []tableRow{
+			{HasHeight: true, Height: emuPerInch / 4, Cells: []tableCell{{}, {}}},
+			{HasHeight: true, Height: emuPerInch / 4, Cells: []tableCell{{}, {}}},
+			{HasHeight: true, Height: emuPerInch / 4, Cells: []tableCell{{}, {}}},
+		},
+	}
+
+	got := tableRowOffsets(table, 0, 100, 0, emuPerInch, emuPerInch, 100)
+	want := []int{0, 33, 67, 100}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("expected ordinary first row to scale with the table frame, got %v want %v", got, want)
+	}
+}
+
 func TestTableRowWeightsPreserveExplicitZeroHeightRows(t *testing.T) {
 	table := tableModel{Rows: []tableRow{
 		{HasHeight: true, Height: 300},

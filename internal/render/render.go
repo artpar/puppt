@@ -4983,7 +4983,7 @@ func renderTableGraphicFrame(slidePart string, size slideSize, img *image.RGBA, 
 		return nil
 	}
 	columnOffsets := tableGridOffsets(tableColumnWeights(element.Table), target.Min.X, target.Max.X, element.OffX, element.ExtCX, size.CX, img.Bounds().Dx())
-	rowOffsets := tableGridOffsets(tableRowWeights(element.Table), target.Min.Y, target.Max.Y, element.OffY, element.ExtCY, size.CY, img.Bounds().Dy())
+	rowOffsets := tableRowOffsets(element.Table, target.Min.Y, target.Max.Y, element.OffY, element.ExtCY, size.CY, img.Bounds().Dy())
 	style, hasStyle := tableStyleForTable(element.Table, tableStyles)
 	backgroundEffectRendered := true
 	if hasStyle {
@@ -5536,6 +5536,41 @@ func tableRowWeights(table tableModel) []int64 {
 		}
 	}
 	return weights
+}
+
+func tableRowOffsets(table tableModel, min int, max int, originEMU int64, frameEMU int64, slideEMU int64, canvasPixels int) []int {
+	weights := tableRowWeights(table)
+	if len(weights) <= 1 || !table.FirstRow || !tableFirstRowHasSpanningCells(table) || frameEMU <= 0 {
+		return tableGridOffsets(weights, min, max, originEMU, frameEMU, slideEMU, canvasPixels)
+	}
+	total := int64(0)
+	for _, weight := range weights {
+		total += weight
+	}
+	if total <= 0 || total >= frameEMU {
+		return tableGridOffsets(weights, min, max, originEMU, frameEMU, slideEMU, canvasPixels)
+	}
+	headerEnd := scaleEMU(originEMU+weights[0], slideEMU, canvasPixels)
+	if headerEnd <= min || headerEnd >= max {
+		return tableGridOffsets(weights, min, max, originEMU, frameEMU, slideEMU, canvasPixels)
+	}
+	offsets := make([]int, 0, len(weights)+1)
+	offsets = append(offsets, min, headerEnd)
+	bodyOffsets := proportionalOffsets(weights[1:], headerEnd, max)
+	offsets = append(offsets, bodyOffsets[1:]...)
+	return offsets
+}
+
+func tableFirstRowHasSpanningCells(table tableModel) bool {
+	if len(table.Rows) == 0 {
+		return false
+	}
+	for _, cell := range table.Rows[0].Cells {
+		if cell.ColSpan > 1 || cell.HMerge {
+			return true
+		}
+	}
+	return false
 }
 
 func tableGridOffsets(weights []int64, min int, max int, originEMU int64, frameEMU int64, slideEMU int64, canvasPixels int) []int {
