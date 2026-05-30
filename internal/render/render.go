@@ -389,6 +389,7 @@ type tableCell struct {
 	RowSpan        int
 	VMerge         bool
 	FontSize       int
+	HasFontSize    bool
 	HasTextColor   bool
 	TextColor      color.RGBA
 	TextAlign      string
@@ -595,6 +596,7 @@ func Render(ctx context.Context, inputPath string, options Options) (model.Comma
 			elements = resolveSlidePlaceholders(elements, placeholderSources)
 			elements = applyInheritedTextStyles(elements, textStyles)
 		}
+		elements = applyInheritedTableTextStyles(elements, textStyles)
 		elements = applyThemeFontFamilies(elements, partFonts)
 		elements = resolveTextFields(elements, options.SlideNumber)
 		unsupported = append(unsupported, renderElements(pkg, renderPart, size, img, elements, tableStyles)...)
@@ -1242,8 +1244,14 @@ func parseTableCell(cellNode *xmlNode, theme themeColors) tableCell {
 	if cell.ColSpan <= 0 {
 		cell.ColSpan = 1
 	}
+	if cell.FontSize > 0 {
+		cell.HasFontSize = true
+	}
 	if cell.FontSize == 0 {
-		cell.FontSize = textParagraphsFontSize(cell.TextParagraphs)
+		if size := textParagraphsFontSize(cell.TextParagraphs); size > 0 {
+			cell.FontSize = size
+			cell.HasFontSize = true
+		}
 	}
 	if cell.FontSize == 0 {
 		cell.FontSize = 1200
@@ -4160,6 +4168,25 @@ func applyThemeFontFamilies(elements []slideElement, fonts themeFonts) []slideEl
 				}
 			}
 		}
+		for rowIndex := range elements[index].Table.Rows {
+			for cellIndex := range elements[index].Table.Rows[rowIndex].Cells {
+				for paragraphIndex := range elements[index].Table.Rows[rowIndex].Cells[cellIndex].TextParagraphs {
+					paragraph := &elements[index].Table.Rows[rowIndex].Cells[cellIndex].TextParagraphs[paragraphIndex]
+					if family := resolveThemeTypeface(paragraph.FontFamily, fonts); family != "" {
+						paragraph.FontFamily = family
+					}
+					if family := resolveThemeTypeface(paragraph.BulletFontFamily, fonts); family != "" {
+						paragraph.BulletFontFamily = family
+					}
+					for runIndex := range paragraph.Runs {
+						run := &paragraph.Runs[runIndex]
+						if family := resolveThemeTypeface(run.FontFamily, fonts); family != "" {
+							run.FontFamily = family
+						}
+					}
+				}
+			}
+		}
 		if elements[index].FontFamily != "" {
 			if family := resolveThemeTypeface(elements[index].FontFamily, fonts); family != "" {
 				elements[index].FontFamily = family
@@ -4241,6 +4268,44 @@ func applyInheritedTextStyles(elements []slideElement, styles map[string]textSty
 		}
 	}
 	return elements
+}
+
+func applyInheritedTableTextStyles(elements []slideElement, styles map[string]textStyle) []slideElement {
+	style, ok := styles["default"]
+	if !ok {
+		return elements
+	}
+	for elementIndex := range elements {
+		if !elements[elementIndex].HasTable {
+			continue
+		}
+		for rowIndex := range elements[elementIndex].Table.Rows {
+			for cellIndex := range elements[elementIndex].Table.Rows[rowIndex].Cells {
+				cell := &elements[elementIndex].Table.Rows[rowIndex].Cells[cellIndex]
+				applyParagraphStylesToTableCell(cell, style.ParagraphStyles)
+				if !cell.HasFontSize && style.FontSize > 0 {
+					cell.FontSize = style.FontSize
+				}
+			}
+		}
+	}
+	return elements
+}
+
+func applyParagraphStylesToTableCell(cell *tableCell, styles map[int]paragraphStyle) {
+	if cell == nil || len(styles) == 0 {
+		return
+	}
+	for index := range cell.TextParagraphs {
+		style, ok := styles[cell.TextParagraphs[index].Level]
+		if !ok {
+			continue
+		}
+		applyParagraphStyle(&cell.TextParagraphs[index], style)
+	}
+	if cell.TextAlign == "" {
+		cell.TextAlign = textParagraphsTextAlign(cell.TextParagraphs)
+	}
 }
 
 func applyParagraphStylesToElement(element *slideElement, styles map[int]paragraphStyle) {

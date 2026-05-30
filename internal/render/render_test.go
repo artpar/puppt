@@ -3628,6 +3628,74 @@ func TestApplyInheritedTextStylesAppliesBodyParagraphMargins(t *testing.T) {
 	}
 }
 
+func TestApplyInheritedTableTextStylesUsesPresentationDefaultForImplicitCellText(t *testing.T) {
+	elements := []slideElement{{
+		Kind:     "graphicFrame",
+		HasTable: true,
+		Table: tableModel{Rows: []tableRow{{
+			Cells: []tableCell{
+				{
+					Text: "Implicit",
+					TextParagraphs: []textParagraph{{
+						Text: "Implicit",
+						Runs: []textRun{{Text: "Implicit"}},
+					}},
+					FontSize: 1200,
+				},
+				{
+					Text:        "Explicit",
+					FontSize:    1600,
+					HasFontSize: true,
+					TextParagraphs: []textParagraph{{
+						Text:     "Explicit",
+						FontSize: 1600,
+						Runs:     []textRun{{Text: "Explicit", FontSize: 1600}},
+					}},
+				},
+			},
+		}}},
+	}}
+
+	got := applyInheritedTableTextStyles(elements, map[string]textStyle{
+		"default": {
+			FontSize: 1800,
+			ParagraphStyles: map[int]paragraphStyle{
+				0: {FontSize: 1800, FontFamily: "+mn-lt", TextAlign: "ctr"},
+			},
+		},
+	})
+	implicit := got[0].Table.Rows[0].Cells[0]
+	if implicit.FontSize != 1800 || implicit.TextParagraphs[0].FontSize != 1800 || implicit.TextParagraphs[0].FontFamily != "+mn-lt" || implicit.TextAlign != "ctr" {
+		t.Fatalf("implicit table cell did not inherit default text style: %+v", implicit)
+	}
+	explicit := got[0].Table.Rows[0].Cells[1]
+	if explicit.FontSize != 1600 || explicit.TextParagraphs[0].FontSize != 1600 || explicit.TextParagraphs[0].Runs[0].FontSize != 1600 {
+		t.Fatalf("explicit table cell font size was overwritten: %+v", explicit)
+	}
+}
+
+func TestApplyThemeFontFamiliesResolvesTableCellParagraphFonts(t *testing.T) {
+	elements := []slideElement{{
+		Kind:     "graphicFrame",
+		HasTable: true,
+		Table: tableModel{Rows: []tableRow{{
+			Cells: []tableCell{{
+				TextParagraphs: []textParagraph{{
+					FontFamily:       "+mn-lt",
+					BulletFontFamily: "+mj-lt",
+					Runs:             []textRun{{Text: "A", FontFamily: "+mn-lt"}},
+				}},
+			}},
+		}}},
+	}}
+
+	got := applyThemeFontFamilies(elements, themeFonts{MajorLatin: "Calibri Light", MinorLatin: "Calibri"})
+	paragraph := got[0].Table.Rows[0].Cells[0].TextParagraphs[0]
+	if paragraph.FontFamily != "Calibri" || paragraph.BulletFontFamily != "Calibri Light" || paragraph.Runs[0].FontFamily != "Calibri" {
+		t.Fatalf("table cell theme fonts were not resolved: %+v", paragraph)
+	}
+}
+
 func TestApplyInheritedTextStylesPreservesExplicitZeroParagraphSpacing(t *testing.T) {
 	elements := []slideElement{{
 		Text: "Title",
