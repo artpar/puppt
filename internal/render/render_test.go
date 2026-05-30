@@ -4560,11 +4560,11 @@ func TestRenderPicturePaintsSoftEdge(t *testing.T) {
 	}
 }
 
-func TestSoftEdgeRadiusUsesGaussianKernelRadius(t *testing.T) {
+func TestSoftEdgeRadiusUsesDrawingMLRadius(t *testing.T) {
 	element := slideElement{SoftEdgeRadius: emuPerInch / 10}
 	got := softEdgeRadiusPixels(element, slideSize{CX: emuPerInch, CY: emuPerInch}, 100)
-	if got != 5 {
-		t.Fatalf("expected DrawingML soft-edge width to map to half-width Gaussian radius, got %d", got)
+	if got != 10 {
+		t.Fatalf("expected DrawingML soft-edge radius to scale directly to output pixels, got %d", got)
 	}
 }
 

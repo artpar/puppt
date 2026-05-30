@@ -10853,9 +10853,7 @@ func softEdgeRadiusPixels(element slideElement, size slideSize, outputWidth int)
 	if radius < 0 {
 		return 0
 	}
-	// DrawingML's soft-edge radius describes the full softened edge width; the
-	// separable Gaussian kernel uses a center-to-edge sample radius.
-	return (radius + 1) / 2
+	return radius
 }
 
 func scaleImageWithCustomMask(dst *image.RGBA, target image.Rectangle, src image.Image, srcBounds image.Rectangle, points []pathPoint) {
