@@ -4759,7 +4759,7 @@ func drawRotatedShapeText(img *image.RGBA, bounds image.Rectangle, element slide
 	rotated := rotateRGBA(temp, rotation)
 	center := image.Point{X: bounds.Min.X + bounds.Dx()/2, Y: bounds.Min.Y + bounds.Dy()/2}
 	dst := image.Rect(center.X-rotated.Bounds().Dx()/2, center.Y-rotated.Bounds().Dy()/2, center.X-rotated.Bounds().Dx()/2+rotated.Bounds().Dx(), center.Y-rotated.Bounds().Dy()/2+rotated.Bounds().Dy())
-	draw.Draw(img, dst.Intersect(img.Bounds()), rotated, image.Point{}, draw.Over)
+	drawRGBAAt(img, dst, rotated)
 	return nil
 }
 
@@ -4791,8 +4791,80 @@ func rotateRGBA(src *image.RGBA, rotation int) *image.RGBA {
 		}
 		return dst
 	default:
-		return src
+		return rotateRGBAArbitrary(src, float64(rotation))
 	}
+}
+
+func rotateRGBAArbitrary(src *image.RGBA, degrees float64) *image.RGBA {
+	bounds := src.Bounds()
+	width := bounds.Dx()
+	height := bounds.Dy()
+	if width <= 0 || height <= 0 {
+		return image.NewRGBA(image.Rect(0, 0, 0, 0))
+	}
+	radians := degrees * math.Pi / 180
+	sin, cos := math.Sin(radians), math.Cos(radians)
+	outputWidth := int(math.Ceil(math.Abs(float64(width)*cos) + math.Abs(float64(height)*sin)))
+	outputHeight := int(math.Ceil(math.Abs(float64(width)*sin) + math.Abs(float64(height)*cos)))
+	if outputWidth <= 0 || outputHeight <= 0 {
+		return image.NewRGBA(image.Rect(0, 0, 0, 0))
+	}
+	dst := image.NewRGBA(image.Rect(0, 0, outputWidth, outputHeight))
+	sourceCenterX := float64(bounds.Min.X) + float64(width-1)/2
+	sourceCenterY := float64(bounds.Min.Y) + float64(height-1)/2
+	outputCenterX := float64(outputWidth-1) / 2
+	outputCenterY := float64(outputHeight-1) / 2
+	for y := 0; y < outputHeight; y++ {
+		for x := 0; x < outputWidth; x++ {
+			dx := float64(x) - outputCenterX
+			dy := float64(y) - outputCenterY
+			sourceX := sourceCenterX + dx*cos + dy*sin
+			sourceY := sourceCenterY - dx*sin + dy*cos
+			if sourceX < float64(bounds.Min.X) || sourceX > float64(bounds.Max.X-1) || sourceY < float64(bounds.Min.Y) || sourceY > float64(bounds.Max.Y-1) {
+				continue
+			}
+			dst.SetRGBA(x, y, bilinearRGBAAt(src, sourceX, sourceY))
+		}
+	}
+	return dst
+}
+
+func bilinearRGBAAt(src *image.RGBA, x float64, y float64) color.RGBA {
+	bounds := src.Bounds()
+	x0 := int(math.Floor(x))
+	y0 := int(math.Floor(y))
+	x1 := min(x0+1, bounds.Max.X-1)
+	y1 := min(y0+1, bounds.Max.Y-1)
+	fx := x - float64(x0)
+	fy := y - float64(y0)
+	c00 := src.RGBAAt(x0, y0)
+	c10 := src.RGBAAt(x1, y0)
+	c01 := src.RGBAAt(x0, y1)
+	c11 := src.RGBAAt(x1, y1)
+	return color.RGBA{
+		R: interpolateBilinearChannel(c00.R, c10.R, c01.R, c11.R, fx, fy),
+		G: interpolateBilinearChannel(c00.G, c10.G, c01.G, c11.G, fx, fy),
+		B: interpolateBilinearChannel(c00.B, c10.B, c01.B, c11.B, fx, fy),
+		A: interpolateBilinearChannel(c00.A, c10.A, c01.A, c11.A, fx, fy),
+	}
+}
+
+func interpolateBilinearChannel(c00 uint8, c10 uint8, c01 uint8, c11 uint8, fx float64, fy float64) uint8 {
+	top := float64(c00)*(1-fx) + float64(c10)*fx
+	bottom := float64(c01)*(1-fx) + float64(c11)*fx
+	return clampColor(int64(math.Round(top*(1-fy) + bottom*fy)))
+}
+
+func drawRGBAAt(dst *image.RGBA, target image.Rectangle, src *image.RGBA) {
+	clipped := target.Intersect(dst.Bounds())
+	if clipped.Empty() {
+		return
+	}
+	sourcePoint := image.Point{
+		X: src.Bounds().Min.X + clipped.Min.X - target.Min.X,
+		Y: src.Bounds().Min.Y + clipped.Min.Y - target.Min.Y,
+	}
+	draw.Draw(dst, clipped, src, sourcePoint, draw.Over)
 }
 
 func isRectGeometry(geometry string) bool {
@@ -9189,7 +9261,7 @@ func renderPicture(pkg *pptx.Package, slidePart string, size slideSize, img *ima
 	softEdgeRendered := drawPictureRaster(img, target, pictureImage, pictureBounds, *element, size)
 	if element.HasLine && !element.NoLine {
 		lineWidth := emuLineWidthToPixels(element.LineWidth, size.CX, img.Bounds().Dx())
-		if normalizedRotationDegrees(element.Rotation) == 0 || !supportedQuarterTurnRotation(element.Rotation) {
+		if normalizedRotationDegrees(element.Rotation) == 0 {
 			drawPictureOutline(img, target, *element, lineWidth)
 		}
 	}
@@ -9212,15 +9284,12 @@ func renderPicture(pkg *pptx.Package, slidePart string, size slideSize, img *ima
 			unsupported = append(unsupported, unsupportedItem(slidePart, partialUnsupportedCode, fmt.Sprintf("picture object %q rendered from fallback raster because SVG image could not be decoded: %v", elementLabel(*element), partialUnsupported)))
 		}
 	}
-	if element.HasRotation && !supportedQuarterTurnRotation(element.Rotation) {
-		unsupported = append(unsupported, unsupportedItem(slidePart, partialUnsupportedCode, fmt.Sprintf("picture object %q was rendered without rotation", elementLabel(*element))))
-	}
 	return unsupported
 }
 
 func drawPictureRaster(img *image.RGBA, target image.Rectangle, pictureImage image.Image, pictureBounds image.Rectangle, element slideElement, size slideSize) bool {
 	rotation := normalizedRotationDegrees(element.Rotation)
-	if rotation == 0 || !supportedQuarterTurnRotation(element.Rotation) {
+	if rotation == 0 {
 		return drawPictureRasterLayer(img, target, pictureImage, pictureBounds, element, size, img.Bounds().Dx())
 	}
 	if target.Empty() {
@@ -9236,7 +9305,7 @@ func drawPictureRaster(img *image.RGBA, target image.Rectangle, pictureImage ima
 	rotated := rotateRGBA(layer, rotation)
 	center := image.Point{X: target.Min.X + target.Dx()/2, Y: target.Min.Y + target.Dy()/2}
 	dst := image.Rect(center.X-rotated.Bounds().Dx()/2, center.Y-rotated.Bounds().Dy()/2, center.X-rotated.Bounds().Dx()/2+rotated.Bounds().Dx(), center.Y-rotated.Bounds().Dy()/2+rotated.Bounds().Dy())
-	draw.Draw(img, dst.Intersect(img.Bounds()), rotated, image.Point{}, draw.Over)
+	drawRGBAAt(img, dst, rotated)
 	return softEdgeRendered
 }
 
@@ -9255,15 +9324,6 @@ func drawPictureRasterLayer(img *image.RGBA, target image.Rectangle, pictureImag
 
 func drawPictureOutline(img *image.RGBA, target image.Rectangle, element slideElement, lineWidth int) {
 	drawStyledRectOutline(img, target, element.LineColor, lineWidth, element.LineDash)
-}
-
-func supportedQuarterTurnRotation(rotation int) bool {
-	switch normalizedRotationDegrees(rotation) {
-	case 0, 90, 180, 270:
-		return true
-	default:
-		return false
-	}
 }
 
 func drawPictureShadow(img *image.RGBA, target image.Rectangle, element slideElement, size slideSize) bool {

@@ -3997,7 +3997,7 @@ func TestRenderElementsPaintsShapeBlipFill(t *testing.T) {
 	}
 }
 
-func TestRenderElementsPreservesShapeBlipFillDiagnostics(t *testing.T) {
+func TestRenderElementsPaintsRotatedShapeBlipFill(t *testing.T) {
 	pkg := &pptx.Package{
 		Parts: map[string][]byte{
 			"ppt/slides/_rels/slide1.xml.rels": []byte(`<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/image1.png"/></Relationships>`),
@@ -4020,11 +4020,14 @@ func TestRenderElementsPreservesShapeBlipFillDiagnostics(t *testing.T) {
 	}}
 
 	unsupported := renderElements(pkg, "ppt/slides/slide1.xml", slideSize{CX: emuPerInch, CY: emuPerInch}, img, elements, tableStyleSet{})
-	if len(unsupported) != 1 || unsupported[0].Code != partialUnsupportedCode || !strings.Contains(unsupported[0].Message, "without rotation") {
-		t.Fatalf("expected shape image fill rotation diagnostic to be preserved, got unsupported=%+v", unsupported)
+	if len(unsupported) != 0 {
+		t.Fatalf("expected rotated shape image fill to render without unsupported diagnostics, got unsupported=%+v", unsupported)
 	}
 	if !elements[0].Rendered {
 		t.Fatal("shape blip fill render state was not preserved after shape rendering")
+	}
+	if got := img.RGBAAt(48, 48); got.R == 0 || got.A == 0 {
+		t.Fatalf("expected rotated shape image fill to paint center pixel, got %#v", got)
 	}
 }
 
@@ -4271,6 +4274,23 @@ func TestDrawPictureRasterAppliesQuarterTurnRotation(t *testing.T) {
 	}
 	if got := dst.RGBAAt(0, 1); got.G == 0 || got.R != 0 {
 		t.Fatalf("expected rotated green source pixel at bottom, got %#v", got)
+	}
+}
+
+func TestDrawPictureRasterAppliesArbitraryRotation(t *testing.T) {
+	source := image.NewRGBA(image.Rect(0, 0, 4, 4))
+	draw.Draw(source, source.Bounds(), &image.Uniform{C: color.RGBA{R: 255, A: 255}}, image.Point{}, draw.Src)
+	dst := image.NewRGBA(image.Rect(0, 0, 64, 64))
+	target := image.Rect(22, 22, 42, 42)
+
+	drawPictureRaster(dst, target, source, source.Bounds(), slideElement{HasRotation: true, Rotation: 2700000}, slideSize{CX: emuPerInch, CY: emuPerInch})
+
+	bounds := opaqueBounds(dst)
+	if bounds.Empty() {
+		t.Fatal("expected arbitrary picture rotation to paint pixels")
+	}
+	if bounds.Dx() <= target.Dx() || bounds.Dy() <= target.Dy() {
+		t.Fatalf("expected arbitrary rotation to expand painted bounds beyond the unrotated target, got %v target=%v", bounds, target)
 	}
 }
 
