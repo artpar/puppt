@@ -3045,6 +3045,11 @@ func applyRunPropertiesToRun(run *textRun, rPr *xmlNode, text string, theme them
 }
 
 func typefaceFromRunPropertiesForText(rPr *xmlNode, text string) string {
+	if textUsesSymbolTypeface(text) {
+		if typeface := typefaceFromChild(rPr, "sym"); typeface != "" {
+			return typeface
+		}
+	}
 	if typeface := latinTypefaceFromRunProperties(rPr); typeface != "" {
 		return typeface
 	}
@@ -3082,6 +3087,25 @@ func textNeedsAlternateTypeface(text string) bool {
 		}
 	}
 	return false
+}
+
+func textUsesSymbolTypeface(text string) bool {
+	hasSymbol := false
+	for _, r := range text {
+		if isPrivateUseRune(r) {
+			hasSymbol = true
+			continue
+		}
+		if unicode.IsSpace(r) {
+			continue
+		}
+		return false
+	}
+	return hasSymbol
+}
+
+func isPrivateUseRune(r rune) bool {
+	return (r >= '\uE000' && r <= '\uF8FF') || (r >= '\U000F0000' && r <= '\U000FFFFD') || (r >= '\U00100000' && r <= '\U0010FFFD')
 }
 
 func isUnderlineStyle(value string) bool {

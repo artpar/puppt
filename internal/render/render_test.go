@@ -3219,6 +3219,40 @@ func TestTextParagraphsFromNodeDoesNotUseAlternateTypefaceForLatinTextWithMathSy
 	}
 }
 
+func TestTextParagraphsFromNodeUsesSymbolTypefaceForPrivateUseRunText(t *testing.T) {
+	root, err := parseXMLNode([]byte(`<p:txBody xmlns:p="p" xmlns:a="a">
+  <a:p><a:r><a:rPr sz="1800"><a:latin typeface="Arial"/><a:sym typeface="Wingdings"/></a:rPr><a:t>&#xF0E0;</a:t></a:r></a:p>
+</p:txBody>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got := textParagraphsFromNode(root)
+	if len(got) != 1 || len(got[0].Runs) != 1 {
+		t.Fatalf("unexpected run parse: %+v", got)
+	}
+	if got[0].Runs[0].FontFamily != "Wingdings" {
+		t.Fatalf("private-use symbol text should use a:sym typeface, got %+v", got[0].Runs[0])
+	}
+}
+
+func TestTextParagraphsFromNodeKeepsLatinTypefaceForMixedPrivateUseText(t *testing.T) {
+	root, err := parseXMLNode([]byte(`<p:txBody xmlns:p="p" xmlns:a="a">
+  <a:p><a:r><a:rPr sz="1800"><a:latin typeface="Arial"/><a:sym typeface="Wingdings"/></a:rPr><a:t>Go &#xF0E0; there</a:t></a:r></a:p>
+</p:txBody>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got := textParagraphsFromNode(root)
+	if len(got) != 1 || len(got[0].Runs) != 1 {
+		t.Fatalf("unexpected run parse: %+v", got)
+	}
+	if got[0].Runs[0].FontFamily != "Arial" {
+		t.Fatalf("latin typeface should still win for mixed text runs, got %+v", got[0].Runs[0])
+	}
+}
+
 func TestDrawTextUnderlinePaintsBelowBaseline(t *testing.T) {
 	img := image.NewRGBA(image.Rect(0, 0, 120, 40))
 	draw.Draw(img, img.Bounds(), &image.Uniform{C: color.White}, image.Point{}, draw.Src)
