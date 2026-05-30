@@ -1500,7 +1500,7 @@ func TestRenderGraphicFramePaintsTableStyleBackground(t *testing.T) {
 	}
 }
 
-func TestRenderGraphicFrameReportsTableStyleBackgroundGradientPartial(t *testing.T) {
+func TestRenderGraphicFramePaintsTableStyleBackgroundGradient(t *testing.T) {
 	size := slideSize{CX: emuPerInch, CY: emuPerInch}
 	img := image.NewRGBA(image.Rect(0, 0, 96, 96))
 	element := slideElement{
@@ -1531,11 +1531,13 @@ func TestRenderGraphicFrameReportsTableStyleBackgroundGradientPartial(t *testing
 	}}
 
 	unsupported := renderGraphicFrame(&pptx.Package{}, "ppt/slides/slide1.xml", size, img, &element, nil, styles)
-	if len(unsupported) != 1 || unsupported[0].Code != partialUnsupportedCode || !strings.Contains(unsupported[0].Message, "table background gradient fill") || !element.Rendered {
+	if len(unsupported) != 0 || !element.Rendered {
 		t.Fatalf("unexpected table render result: unsupported=%+v rendered=%v", unsupported, element.Rendered)
 	}
-	if got := img.RGBAAt(48, 48); got.A != 0 {
-		t.Fatalf("unsupported table background gradient should not paint pixels, got %#v", got)
+	top := img.RGBAAt(48, 10)
+	bottom := img.RGBAAt(48, 86)
+	if top.R >= bottom.R || top.B >= bottom.B {
+		t.Fatalf("expected table background gradient to span entire table, top=%#v bottom=%#v", top, bottom)
 	}
 }
 
