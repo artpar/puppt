@@ -7101,7 +7101,7 @@ func drawShapeTextLayerWithDPI(img *image.RGBA, bounds image.Rectangle, element 
 		}
 		bounds = anchorCenteredTextBounds(bounds, width)
 	}
-	y := anchoredTextTop(bounds, measuredTextHeight(measured), element.TextAnchor)
+	y := anchoredTextTop(bounds, measuredTextAnchorHeight(measured, element.TextAnchor), element.TextAnchor)
 	verticalLimit := bounds.Max.Y
 	if shapeTextVerticalOverflowAllowed(element) {
 		verticalLimit = img.Bounds().Max.Y
@@ -8731,6 +8731,21 @@ func measuredTextHeight(lines []measuredTextLine) int {
 		return inkHeight
 	}
 	return advanceHeight
+}
+
+func measuredTextAnchorHeight(lines []measuredTextLine, anchor string) int {
+	if anchor != "ctr" && anchor != "b" {
+		return measuredTextHeight(lines)
+	}
+	height := 0
+	for _, line := range lines {
+		visible := line.Ascent + line.Descent
+		if visible <= 0 {
+			visible = line.Height
+		}
+		height += line.SpaceBefore + visible + line.SpaceAfter
+	}
+	return height
 }
 
 func paragraphSpacingPercentPixels(pct int, fontSize int) int {

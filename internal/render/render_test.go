@@ -7703,6 +7703,26 @@ func TestMeasuredTextHeightIncludesInkExtentsWhenLineSpacingIsTight(t *testing.T
 	}
 }
 
+func TestMeasuredTextAnchorHeightUsesVisibleInkBoxForCenteredText(t *testing.T) {
+	lines := []measuredTextLine{{
+		Ascent:      30,
+		Descent:     8,
+		Height:      48,
+		SpaceBefore: 2,
+		SpaceAfter:  3,
+	}}
+
+	if got := measuredTextAnchorHeight(lines, "ctr"); got != 43 {
+		t.Fatalf("centered text anchor should use visible ink height, got %d", got)
+	}
+	if got := measuredTextAnchorHeight(lines, "b"); got != 43 {
+		t.Fatalf("bottom text anchor should use visible ink height, got %d", got)
+	}
+	if got := measuredTextAnchorHeight(lines, ""); got != 53 {
+		t.Fatalf("top anchored text should keep full line advance, got %d", got)
+	}
+}
+
 func TestGoogleTitleNormalAutofitMetricsIncludeInkExtents(t *testing.T) {
 	element := slideElement{
 		HasNormAutofit:          true,
