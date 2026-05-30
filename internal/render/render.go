@@ -502,9 +502,10 @@ func Render(ctx context.Context, inputPath string, options Options) (model.Comma
 	for _, renderPart := range paintParts {
 		partTheme := themeForPart(renderPart)
 		partFonts := fontsForPart(renderPart)
+		partLineStyles := themeLineStylesForPart(pkg, renderPart)
 		effectStyles := themeEffectStylesForPart(pkg, renderPart)
 		fillStyles := themeFillStylesForPart(pkg, renderPart)
-		elements := collectSlideElementsWithThemeEffectsAndFills(pkg.Parts[renderPart], partTheme, effectStyles, fillStyles)
+		elements := collectSlideElementsWithThemeEffectsAndFills(pkg.Parts[renderPart], partTheme, effectStyles, fillStyles, partLineStyles)
 		if renderPart != slidePart {
 			elements = filterInheritedPlaceholders(elements)
 		} else {
@@ -874,15 +875,15 @@ func collectSlideElementsWithTheme(data []byte, theme themeColors) []slideElemen
 }
 
 func collectSlideElementsWithThemeAndEffects(data []byte, theme themeColors, effectStyles themeEffectStyles) []slideElement {
-	return collectSlideElementsWithThemeEffectsAndFills(data, theme, effectStyles, themeFillStyles{})
+	return collectSlideElementsWithThemeEffectsAndFills(data, theme, effectStyles, themeFillStyles{}, themeLineStyles{})
 }
 
-func collectSlideElementsWithThemeEffectsAndFills(data []byte, theme themeColors, effectStyles themeEffectStyles, fillStyles themeFillStyles) []slideElement {
+func collectSlideElementsWithThemeEffectsAndFills(data []byte, theme themeColors, effectStyles themeEffectStyles, fillStyles themeFillStyles, lineStyles themeLineStyles) []slideElement {
 	root, err := parseXMLNode(data)
 	if err != nil {
 		return nil
 	}
-	return collectElementsFromNode(root, renderTransform{ScaleX: 1, ScaleY: 1}, theme, effectStyles, fillStyles)
+	return collectElementsFromNode(root, renderTransform{ScaleX: 1, ScaleY: 1}, theme, effectStyles, fillStyles, lineStyles)
 }
 
 func parseXMLNode(data []byte) (*xmlNode, error) {
@@ -920,17 +921,17 @@ func parseXMLNode(data []byte) (*xmlNode, error) {
 	return root, nil
 }
 
-func collectElementsFromNode(node *xmlNode, transform renderTransform, theme themeColors, effectStyles themeEffectStyles, fillStyles themeFillStyles) []slideElement {
+func collectElementsFromNode(node *xmlNode, transform renderTransform, theme themeColors, effectStyles themeEffectStyles, fillStyles themeFillStyles, lineStyles themeLineStyles) []slideElement {
 	var elements []slideElement
 	for _, child := range node.Children {
 		switch child.Name {
 		case "sp", "cxnSp", "pic", "graphicFrame":
-			element := parseSlideElementNodeWithThemeEffectsAndFills(child, transform, theme, effectStyles, fillStyles)
+			element := parseSlideElementNodeWithThemeEffectsAndFills(child, transform, theme, effectStyles, fillStyles, lineStyles)
 			elements = append(elements, element)
 		case "grpSp":
-			elements = append(elements, collectElementsFromNode(child, composeGroupTransform(transform, child), theme, effectStyles, fillStyles)...)
+			elements = append(elements, collectElementsFromNode(child, composeGroupTransform(transform, child), theme, effectStyles, fillStyles, lineStyles)...)
 		default:
-			elements = append(elements, collectElementsFromNode(child, transform, theme, effectStyles, fillStyles)...)
+			elements = append(elements, collectElementsFromNode(child, transform, theme, effectStyles, fillStyles, lineStyles)...)
 		}
 	}
 	return elements
@@ -945,10 +946,10 @@ func parseSlideElementNodeWithTheme(node *xmlNode, transform renderTransform, th
 }
 
 func parseSlideElementNodeWithThemeAndEffects(node *xmlNode, transform renderTransform, theme themeColors, effectStyles themeEffectStyles) slideElement {
-	return parseSlideElementNodeWithThemeEffectsAndFills(node, transform, theme, effectStyles, themeFillStyles{})
+	return parseSlideElementNodeWithThemeEffectsAndFills(node, transform, theme, effectStyles, themeFillStyles{}, themeLineStyles{})
 }
 
-func parseSlideElementNodeWithThemeEffectsAndFills(node *xmlNode, transform renderTransform, theme themeColors, effectStyles themeEffectStyles, fillStyles themeFillStyles) slideElement {
+func parseSlideElementNodeWithThemeEffectsAndFills(node *xmlNode, transform renderTransform, theme themeColors, effectStyles themeEffectStyles, fillStyles themeFillStyles, lineStyles themeLineStyles) slideElement {
 	element := slideElement{Kind: node.Name}
 	if cNvPr := firstDescendant(node, "cNvPr"); cNvPr != nil {
 		element.ID = attrValue(cNvPr.Attrs, "id")
@@ -991,7 +992,7 @@ func parseSlideElementNodeWithThemeEffectsAndFills(node *xmlNode, transform rend
 		parseTextTransform(txXfrm, transform, &element)
 	}
 	if style := firstChild(node, "style"); style != nil {
-		parseStyleProperties(style, &element, theme, effectStyles, fillStyles)
+		parseStyleProperties(style, &element, theme, effectStyles, fillStyles, lineStyles)
 	}
 	parseTextProperties(node, &element, theme)
 	element.Text = strings.TrimSpace(textFromNode(node))
@@ -1489,7 +1490,7 @@ func parsePresetGeometryAdjustments(prstGeom *xmlNode) map[string]int64 {
 	return adjustments
 }
 
-func parseStyleProperties(style *xmlNode, element *slideElement, theme themeColors, effectStyles themeEffectStyles, fillStyles themeFillStyles) {
+func parseStyleProperties(style *xmlNode, element *slideElement, theme themeColors, effectStyles themeEffectStyles, fillStyles themeFillStyles, lineStyles themeLineStyles) {
 	if fillRef := firstChild(style, "fillRef"); fillRef != nil && !element.HasFill && attrValue(fillRef.Attrs, "idx") != "0" {
 		placeholderColor, hasPlaceholderColor := colorFromColorNodeWithTheme(fillRef, theme)
 		if hasPlaceholderColor {
@@ -1502,14 +1503,8 @@ func parseStyleProperties(style *xmlNode, element *slideElement, theme themeColo
 			element.FillColor = placeholderColor
 		}
 	}
-	if lineRef := firstChild(style, "lnRef"); lineRef != nil && !element.HasLine && !element.NoLine && attrValue(lineRef.Attrs, "idx") != "0" {
-		if lineColor, ok := colorFromColorNodeWithTheme(lineRef, theme); ok {
-			element.HasLine = true
-			element.LineColor = lineColor
-			if element.LineWidth == 0 {
-				element.LineWidth = 9525
-			}
-		}
+	if lineRef := firstChild(style, "lnRef"); lineRef != nil && !element.HasLine && !element.NoLine {
+		applyStyleLineReference(element, lineRef, theme, lineStyles)
 	}
 	if fontRef := firstChild(style, "fontRef"); fontRef != nil {
 		if element.FontFamily == "" {
@@ -1531,6 +1526,45 @@ func parseStyleProperties(style *xmlNode, element *slideElement, theme themeColo
 			applyThemeEffectStyle(element, effects)
 		}
 	}
+}
+
+func applyStyleLineReference(element *slideElement, lineRef *xmlNode, theme themeColors, lineStyles themeLineStyles) {
+	if attrValue(lineRef.Attrs, "idx") == "0" {
+		element.NoLine = true
+		return
+	}
+	placeholderColor, hasPlaceholderColor := colorFromColorNodeWithTheme(lineRef, theme)
+	styleTheme := theme
+	if hasPlaceholderColor {
+		styleTheme = themeWithPlaceholderColor(theme, placeholderColor)
+	}
+	if border, ok := lineStyles.Style(parseIntAttr(lineRef.Attrs, "idx"), styleTheme); ok {
+		applyTableBorderToShapeLine(element, border)
+		return
+	}
+	if hasPlaceholderColor {
+		element.HasLine = true
+		element.LineColor = placeholderColor
+		if element.LineWidth == 0 {
+			element.LineWidth = 9525
+		}
+	}
+}
+
+func applyTableBorderToShapeLine(element *slideElement, border tableCellBorder) {
+	if border.NoLine {
+		element.NoLine = true
+		element.HasLine = false
+		return
+	}
+	if !border.HasLine {
+		return
+	}
+	element.HasLine = true
+	element.LineColor = border.Color
+	element.LineWidth = border.Width
+	element.LineDash = border.Dash
+	element.LineCap = border.Cap
 }
 
 func applyStyleFillPaint(element *slideElement, paint backgroundPaint) {
@@ -3658,6 +3692,14 @@ func packageThemeLineStyles(pkg *pptx.Package) themeLineStyles {
 	return themeLineStyles{}
 }
 
+func themeLineStylesForPart(pkg *pptx.Package, renderPart string) themeLineStyles {
+	themePart := themePartForRenderPart(pkg, renderPart)
+	if themePart == "" {
+		return packageThemeLineStyles(pkg)
+	}
+	return parseThemeLineStyles(pkg.Parts[themePart])
+}
+
 func parseThemeFillStyles(data []byte) themeFillStyles {
 	root, err := parseXMLNode(data)
 	if err != nil {
@@ -4613,7 +4655,8 @@ func diagramDrawingElements(pkg *pptx.Package, slidePart, drawingPart string) []
 	fonts := themeFontsForPart(pkg, slidePart, packageThemeFonts(pkg))
 	effectStyles := themeEffectStylesForPart(pkg, slidePart)
 	fillStyles := themeFillStylesForPart(pkg, slidePart)
-	elements := collectSlideElementsWithThemeEffectsAndFills(pkg.Parts[drawingPart], colors, effectStyles, fillStyles)
+	lineStyles := themeLineStylesForPart(pkg, slidePart)
+	elements := collectSlideElementsWithThemeEffectsAndFills(pkg.Parts[drawingPart], colors, effectStyles, fillStyles, lineStyles)
 	return applyThemeFontFamilies(elements, fonts)
 }
 

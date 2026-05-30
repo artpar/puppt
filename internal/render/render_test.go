@@ -1951,8 +1951,8 @@ func TestDiagramDrawingElementsResolveSlideThemeColorMapAndFonts(t *testing.T) {
 		"ppt/slideMasters/_rels/slideMaster1.xml.rels": []byte(`<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
   <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme" Target="../theme/theme2.xml"/>
 </Relationships>`),
-		"ppt/theme/theme1.xml": []byte(`<a:theme xmlns:a="a"><a:themeElements><a:clrScheme name="Fallback"><a:accent1><a:srgbClr val="FF0000"/></a:accent1></a:clrScheme><a:fontScheme name="Fallback"><a:minorFont><a:latin typeface="Fallback"/></a:minorFont></a:fontScheme></a:themeElements></a:theme>`),
-		"ppt/theme/theme2.xml": []byte(`<a:theme xmlns:a="a"><a:themeElements><a:clrScheme name="Slide"><a:accent1><a:srgbClr val="0000FF"/></a:accent1><a:accent6><a:srgbClr val="70AD47"/></a:accent6></a:clrScheme><a:fontScheme name="Slide"><a:majorFont><a:latin typeface="Trebuchet MS"/></a:majorFont><a:minorFont><a:latin typeface="Arial"/></a:minorFont></a:fontScheme></a:themeElements></a:theme>`),
+		"ppt/theme/theme1.xml":      []byte(`<a:theme xmlns:a="a"><a:themeElements><a:clrScheme name="Fallback"><a:accent1><a:srgbClr val="FF0000"/></a:accent1></a:clrScheme><a:fontScheme name="Fallback"><a:minorFont><a:latin typeface="Fallback"/></a:minorFont></a:fontScheme></a:themeElements></a:theme>`),
+		"ppt/theme/theme2.xml":      []byte(`<a:theme xmlns:a="a"><a:themeElements><a:clrScheme name="Slide"><a:accent1><a:srgbClr val="0000FF"/></a:accent1><a:accent6><a:srgbClr val="70AD47"/></a:accent6></a:clrScheme><a:fontScheme name="Slide"><a:majorFont><a:latin typeface="Trebuchet MS"/></a:majorFont><a:minorFont><a:latin typeface="Arial"/></a:minorFont></a:fontScheme></a:themeElements></a:theme>`),
 		"ppt/diagrams/drawing1.xml": []byte(`<dsp:drawing xmlns:dsp="dsp" xmlns:a="a"><dsp:spTree><dsp:sp><dsp:nvSpPr><dsp:cNvPr id="1" name="Diagram Shape"/></dsp:nvSpPr><dsp:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="914400" cy="914400"/></a:xfrm><a:prstGeom prst="rect"/><a:solidFill><a:schemeClr val="accent1"/></a:solidFill></dsp:spPr><dsp:style><a:fontRef idx="minor"/></dsp:style><dsp:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:t>Diagram</a:t></a:r></a:p></dsp:txBody></dsp:sp></dsp:spTree></dsp:drawing>`),
 	}}
 
@@ -1987,13 +1987,15 @@ func TestDiagramDrawingElementsResolveSlideThemeFillAndEffectStyles(t *testing.T
     <a:fillStyleLst>
       <a:solidFill><a:schemeClr val="accent1"/></a:solidFill>
     </a:fillStyleLst>
-    <a:lnStyleLst/>
+    <a:lnStyleLst>
+      <a:ln w="38100" cap="rnd"><a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:prstDash val="dash"/></a:ln>
+    </a:lnStyleLst>
     <a:effectStyleLst>
       <a:effectStyle><a:effectLst><a:outerShdw blurRad="40000" dist="20000" dir="5400000"><a:schemeClr val="phClr"><a:alpha val="50000"/></a:schemeClr></a:outerShdw></a:effectLst></a:effectStyle>
     </a:effectStyleLst>
   </a:fmtScheme>
 </a:themeElements></a:theme>`),
-		"ppt/diagrams/drawing1.xml": []byte(`<dsp:drawing xmlns:dsp="dsp" xmlns:a="a"><dsp:spTree><dsp:sp><dsp:nvSpPr><dsp:cNvPr id="1" name="Diagram Shape"/></dsp:nvSpPr><dsp:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="914400" cy="914400"/></a:xfrm><a:prstGeom prst="rect"/></dsp:spPr><dsp:style><a:fillRef idx="1"><a:schemeClr val="accent1"/></a:fillRef><a:effectRef idx="1"><a:schemeClr val="accent1"/></a:effectRef></dsp:style></dsp:sp></dsp:spTree></dsp:drawing>`),
+		"ppt/diagrams/drawing1.xml": []byte(`<dsp:drawing xmlns:dsp="dsp" xmlns:a="a"><dsp:spTree><dsp:sp><dsp:nvSpPr><dsp:cNvPr id="1" name="Diagram Shape"/></dsp:nvSpPr><dsp:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="914400" cy="914400"/></a:xfrm><a:prstGeom prst="rect"/></dsp:spPr><dsp:style><a:lnRef idx="1"><a:schemeClr val="accent1"/></a:lnRef><a:fillRef idx="1"><a:schemeClr val="accent1"/></a:fillRef><a:effectRef idx="1"><a:schemeClr val="accent1"/></a:effectRef></dsp:style></dsp:sp></dsp:spTree></dsp:drawing>`),
 	}}
 
 	got := diagramDrawingElements(pkg, "ppt/slides/slide1.xml", "ppt/diagrams/drawing1.xml")
@@ -2002,6 +2004,12 @@ func TestDiagramDrawingElementsResolveSlideThemeFillAndEffectStyles(t *testing.T
 	}
 	if got[0].FillColor != (color.RGBA{R: 0x70, G: 0xad, B: 0x47, A: 0xff}) {
 		t.Fatalf("expected diagram fillRef to resolve through slide theme fill style and color map, got %+v", got[0].FillColor)
+	}
+	if !got[0].HasLine || got[0].LineWidth != 38100 || got[0].LineDash != "dash" || got[0].LineCap != "rnd" {
+		t.Fatalf("expected diagram lnRef to resolve through slide theme line style, got %+v", got[0])
+	}
+	if got[0].LineColor != (color.RGBA{R: 0x70, G: 0xad, B: 0x47, A: 0xff}) {
+		t.Fatalf("expected diagram lnRef phClr to use mapped slide color, got %+v", got[0].LineColor)
 	}
 	if !got[0].HasShadow {
 		t.Fatalf("expected diagram effectRef to resolve through slide theme effect style, got %+v", got[0])
@@ -5046,7 +5054,7 @@ func TestParseSlideElementResolvesThemeGradientFillRef(t *testing.T) {
 	  <a:solidFill><a:schemeClr val="phClr"/></a:solidFill>
 	  <a:gradFill><a:gsLst><a:gs pos="0"><a:schemeClr val="phClr"/></a:gs><a:gs pos="100000"><a:srgbClr val="000000"/></a:gs></a:gsLst><a:lin ang="5400000" scaled="0"/></a:gradFill>
 	</a:fillStyleLst></a:fmtScheme></a:themeElements></a:theme>`))
-	got := parseSlideElementNodeWithThemeEffectsAndFills(root, renderTransform{ScaleX: 1, ScaleY: 1}, themeColors{"accent1": {R: 200, G: 100, B: 50, A: 255}}, themeEffectStyles{}, fillStyles)
+	got := parseSlideElementNodeWithThemeEffectsAndFills(root, renderTransform{ScaleX: 1, ScaleY: 1}, themeColors{"accent1": {R: 200, G: 100, B: 50, A: 255}}, themeEffectStyles{}, fillStyles, themeLineStyles{})
 	if !got.HasFill || !got.HasFillGradient || len(got.FillGradient.Stops) != 2 {
 		t.Fatalf("expected style fillRef to resolve theme gradient, got %+v", got)
 	}
