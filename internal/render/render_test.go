@@ -1463,6 +1463,23 @@ func TestParseCustomGeometryPathApproximatesCubicBezier(t *testing.T) {
 	}
 }
 
+func TestParseCustomGeometryPathPreservesCubicCommands(t *testing.T) {
+	root, err := parseXMLNode([]byte(`<a:custGeom xmlns:a="a"><a:pathLst><a:path w="100" h="100"><a:moveTo><a:pt x="0" y="0"/></a:moveTo><a:cubicBezTo><a:pt x="50" y="0"/><a:pt x="100" y="50"/><a:pt x="100" y="100"/></a:cubicBezTo><a:close/></a:path></a:pathLst></a:custGeom>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, commands, unsupported := parseCustomGeometryPathCommandsWithDiagnostics(root)
+	if len(unsupported) != 0 {
+		t.Fatalf("unexpected unsupported diagnostics: %+v", unsupported)
+	}
+	if len(commands) != 3 || commands[0].Kind != "moveTo" || commands[1].Kind != "cubicBezTo" || commands[2].Kind != "close" {
+		t.Fatalf("expected DrawingML path commands to be preserved, got %+v", commands)
+	}
+	if len(commands[1].Points) != 3 || commands[1].Points[2] != (pathPoint{X: 1, Y: 1}) {
+		t.Fatalf("unexpected cubic command points: %+v", commands[1])
+	}
+}
+
 func TestParseCustomGeometryPathReportsUnsupportedCommands(t *testing.T) {
 	root, err := parseXMLNode([]byte(`<a:custGeom xmlns:a="a"><a:pathLst><a:path w="100" h="100"><a:moveTo><a:pt x="0" y="0"/></a:moveTo><a:lnTo><a:pt x="100" y="0"/></a:lnTo><a:arcTo wR="10" hR="10" stAng="0" swAng="5400000"/><a:lnTo><a:pt x="0" y="100"/></a:lnTo><a:close/></a:path></a:pathLst></a:custGeom>`))
 	if err != nil {

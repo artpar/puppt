@@ -255,6 +255,7 @@ type slideElement struct {
 	HasShape3D                 bool
 	Shape3DFeatures            []string
 	CustomPath                 []pathPoint
+	CustomPathCommands         []pathCommand
 	CustomPathUnsupported      []string
 	FontFamily                 string
 	FontSize                   int
@@ -487,6 +488,11 @@ type renderTransform struct {
 type pathPoint struct {
 	X float64
 	Y float64
+}
+
+type pathCommand struct {
+	Kind   string
+	Points []pathPoint
 }
 
 type themeColors map[string]color.RGBA
@@ -1562,7 +1568,7 @@ func parseShapeProperties(spPr *xmlNode, transform renderTransform, element *sli
 		element.PrstGeomAdjustments = parsePresetGeometryAdjustments(prstGeom)
 	}
 	if custGeom := firstChild(spPr, "custGeom"); custGeom != nil {
-		element.CustomPath, element.CustomPathUnsupported = parseCustomGeometryPathWithDiagnostics(custGeom)
+		element.CustomPath, element.CustomPathCommands, element.CustomPathUnsupported = parseCustomGeometryPathCommandsWithDiagnostics(custGeom)
 	}
 	if firstChild(spPr, "noFill") != nil {
 		element.NoFill = true
@@ -1890,13 +1896,18 @@ func parseCustomGeometryPath(custGeom *xmlNode) []pathPoint {
 }
 
 func parseCustomGeometryPathWithDiagnostics(custGeom *xmlNode) ([]pathPoint, []string) {
+	points, _, unsupported := parseCustomGeometryPathCommandsWithDiagnostics(custGeom)
+	return points, unsupported
+}
+
+func parseCustomGeometryPathCommandsWithDiagnostics(custGeom *xmlNode) ([]pathPoint, []pathCommand, []string) {
 	pathList := firstChild(custGeom, "pathLst")
 	if pathList == nil {
-		return nil, []string{"custom geometry has no path list"}
+		return nil, nil, []string{"custom geometry has no path list"}
 	}
 	pathNodes := childrenByName(pathList, "path")
 	if len(pathNodes) == 0 {
-		return nil, []string{"custom geometry has no path"}
+		return nil, nil, []string{"custom geometry has no path"}
 	}
 	var unsupported []string
 	if len(pathNodes) > 1 {
@@ -1906,14 +1917,15 @@ func parseCustomGeometryPathWithDiagnostics(custGeom *xmlNode) ([]pathPoint, []s
 	width := parseIntAttr(pathNode.Attrs, "w")
 	height := parseIntAttr(pathNode.Attrs, "h")
 	if width <= 0 || height <= 0 {
-		return nil, append(unsupported, "custom geometry path has no coordinate bounds")
+		return nil, nil, append(unsupported, "custom geometry path has no coordinate bounds")
 	}
 	var points []pathPoint
+	var commands []pathCommand
 	var current pathPoint
 	hasCurrent := false
 	for _, command := range pathNode.Children {
 		switch command.Name {
-		case "moveTo", "lnTo":
+		case "moveTo":
 			pt := firstChild(command, "pt")
 			if pt == nil {
 				continue
@@ -1921,6 +1933,15 @@ func parseCustomGeometryPathWithDiagnostics(custGeom *xmlNode) ([]pathPoint, []s
 			current = normalizedPathPoint(pt, width, height)
 			hasCurrent = true
 			points = append(points, current)
+			commands = append(commands, pathCommand{Kind: "moveTo", Points: []pathPoint{current}})
+		case "lnTo":
+			pt := firstChild(command, "pt")
+			if pt == nil || !hasCurrent {
+				continue
+			}
+			current = normalizedPathPoint(pt, width, height)
+			points = append(points, current)
+			commands = append(commands, pathCommand{Kind: "lnTo", Points: []pathPoint{current}})
 		case "cubicBezTo":
 			curvePoints := childrenByName(command, "pt")
 			if len(curvePoints) != 3 || !hasCurrent {
@@ -1929,6 +1950,7 @@ func parseCustomGeometryPathWithDiagnostics(custGeom *xmlNode) ([]pathPoint, []s
 			c1 := normalizedPathPoint(curvePoints[0], width, height)
 			c2 := normalizedPathPoint(curvePoints[1], width, height)
 			end := normalizedPathPoint(curvePoints[2], width, height)
+			commands = append(commands, pathCommand{Kind: "cubicBezTo", Points: []pathPoint{c1, c2, end}})
 			for step := 1; step <= customBezierSegments; step++ {
 				t := float64(step) / customBezierSegments
 				points = append(points, cubicBezierPoint(current, c1, c2, end, t))
@@ -1939,14 +1961,15 @@ func parseCustomGeometryPathWithDiagnostics(custGeom *xmlNode) ([]pathPoint, []s
 				current = points[0]
 				hasCurrent = true
 			}
+			commands = append(commands, pathCommand{Kind: "close"})
 		default:
 			unsupported = append(unsupported, fmt.Sprintf("custom geometry uses unsupported %s command", command.Name))
 		}
 	}
 	if len(points) < 3 {
-		return nil, append(unsupported, "custom geometry path has fewer than three points")
+		return nil, nil, append(unsupported, "custom geometry path has fewer than three points")
 	}
-	return points, sortedUniqueStrings(unsupported)
+	return points, commands, sortedUniqueStrings(unsupported)
 }
 
 func sortedUniqueStrings(values []string) []string {
@@ -11025,7 +11048,7 @@ func drawPictureRasterLayer(img *image.RGBA, target image.Rectangle, pictureImag
 		return true
 	}
 	if len(element.CustomPath) >= 3 {
-		scaleImageWithCustomMask(img, target, pictureImage, pictureBounds, element.CustomPath)
+		scaleImageWithCustomMask(img, target, pictureImage, pictureBounds, element.CustomPath, element.CustomPathCommands)
 		return false
 	}
 	scaleImage(img, target, pictureImage, pictureBounds)
@@ -12234,7 +12257,7 @@ func softEdgeRadiusPixels(element slideElement, size slideSize, outputWidth int)
 	return radius
 }
 
-func scaleImageWithCustomMask(dst *image.RGBA, target image.Rectangle, src image.Image, srcBounds image.Rectangle, points []pathPoint) {
+func scaleImageWithCustomMask(dst *image.RGBA, target image.Rectangle, src image.Image, srcBounds image.Rectangle, points []pathPoint, commands []pathCommand) {
 	target = target.Intersect(dst.Bounds())
 	if target.Empty() || len(points) < 3 {
 		return
@@ -12244,19 +12267,49 @@ func scaleImageWithCustomMask(dst *image.RGBA, target image.Rectangle, src image
 	}
 	layer := image.NewRGBA(image.Rect(0, 0, target.Dx(), target.Dy()))
 	xdraw.ApproxBiLinear.Scale(layer, layer.Bounds(), src, srcBounds, xdraw.Over, nil)
-	mask := rasterizePathMask(layer.Bounds(), points)
+	mask := rasterizePathMaskWithCommands(layer.Bounds(), points, commands)
 	draw.DrawMask(dst, target, layer, image.Point{}, mask, image.Point{}, draw.Over)
 }
 
 func rasterizePathMask(bounds image.Rectangle, points []pathPoint) *image.Alpha {
+	return rasterizePathMaskWithCommands(bounds, points, nil)
+}
+
+func rasterizePathMaskWithCommands(bounds image.Rectangle, points []pathPoint, commands []pathCommand) *image.Alpha {
 	mask := image.NewAlpha(image.Rect(0, 0, bounds.Dx(), bounds.Dy()))
 	if bounds.Empty() || len(points) < 3 {
 		return mask
 	}
 	rasterizer := vector.NewRasterizer(bounds.Dx(), bounds.Dy())
+	if len(commands) > 0 {
+		for _, command := range commands {
+			switch command.Kind {
+			case "moveTo":
+				if len(command.Points) == 1 {
+					rasterizer.MoveTo(maskPathX(command.Points[0], bounds), maskPathY(command.Points[0], bounds))
+				}
+			case "lnTo":
+				if len(command.Points) == 1 {
+					rasterizer.LineTo(maskPathX(command.Points[0], bounds), maskPathY(command.Points[0], bounds))
+				}
+			case "cubicBezTo":
+				if len(command.Points) == 3 {
+					rasterizer.CubeTo(
+						maskPathX(command.Points[0], bounds), maskPathY(command.Points[0], bounds),
+						maskPathX(command.Points[1], bounds), maskPathY(command.Points[1], bounds),
+						maskPathX(command.Points[2], bounds), maskPathY(command.Points[2], bounds),
+					)
+				}
+			case "close":
+				rasterizer.ClosePath()
+			}
+		}
+		rasterizer.Draw(mask, mask.Bounds(), image.Opaque, image.Point{})
+		return mask
+	}
 	for index, point := range points {
-		x := float32(point.X * float64(bounds.Dx()))
-		y := float32(point.Y * float64(bounds.Dy()))
+		x := maskPathX(point, bounds)
+		y := maskPathY(point, bounds)
 		if index == 0 {
 			rasterizer.MoveTo(x, y)
 		} else {
@@ -12266,6 +12319,14 @@ func rasterizePathMask(bounds image.Rectangle, points []pathPoint) *image.Alpha 
 	rasterizer.ClosePath()
 	rasterizer.Draw(mask, mask.Bounds(), image.Opaque, image.Point{})
 	return mask
+}
+
+func maskPathX(point pathPoint, bounds image.Rectangle) float32 {
+	return float32(point.X * float64(bounds.Dx()))
+}
+
+func maskPathY(point pathPoint, bounds image.Rectangle) float32 {
+	return float32(point.Y * float64(bounds.Dy()))
 }
 
 func unsupportedItems(slidePart string, elements []slideElement) []model.SkipItem {
