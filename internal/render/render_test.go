@@ -5320,6 +5320,8 @@ func TestCalibriFontCandidatesIncludeMicrosoftAndLinuxFontRoots(t *testing.T) {
 		filepath.Join("/Applications", "Microsoft Word.app", "Contents", "Resources", "DFonts", "Calibri.ttf"),
 		filepath.Join("/Applications", "Microsoft Excel.app", "Contents", "Resources", "DFonts", "Calibri.ttf"),
 		filepath.Join(home, "Applications", "Microsoft Word.app", "Contents", "Resources", "DFonts", "Calibri.ttf"),
+		filepath.Join(home, ".cache", "puppt", "fonts", "*", "expanded", "*", "Payload", "Microsoft Word.app", "Contents", "Resources", "DFonts", "Calibri.ttf"),
+		filepath.Join(home, ".cache", "puppt", "fonts", "*", "expanded", "*", "Payload", "Microsoft Excel.app", "Contents", "Resources", "DFonts", "Calibri.ttf"),
 		filepath.Join("/usr/local/share/fonts", "calibri.ttf"),
 		filepath.Join("/usr/share/fonts", "calibri.ttf"),
 		filepath.Join("/usr/share/fonts/truetype/msttcorefonts", "calibri.ttf"),

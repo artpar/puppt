@@ -11172,6 +11172,8 @@ func calibriFontCandidates(family string, bold bool, italic bool) []string {
 		filepath.Join("/Applications", "Microsoft Excel.app", "Contents", "Resources", "DFonts"),
 		filepath.Join(os.Getenv("HOME"), "Applications", "Microsoft Word.app", "Contents", "Resources", "DFonts"),
 		filepath.Join(os.Getenv("HOME"), "Applications", "Microsoft Excel.app", "Contents", "Resources", "DFonts"),
+		filepath.Join(os.Getenv("HOME"), ".cache", "puppt", "fonts", "*", "expanded", "*", "Payload", "Microsoft Word.app", "Contents", "Resources", "DFonts"),
+		filepath.Join(os.Getenv("HOME"), ".cache", "puppt", "fonts", "*", "expanded", "*", "Payload", "Microsoft Excel.app", "Contents", "Resources", "DFonts"),
 		filepath.Join(os.Getenv("HOME"), "Library", "Group Containers", "UBF8T346G9.Office", "FontCache", "*", "CloudFonts"),
 		filepath.Join(os.Getenv("HOME"), "Library", "Group Containers", "UBF8T346G9.Office", "FontCache", "*", "CloudFonts", family),
 		"/usr/local/share/fonts",
