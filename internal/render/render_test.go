@@ -5126,9 +5126,13 @@ func TestCalibriFontCandidatesIncludeOfficeFileNames(t *testing.T) {
 		italic bool
 		name   string
 	}{
+		{family: "Calibri", name: "Calibri.ttf"},
 		{family: "Calibri", name: "calibri.ttf"},
+		{family: "Calibri", bold: true, name: "Calibrib.ttf"},
 		{family: "Calibri", bold: true, name: "calibrib.ttf"},
+		{family: "Calibri", italic: true, name: "Calibrii.ttf"},
 		{family: "Calibri", italic: true, name: "calibrii.ttf"},
+		{family: "Calibri", bold: true, italic: true, name: "Calibriz.ttf"},
 		{family: "Calibri", bold: true, italic: true, name: "calibriz.ttf"},
 		{family: "Calibri Light", name: "calibril.ttf"},
 		{family: "Calibri Light", italic: true, name: "calibrili.ttf"},
@@ -5138,6 +5142,24 @@ func TestCalibriFontCandidatesIncludeOfficeFileNames(t *testing.T) {
 		if !slices.Contains(candidates, filepath.Join("/Library/Fonts", tt.name)) {
 			t.Fatalf("expected %s candidates to include Office filename %q, got %+v", tt.family, tt.name, candidates)
 		}
+	}
+}
+
+func TestCalibriOfficeCacheGlobResolvesCapitalizedStyleFileNames(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	fontRoot := filepath.Join(home, ".cache", "puppt", "fonts", "microsoft-word", "expanded", "Microsoft_Word.pkg", "Payload", "Microsoft Word.app", "Contents", "Resources", "DFonts")
+	if err := os.MkdirAll(fontRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(fontRoot, "Calibrib.ttf")
+	if err := os.WriteFile(want, []byte("font"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	got := firstExistingPath(exactFontCandidatesForFamily("Calibri", true, false))
+	if got != want {
+		t.Fatalf("expected capitalized Office Calibri bold filename %q to resolve through cache glob, got %q", want, got)
 	}
 }
 

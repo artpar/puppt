@@ -690,13 +690,13 @@ func calibriOfficeFileNames(family string, bold bool, italic bool) []string {
 	case "calibri":
 		switch {
 		case bold && italic:
-			return []string{"calibriz.ttf"}
+			return []string{"Calibriz.ttf", "calibriz.ttf"}
 		case bold:
-			return []string{"calibrib.ttf"}
+			return []string{"Calibrib.ttf", "calibrib.ttf"}
 		case italic:
-			return []string{"calibrii.ttf"}
+			return []string{"Calibrii.ttf", "calibrii.ttf"}
 		default:
-			return []string{"calibri.ttf"}
+			return []string{"Calibri.ttf", "calibri.ttf"}
 		}
 	default:
 		return nil
