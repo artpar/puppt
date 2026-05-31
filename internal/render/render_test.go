@@ -23,6 +23,7 @@ import (
 	"github.com/artpar/puppt/internal/fixtures"
 	"github.com/artpar/puppt/internal/model"
 	"github.com/artpar/puppt/internal/pptx"
+	xdraw "golang.org/x/image/draw"
 	"golang.org/x/image/font"
 	"golang.org/x/image/font/basicfont"
 	"golang.org/x/image/math/fixed"
@@ -5648,6 +5649,21 @@ func TestScaleImageUsesInterpolatedSampling(t *testing.T) {
 	}
 	if got := dst.RGBAAt(2, 0); got == red || got == blue || got.A != 255 {
 		t.Fatalf("expected interior pixel to be interpolated, got %#v", got)
+	}
+}
+
+func TestPictureScalerUsesHighQualityReconstructionForJPEGSources(t *testing.T) {
+	src := image.NewYCbCr(image.Rect(0, 0, 4, 4), image.YCbCrSubsampleRatio444)
+	if got := pictureScaler(src, src.Bounds()); got != xdraw.CatmullRom {
+		t.Fatalf("YCbCr JPEG sources should use high-quality reconstruction, got %T", got)
+	}
+
+	if got := pictureScaler(image.NewRGBA(src.Bounds()), src.Bounds()); got != xdraw.ApproxBiLinear {
+		t.Fatalf("non-JPEG raster sources should keep the default scaler, got %T", got)
+	}
+
+	if got := pictureScaler(src, image.Rect(-1, 0, 4, 4)); got != xdraw.ApproxBiLinear {
+		t.Fatalf("virtual crop padding should keep transparent-source behavior, got %T", got)
 	}
 }
 

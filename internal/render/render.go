@@ -12209,7 +12209,14 @@ func scaleImage(dst *image.RGBA, target image.Rectangle, src image.Image, srcBou
 	if srcBounds.Empty() {
 		return
 	}
-	xdraw.ApproxBiLinear.Scale(dst, target, src, srcBounds, xdraw.Over, nil)
+	pictureScaler(src, srcBounds).Scale(dst, target, src, srcBounds, xdraw.Over, nil)
+}
+
+func pictureScaler(src image.Image, srcBounds image.Rectangle) xdraw.Scaler {
+	if _, ok := src.(*image.YCbCr); ok && srcBounds.In(src.Bounds()) {
+		return xdraw.CatmullRom
+	}
+	return xdraw.ApproxBiLinear
 }
 
 func scaleImageWithSoftEdge(dst *image.RGBA, target image.Rectangle, src image.Image, srcBounds image.Rectangle, radius int) {
@@ -12225,7 +12232,7 @@ func scaleImageWithSoftEdge(dst *image.RGBA, target image.Rectangle, src image.I
 		return
 	}
 	layer := image.NewRGBA(image.Rect(0, 0, target.Dx(), target.Dy()))
-	xdraw.ApproxBiLinear.Scale(layer, layer.Bounds(), src, srcBounds, xdraw.Over, nil)
+	pictureScaler(src, srcBounds).Scale(layer, layer.Bounds(), src, srcBounds, xdraw.Over, nil)
 	applySoftEdgeAlpha(layer, radius)
 	for y := 0; y < layer.Bounds().Dy(); y++ {
 		for x := 0; x < layer.Bounds().Dx(); x++ {
@@ -12279,7 +12286,7 @@ func scaleImageWithCustomMask(dst *image.RGBA, target image.Rectangle, src image
 		return
 	}
 	layer := image.NewRGBA(image.Rect(0, 0, target.Dx(), target.Dy()))
-	xdraw.ApproxBiLinear.Scale(layer, layer.Bounds(), src, srcBounds, xdraw.Over, nil)
+	pictureScaler(src, srcBounds).Scale(layer, layer.Bounds(), src, srcBounds, xdraw.Over, nil)
 	mask := rasterizePathMaskWithCommands(layer.Bounds(), points, commands)
 	draw.DrawMask(dst, target, layer, image.Point{}, mask, image.Point{}, draw.Over)
 }
