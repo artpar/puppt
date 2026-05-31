@@ -9913,7 +9913,10 @@ func TestWriteRealWorldDiffArtifactsWritesMetadata(t *testing.T) {
 			Part:    "ppt/slides/slide1.xml",
 		}},
 	}
-	diff := imageDiff{Width: 2, Height: 1, GotWidth: 2, GotHeight: 1, DifferentPixels: 1}
+	diff, err := comparePNG(gotPath, referencePath)
+	if err != nil {
+		t.Fatal(err)
+	}
 	writeRealWorldDiffArtifacts(t, gotPath, referencePath, "testdata/realworld-ppts/example.pptx", 1, result, diff)
 
 	slideDir := filepath.Join(dir, "example", "slide-001")
@@ -9928,6 +9931,9 @@ func TestWriteRealWorldDiffArtifactsWritesMetadata(t *testing.T) {
 	}
 	if !strings.Contains(string(data), `"different_pixels": 1`) {
 		t.Fatalf("diff artifact did not include pixel count: %s", data)
+	}
+	if !strings.Contains(string(data), `"max_channel_delta_8bit": 255`) || !strings.Contains(string(data), `"different_bounds"`) {
+		t.Fatalf("diff artifact did not include channel and bounds diagnostics: %s", data)
 	}
 	data, err = os.ReadFile(filepath.Join(slideDir, "result.json"))
 	if err != nil {
@@ -10095,11 +10101,21 @@ type referenceManifest struct {
 }
 
 type imageDiff struct {
-	Width           int `json:"width"`
-	Height          int `json:"height"`
-	GotWidth        int `json:"got_width"`
-	GotHeight       int `json:"got_height"`
-	DifferentPixels int `json:"different_pixels"`
+	Width                         int              `json:"width"`
+	Height                        int              `json:"height"`
+	GotWidth                      int              `json:"got_width"`
+	GotHeight                     int              `json:"got_height"`
+	DifferentPixels               int              `json:"different_pixels"`
+	DifferentBounds               *imageDiffBounds `json:"different_bounds,omitempty"`
+	MaxChannelDelta8Bit           int              `json:"max_channel_delta_8bit"`
+	TotalAbsoluteChannelDelta8Bit int64            `json:"total_absolute_channel_delta_8bit"`
+}
+
+type imageDiffBounds struct {
+	MinX int `json:"min_x"`
+	MinY int `json:"min_y"`
+	MaxX int `json:"max_x"`
+	MaxY int `json:"max_y"`
 }
 
 func referenceDPIForSlide(width int) int {
@@ -10123,6 +10139,9 @@ func comparePNG(gotPath string, wantPath string) (imageDiff, error) {
 	diff := imageDiff{Width: wantBounds.Dx(), Height: wantBounds.Dy(), GotWidth: gotBounds.Dx(), GotHeight: gotBounds.Dy()}
 	if gotBounds.Dx() != wantBounds.Dx() || gotBounds.Dy() != wantBounds.Dy() {
 		diff.DifferentPixels = max(gotBounds.Dx(), wantBounds.Dx()) * max(gotBounds.Dy(), wantBounds.Dy())
+		if diff.DifferentPixels > 0 {
+			diff.DifferentBounds = &imageDiffBounds{MinX: 0, MinY: 0, MaxX: max(gotBounds.Dx(), wantBounds.Dx()) - 1, MaxY: max(gotBounds.Dy(), wantBounds.Dy()) - 1}
+		}
 		return diff, nil
 	}
 	for y := 0; y < wantBounds.Dy(); y++ {
@@ -10131,10 +10150,42 @@ func comparePNG(gotPath string, wantPath string) (imageDiff, error) {
 			wr, wg, wb, wa := want.At(wantBounds.Min.X+x, wantBounds.Min.Y+y).RGBA()
 			if gr != wr || gg != wg || gb != wb || ga != wa {
 				diff.DifferentPixels++
+				if diff.DifferentBounds == nil {
+					diff.DifferentBounds = &imageDiffBounds{MinX: x, MinY: y, MaxX: x, MaxY: y}
+				} else {
+					if x < diff.DifferentBounds.MinX {
+						diff.DifferentBounds.MinX = x
+					}
+					if y < diff.DifferentBounds.MinY {
+						diff.DifferentBounds.MinY = y
+					}
+					if x > diff.DifferentBounds.MaxX {
+						diff.DifferentBounds.MaxX = x
+					}
+					if y > diff.DifferentBounds.MaxY {
+						diff.DifferentBounds.MaxY = y
+					}
+				}
+				diff.addChannelDelta8Bit(gr, wr)
+				diff.addChannelDelta8Bit(gg, wg)
+				diff.addChannelDelta8Bit(gb, wb)
+				diff.addChannelDelta8Bit(ga, wa)
 			}
 		}
 	}
 	return diff, nil
+}
+
+func (diff *imageDiff) addChannelDelta8Bit(got uint32, want uint32) {
+	delta := absInt(rgba16To8Bit(got) - rgba16To8Bit(want))
+	if delta > diff.MaxChannelDelta8Bit {
+		diff.MaxChannelDelta8Bit = delta
+	}
+	diff.TotalAbsoluteChannelDelta8Bit += int64(delta)
+}
+
+func rgba16To8Bit(value uint32) int {
+	return int(value >> 8)
 }
 
 func decodePNG(t *testing.T, path string) image.Image {
