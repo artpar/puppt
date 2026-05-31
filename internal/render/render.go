@@ -10955,6 +10955,7 @@ func calibriFontCandidates(family string, bold bool, italic bool) []string {
 		"/Library/Fonts",
 		"/System/Library/Fonts/Supplemental",
 		filepath.Join(os.Getenv("HOME"), "Library", "Fonts"),
+		filepath.Join(os.Getenv("HOME"), "Library", "Group Containers", "UBF8T346G9.Office", "FontCache", "*", "CloudFonts", family),
 	}
 	var paths []string
 	for _, root := range roots {
@@ -11074,6 +11075,16 @@ func fontCandidates(bold bool, italic bool) []string {
 
 func firstExistingPath(paths []string) string {
 	for _, candidate := range paths {
+		if strings.ContainsAny(candidate, "*?[") {
+			matches, err := filepath.Glob(candidate)
+			if err == nil {
+				sort.Strings(matches)
+				if path := firstExistingPath(matches); path != "" {
+					return path
+				}
+			}
+			continue
+		}
 		if _, err := os.Stat(candidate); err == nil {
 			return candidate
 		}

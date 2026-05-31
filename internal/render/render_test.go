@@ -5069,6 +5069,34 @@ func TestFontResolutionDistinguishesExactAndSubstituteFonts(t *testing.T) {
 	}
 }
 
+func TestCalibriFontCandidatesIncludeMicrosoftOfficeCloudFontCache(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	candidates := exactFontCandidatesForFamily("Calibri", false, false)
+	expected := filepath.Join(home, "Library", "Group Containers", "UBF8T346G9.Office", "FontCache", "*", "CloudFonts", "Calibri", "Calibri.ttf")
+	if !slices.Contains(candidates, expected) {
+		t.Fatalf("expected Microsoft Office cloud font cache candidate %q in %+v", expected, candidates)
+	}
+}
+
+func TestFirstExistingPathExpandsSortedGlobCandidates(t *testing.T) {
+	dir := t.TempDir()
+	latePath := filepath.Join(dir, "B.ttf")
+	earlyPath := filepath.Join(dir, "A.ttf")
+	if err := os.WriteFile(latePath, []byte("late"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(earlyPath, []byte("early"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	got := firstExistingPath([]string{filepath.Join(dir, "*.ttf")})
+	if got != earlyPath {
+		t.Fatalf("expected deterministic first glob match %q, got %q", earlyPath, got)
+	}
+}
+
 func TestConfiguredFontMapProvidesExactFontSource(t *testing.T) {
 	source, err := readBundledFont(carlitoAssetPath(false, false))
 	if err != nil {
