@@ -9296,31 +9296,42 @@ func fillShapeRectWithFloatBounds(img *image.RGBA, paintBounds image.Rectangle, 
 	}
 	for y := paintBounds.Min.Y; y < paintBounds.Max.Y; y++ {
 		for x := paintBounds.Min.X; x < paintBounds.Max.X; x++ {
-			coverage := floatRectCoverage(float64(x), float64(y), rect)
-			if coverage == 0 {
+			coverage := floatRectPixelCoverage(float64(x), float64(y), rect)
+			if coverage <= 0 {
 				continue
 			}
-			if coverage == 4 && c.A == 255 {
+			if coverage >= 1 && c.A == 255 {
 				img.SetRGBA(x, y, c)
 				continue
 			}
 			layer := c
-			layer.A = coverageAlpha(c.A, coverage)
+			layer.A = coverageFloatAlpha(c.A, coverage)
 			blendPixel(img, x, y, layer)
 		}
 	}
 }
 
-func floatRectCoverage(x float64, y float64, rect floatRect) int {
-	coverage := 0
-	for _, offset := range coverageSampleOffsets {
-		sampleX := x + offset.x
-		sampleY := y + offset.y
-		if sampleX >= rect.MinX && sampleX < rect.MaxX && sampleY >= rect.MinY && sampleY < rect.MaxY {
-			coverage++
-		}
+func floatRectPixelCoverage(x float64, y float64, rect floatRect) float64 {
+	overlapX := math.Min(x+1, rect.MaxX) - math.Max(x, rect.MinX)
+	overlapY := math.Min(y+1, rect.MaxY) - math.Max(y, rect.MinY)
+	if overlapX <= 0 || overlapY <= 0 {
+		return 0
+	}
+	coverage := overlapX * overlapY
+	if coverage > 1 {
+		return 1
 	}
 	return coverage
+}
+
+func coverageFloatAlpha(alpha uint8, coverage float64) uint8 {
+	if alpha == 0 || coverage <= 0 {
+		return 0
+	}
+	if coverage >= 1 {
+		return alpha
+	}
+	return uint8(math.Round(float64(alpha) * coverage))
 }
 
 type roundedCorners struct {

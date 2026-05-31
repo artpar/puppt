@@ -243,11 +243,23 @@ func TestRenderShapeAntialiasesFractionalRectangleFillEdges(t *testing.T) {
 		t.Fatalf("expected fully covered rectangle interior, got %#v", got)
 	}
 	edge := img.RGBAAt(5, 2)
-	if edge.R == 0 || edge.R == 255 || edge.G != 255 || edge.B == 0 || edge.B == 255 {
-		t.Fatalf("expected fractional bottom edge to blend against background, got %#v", edge)
+	if edge.R < 126 || edge.R > 128 || edge.G != 255 || edge.B < 126 || edge.B > 128 {
+		t.Fatalf("expected half-covered fractional bottom edge to blend against background, got %#v", edge)
 	}
 	if got := img.RGBAAt(5, 3); got != (color.RGBA{R: 255, G: 255, B: 255, A: 255}) {
 		t.Fatalf("expected pixels beyond fractional rectangle to remain untouched, got %#v", got)
+	}
+}
+
+func TestFillShapeRectWithFloatBoundsPreservesThinFractionalCoverage(t *testing.T) {
+	img := image.NewRGBA(image.Rect(0, 0, 4, 4))
+	draw.Draw(img, img.Bounds(), &image.Uniform{C: color.White}, image.Point{}, draw.Src)
+
+	fillShapeRectWithFloatBounds(img, image.Rect(0, 0, 4, 4), floatRect{MinX: 0, MinY: 0, MaxX: 4, MaxY: 2.2}, color.RGBA{B: 255, A: 255})
+
+	edge := img.RGBAAt(2, 2)
+	if edge.R < 203 || edge.R > 205 || edge.G < 203 || edge.G > 205 || edge.B != 255 {
+		t.Fatalf("expected exact 20%% bottom-edge coverage to be retained, got %#v", edge)
 	}
 }
 
