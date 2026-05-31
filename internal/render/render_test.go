@@ -5404,6 +5404,51 @@ func TestFontResolutionUnsupportedMessagesHonorStyleSpecificFontMap(t *testing.T
 	}
 }
 
+func TestElementShouldReportFontResolutionSkipsTinyImagePlaceholderMarkerText(t *testing.T) {
+	element := slideElement{
+		Name:    "Picture Placeholder 8",
+		Text:    ".",
+		EmbedID: "rId1",
+		TextParagraphs: []textParagraph{{
+			Text:       ".",
+			FontFamily: "Missing Office Font",
+			FontSize:   100,
+			Runs: []textRun{{
+				Text:       ".",
+				FontFamily: "Missing Office Font",
+				FontSize:   100,
+			}},
+		}},
+	}
+	if messages := fontResolutionUnsupportedMessages(element); len(messages) == 0 {
+		t.Fatal("test fixture should use a font that would normally report fallback")
+	}
+	if elementShouldReportFontResolution(element) {
+		t.Fatalf("tiny image-placeholder marker text should not report font resolution: %+v", element)
+	}
+}
+
+func TestElementShouldReportFontResolutionKeepsVisibleImageShapeText(t *testing.T) {
+	element := slideElement{
+		Name:    "Picture Placeholder 8",
+		Text:    "Visible caption",
+		EmbedID: "rId1",
+		TextParagraphs: []textParagraph{{
+			Text:       "Visible caption",
+			FontFamily: "Missing Office Font",
+			FontSize:   1200,
+			Runs: []textRun{{
+				Text:       "Visible caption",
+				FontFamily: "Missing Office Font",
+				FontSize:   1200,
+			}},
+		}},
+	}
+	if !elementShouldReportFontResolution(element) {
+		t.Fatalf("visible image-shape text should still report font resolution: %+v", element)
+	}
+}
+
 func TestDrawShapeTextWrapsAndCenters(t *testing.T) {
 	img := image.NewRGBA(image.Rect(0, 0, 220, 120))
 	element := slideElement{

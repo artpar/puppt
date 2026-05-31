@@ -6017,8 +6017,10 @@ func renderShape(slidePart string, size slideSize, img *image.RGBA, element *sli
 		}
 	}
 	if element.Text != "" {
-		for _, message := range fontResolutionUnsupportedMessages(*element) {
-			unsupported = append(unsupported, unsupportedItem(slidePart, partialUnsupportedCode, fmt.Sprintf("shape object %q %s", elementLabel(*element), message)))
+		if elementShouldReportFontResolution(*element) {
+			for _, message := range fontResolutionUnsupportedMessages(*element) {
+				unsupported = append(unsupported, unsupportedItem(slidePart, partialUnsupportedCode, fmt.Sprintf("shape object %q %s", elementLabel(*element), message)))
+			}
 		}
 		for _, message := range textLayoutUnsupportedMessagesForTarget(*element, textBounds(target, *element, size, img.Bounds()), renderDPIForCanvas(size, img.Bounds())) {
 			unsupported = append(unsupported, unsupportedItem(slidePart, partialUnsupportedCode, fmt.Sprintf("shape object %q %s", elementLabel(*element), message)))
@@ -10486,6 +10488,45 @@ func fontResolutionUnsupportedMessages(element slideElement) []string {
 		}
 	}
 	return messages
+}
+
+func elementShouldReportFontResolution(element slideElement) bool {
+	if strings.TrimSpace(element.Text) == "" {
+		return false
+	}
+	if !elementHasOnlyTinyImagePlaceholderMarkerText(element) {
+		return true
+	}
+	return false
+}
+
+func elementHasOnlyTinyImagePlaceholderMarkerText(element slideElement) bool {
+	if element.EmbedID == "" {
+		return false
+	}
+	if !element.IsPlaceholder && !strings.Contains(strings.ToLower(element.Name), "placeholder") {
+		return false
+	}
+	if strings.TrimSpace(element.Text) != "." {
+		return false
+	}
+	size := maxElementTextFontSize(element)
+	return size > 0 && size <= 100
+}
+
+func maxElementTextFontSize(element slideElement) int {
+	maxSize := element.FontSize
+	for _, paragraph := range element.TextParagraphs {
+		if strings.TrimSpace(paragraph.Text) != "" && paragraph.FontSize > maxSize {
+			maxSize = paragraph.FontSize
+		}
+		for _, run := range paragraph.Runs {
+			if strings.TrimSpace(run.Text) != "" && run.FontSize > maxSize {
+				maxSize = run.FontSize
+			}
+		}
+	}
+	return maxSize
 }
 
 func textLayoutUnsupportedMessages(element slideElement) []string {
