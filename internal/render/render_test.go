@@ -5125,8 +5125,8 @@ func TestFontResolutionUnsupportedMessageReportsFallback(t *testing.T) {
 	}
 	if !exactFontFamilyAvailable("Calibri") {
 		message := fontResolutionUnsupportedMessage(slideElement{FontFamily: "Calibri"})
-		if message != "" {
-			t.Fatalf("supported bundled Calibri substitute should not be reported as fallback: %q", message)
+		if !strings.Contains(message, "metric-compatible substitute font") {
+			t.Fatalf("expected supported Calibri substitute to be reported as partial, got %q", message)
 		}
 	}
 	if message := fontResolutionUnsupportedMessage(slideElement{FontFamily: "Segoe UI Symbol"}); message != "" {
@@ -5172,9 +5172,21 @@ func TestFontResolutionUnsupportedMessageReportsFallback(t *testing.T) {
 	if len(messages) != 1 || !strings.Contains(messages[0], "Missing Paragraph Font") || !strings.Contains(messages[0], "generic fallback font") {
 		t.Fatalf("expected paragraph-level generic fallback report, got %+v", messages)
 	}
+	if !exactFontFamilyAvailable("Calibri Light") {
+		messages = fontResolutionUnsupportedMessages(slideElement{
+			FontFamily: "Calibri Light",
+			TextParagraphs: []textParagraph{{
+				FontFamily: "Calibri Light",
+				Runs:       []textRun{{Text: "A", FontFamily: "Calibri Light"}},
+			}},
+		})
+		if len(messages) != 1 || !strings.Contains(messages[0], "metric-compatible substitute font") {
+			t.Fatalf("expected duplicate inherited Calibri Light reports to collapse, got %+v", messages)
+		}
+	}
 }
 
-func TestSupportedFontSubstitutesAreResolvedButNotUnsupported(t *testing.T) {
+func TestCalibriFontSubstitutesAreResolvedAndReportedAsPartial(t *testing.T) {
 	for _, family := range []string{"Calibri", "Calibri Light"} {
 		source, ok := substituteFontSourceForFamily(family, false, false)
 		if !ok {
@@ -5183,10 +5195,16 @@ func TestSupportedFontSubstitutesAreResolvedButNotUnsupported(t *testing.T) {
 		if !strings.Contains(source.Label, "Carlito") {
 			t.Fatalf("expected Carlito source for %s, got %q", family, source.Label)
 		}
-		if message := fontResolutionUnsupportedMessage(slideElement{FontFamily: family}); message != "" {
-			t.Fatalf("supported substitute for %s should not be reported: %q", family, message)
+		if !exactFontFamilyAvailable(family) {
+			message := fontResolutionUnsupportedMessage(slideElement{FontFamily: family})
+			if !strings.Contains(message, "metric-compatible substitute font") {
+				t.Fatalf("supported substitute for %s should be reported as partial, got %q", family, message)
+			}
 		}
 	}
+}
+
+func TestSymbolFontSubstitutesAreResolvedButNotUnsupported(t *testing.T) {
 	if !exactFontFamilyAvailable("Segoe UI Symbol") {
 		if source, ok := substituteFontSourceForFamily("Segoe UI Symbol", false, false); !ok || source.Label == "" {
 			t.Fatalf("Segoe UI Symbol should use a supported sans-serif substitute, got %q ok=%v", source.Label, ok)

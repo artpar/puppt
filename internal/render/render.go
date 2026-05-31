@@ -10371,17 +10371,26 @@ func fontResolutionUnsupportedMessage(element slideElement) string {
 
 func fontResolutionUnsupportedMessages(element slideElement) []string {
 	seen := map[string]bool{}
+	seenMessages := map[string]bool{}
 	var messages []string
-	if message := fontResolutionUnsupportedMessageForFamily(element.FontFamily, false, element.Italic); message != "" {
-		seen[fontResolutionMessageKey(element.FontFamily, false, element.Italic)] = true
+	appendMessage := func(key string, message string) {
+		if message == "" || seenMessages[message] {
+			return
+		}
+		if key != "" {
+			seen[key] = true
+		}
+		seenMessages[message] = true
 		messages = append(messages, message)
+	}
+	if message := fontResolutionUnsupportedMessageForFamily(element.FontFamily, false, element.Italic); message != "" {
+		appendMessage(fontResolutionMessageKey(element.FontFamily, false, element.Italic), message)
 	}
 	for _, paragraph := range element.TextParagraphs {
 		key := fontResolutionMessageKey(paragraph.FontFamily, paragraph.Bold, paragraph.Italic)
 		if key != "" && !seen[key] {
 			if message := fontResolutionUnsupportedMessageForFamily(paragraph.FontFamily, paragraph.Bold, paragraph.Italic); message != "" {
-				seen[key] = true
-				messages = append(messages, message)
+				appendMessage(key, message)
 			}
 		}
 		for _, run := range paragraph.Runs {
@@ -10392,8 +10401,7 @@ func fontResolutionUnsupportedMessages(element slideElement) []string {
 				continue
 			}
 			if message := fontResolutionUnsupportedMessageForFamily(run.FontFamily, bold, italic); message != "" {
-				seen[key] = true
-				messages = append(messages, message)
+				appendMessage(key, message)
 			}
 		}
 	}
@@ -10472,9 +10480,21 @@ func fontResolutionUnsupportedMessageForFamily(fontFamily string, bold bool, ita
 		return ""
 	}
 	if supportedFontSubstituteAvailable(resolvedFamily, bold, italic) {
+		if fontSubstitutionShouldReport(resolvedFamily) {
+			return fmt.Sprintf("text requested font family %q but rendered with a metric-compatible substitute font", resolvedFamily)
+		}
 		return ""
 	}
 	return fmt.Sprintf("text requested font family %q but rendered with a generic fallback font", resolvedFamily)
+}
+
+func fontSubstitutionShouldReport(fontFamily string) bool {
+	switch normalizedFontFamily(fontFamily) {
+	case "calibri", "calibri light":
+		return true
+	default:
+		return false
+	}
 }
 
 func fontResolutionMessageKey(fontFamily string, bold bool, italic bool) string {
