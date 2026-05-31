@@ -64,6 +64,9 @@ func TestRenderWritesPNGAndReportsUnsupportedTextShape(t *testing.T) {
 	if xDensity != 2835 || yDensity != 2835 {
 		t.Fatalf("unexpected default PNG density: got=%dx%d pixels/meter", xDensity, yDensity)
 	}
+	if got := pngChunkData(t, outputPath, "cICP"); !bytes.Equal(got, displayP3CICPChunkData) {
+		t.Fatalf("rendered PNG did not declare Display P3 cICP metadata: %v", got)
+	}
 }
 
 func TestRenderHonorsOutputDPI(t *testing.T) {
@@ -9913,6 +9916,27 @@ func decodePNG(t *testing.T, path string) image.Image {
 
 func pngPhysicalPixelsPerMeter(t *testing.T, path string) (uint32, uint32, bool) {
 	t.Helper()
+	chunk, ok := pngOptionalChunkData(t, path, "pHYs")
+	if !ok {
+		return 0, 0, false
+	}
+	if len(chunk) != 9 || chunk[8] != 1 {
+		t.Fatalf("invalid pHYs chunk in %s: %v", path, chunk)
+	}
+	return readUint32BE(chunk[0:4]), readUint32BE(chunk[4:8]), true
+}
+
+func pngChunkData(t *testing.T, path string, chunkType string) []byte {
+	t.Helper()
+	chunk, ok := pngOptionalChunkData(t, path, chunkType)
+	if !ok {
+		t.Fatalf("missing PNG chunk %s in %s", chunkType, path)
+	}
+	return chunk
+}
+
+func pngOptionalChunkData(t *testing.T, path string, wantedType string) ([]byte, bool) {
+	t.Helper()
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read png: %v", err)
@@ -9930,17 +9954,14 @@ func pngPhysicalPixelsPerMeter(t *testing.T, path string) (uint32, uint32, bool)
 		}
 		chunk := data[offset : offset+length]
 		offset += length + 4
-		if chunkType == "pHYs" {
-			if len(chunk) != 9 || chunk[8] != 1 {
-				t.Fatalf("invalid pHYs chunk in %s: %v", path, chunk)
-			}
-			return readUint32BE(chunk[0:4]), readUint32BE(chunk[4:8]), true
+		if chunkType == wantedType {
+			return append([]byte(nil), chunk...), true
 		}
 		if chunkType == "IEND" {
 			break
 		}
 	}
-	return 0, 0, false
+	return nil, false
 }
 
 func hasOpaquePixel(img image.Image) bool {

@@ -53,6 +53,8 @@ const (
 	themeRelType           = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme"
 )
 
+var displayP3CICPChunkData = []byte{12, 13, 0, 1}
+
 //go:embed assets/fonts/carlito/*.ttf
 var bundledFontFS embed.FS
 
@@ -12585,11 +12587,11 @@ func writePNGWithDPI(outputPath string, img image.Image, dpi int) error {
 	if err := png.Encode(&data, img); err != nil {
 		return err
 	}
-	_, err = file.Write(pngWithPhysicalPixelDensity(data.Bytes(), normalizeOutputDPI(dpi)))
+	_, err = file.Write(pngWithOutputMetadata(data.Bytes(), normalizeOutputDPI(dpi)))
 	return err
 }
 
-func pngWithPhysicalPixelDensity(data []byte, dpi int) []byte {
+func pngWithOutputMetadata(data []byte, dpi int) []byte {
 	if len(data) < 33 || !bytes.Equal(data[:8], []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'}) {
 		return data
 	}
@@ -12601,10 +12603,12 @@ func pngWithPhysicalPixelDensity(data []byte, dpi int) []byte {
 	writeUint32BE(chunkData[0:4], pixelsPerMeter)
 	writeUint32BE(chunkData[4:8], pixelsPerMeter)
 	chunkData[8] = 1
-	chunk := pngChunk("pHYs", chunkData)
-	output := make([]byte, 0, len(data)+len(chunk))
+	colorChunk := pngChunk("cICP", displayP3CICPChunkData)
+	densityChunk := pngChunk("pHYs", chunkData)
+	output := make([]byte, 0, len(data)+len(colorChunk)+len(densityChunk))
 	output = append(output, data[:33]...)
-	output = append(output, chunk...)
+	output = append(output, colorChunk...)
+	output = append(output, densityChunk...)
 	output = append(output, data[33:]...)
 	return output
 }
