@@ -220,6 +220,37 @@ func TestRenderShapePaintsSolidRectangleFill(t *testing.T) {
 	}
 }
 
+func TestRenderShapeAntialiasesFractionalRectangleFillEdges(t *testing.T) {
+	size := slideSize{CX: emuPerInch, CY: emuPerInch}
+	img := image.NewRGBA(image.Rect(0, 0, 10, 10))
+	draw.Draw(img, img.Bounds(), &image.Uniform{C: color.White}, image.Point{}, draw.Src)
+	element := slideElement{
+		Kind:         "sp",
+		Name:         "Fractional Rectangle",
+		PrstGeom:     "rect",
+		HasTransform: true,
+		ExtCX:        emuPerInch,
+		ExtCY:        emuPerInch / 4,
+		HasFill:      true,
+		FillColor:    color.RGBA{G: 255, A: 255},
+	}
+
+	unsupported := renderShape("ppt/slides/slide1.xml", size, img, &element)
+	if len(unsupported) != 0 || !element.Rendered {
+		t.Fatalf("unexpected shape render result: unsupported=%+v rendered=%v", unsupported, element.Rendered)
+	}
+	if got := img.RGBAAt(5, 1); got != (color.RGBA{G: 255, A: 255}) {
+		t.Fatalf("expected fully covered rectangle interior, got %#v", got)
+	}
+	edge := img.RGBAAt(5, 2)
+	if edge.R == 0 || edge.R == 255 || edge.G != 255 || edge.B == 0 || edge.B == 255 {
+		t.Fatalf("expected fractional bottom edge to blend against background, got %#v", edge)
+	}
+	if got := img.RGBAAt(5, 3); got != (color.RGBA{R: 255, G: 255, B: 255, A: 255}) {
+		t.Fatalf("expected pixels beyond fractional rectangle to remain untouched, got %#v", got)
+	}
+}
+
 func TestRenderShapePaintsRoundSingleCornerFill(t *testing.T) {
 	size := slideSize{CX: defaultSlideCX, CY: defaultSlideCY}
 	img := image.NewRGBA(image.Rect(0, 0, 1280, 720))

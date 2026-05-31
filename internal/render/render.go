@@ -5890,10 +5890,17 @@ func renderShape(slidePart string, size slideSize, img *image.RGBA, element *sli
 		scaleEMU(element.OffX+element.ExtCX, size.CX, img.Bounds().Dx()),
 		scaleEMU(element.OffY+element.ExtCY, size.CY, img.Bounds().Dy()),
 	)
+	targetFloat := floatRect{
+		MinX: scaleEMUFloat(element.OffX, size.CX, img.Bounds().Dx()),
+		MinY: scaleEMUFloat(element.OffY, size.CY, img.Bounds().Dy()),
+		MaxX: scaleEMUFloat(element.OffX+element.ExtCX, size.CX, img.Bounds().Dx()),
+		MaxY: scaleEMUFloat(element.OffY+element.ExtCY, size.CY, img.Bounds().Dy()),
+	}
 	if element.HasShapeAutofit && element.Text != "" && normalizedRotationDegrees(element.Rotation) == 0 {
 		adjusted, err := shapeAutofitTarget(*element, target, size, img.Bounds())
 		if err == nil {
 			target = adjusted
+			targetFloat = floatRectFromImageRect(target)
 		}
 	}
 	target = target.Intersect(img.Bounds())
@@ -5953,7 +5960,7 @@ func renderShape(slidePart string, size slideSize, img *image.RGBA, element *sli
 	if element.HasFill && !element.NoFill && !gradientFillRendered {
 		switch element.PrstGeom {
 		case "rect":
-			fillShapeRect(img, target, element.FillColor)
+			fillShapeRectWithFloatBounds(img, floatRectPixelBounds(targetFloat).Intersect(img.Bounds()), targetFloat, element.FillColor)
 			rendered = true
 		case "roundRect":
 			fillRoundRect(img, target, roundRectRadius(target, element.PrstGeomAdjustments), roundedCorners{TopLeft: true, TopRight: true, BottomLeft: true, BottomRight: true}, element.FillColor)
@@ -6758,6 +6765,24 @@ type floatRect struct {
 	MinY float64
 	MaxX float64
 	MaxY float64
+}
+
+func floatRectFromImageRect(rect image.Rectangle) floatRect {
+	return floatRect{
+		MinX: float64(rect.Min.X),
+		MinY: float64(rect.Min.Y),
+		MaxX: float64(rect.Max.X),
+		MaxY: float64(rect.Max.Y),
+	}
+}
+
+func floatRectPixelBounds(rect floatRect) image.Rectangle {
+	return image.Rect(
+		int(math.Floor(rect.MinX)),
+		int(math.Floor(rect.MinY)),
+		int(math.Ceil(rect.MaxX)),
+		int(math.Ceil(rect.MaxY)),
+	)
 }
 
 func rectangularGradientFocusRect(bounds image.Rectangle, gradient gradientPaint) floatRect {
@@ -9262,6 +9287,40 @@ func fillShapeRect(img *image.RGBA, rect image.Rectangle, c color.RGBA) {
 		return
 	}
 	fillBlendRect(img, rect, c)
+}
+
+func fillShapeRectWithFloatBounds(img *image.RGBA, paintBounds image.Rectangle, rect floatRect, c color.RGBA) {
+	paintBounds = paintBounds.Intersect(img.Bounds())
+	if paintBounds.Empty() || c.A == 0 || rect.MaxX <= rect.MinX || rect.MaxY <= rect.MinY {
+		return
+	}
+	for y := paintBounds.Min.Y; y < paintBounds.Max.Y; y++ {
+		for x := paintBounds.Min.X; x < paintBounds.Max.X; x++ {
+			coverage := floatRectCoverage(float64(x), float64(y), rect)
+			if coverage == 0 {
+				continue
+			}
+			if coverage == 4 && c.A == 255 {
+				img.SetRGBA(x, y, c)
+				continue
+			}
+			layer := c
+			layer.A = coverageAlpha(c.A, coverage)
+			blendPixel(img, x, y, layer)
+		}
+	}
+}
+
+func floatRectCoverage(x float64, y float64, rect floatRect) int {
+	coverage := 0
+	for _, offset := range coverageSampleOffsets {
+		sampleX := x + offset.x
+		sampleY := y + offset.y
+		if sampleX >= rect.MinX && sampleX < rect.MaxX && sampleY >= rect.MinY && sampleY < rect.MaxY {
+			coverage++
+		}
+	}
+	return coverage
 }
 
 type roundedCorners struct {
@@ -12320,6 +12379,13 @@ func scaleEMU(value int64, totalEMU int64, totalPixels int) int {
 		return 0
 	}
 	return int(math.Round(float64(value) / float64(totalEMU) * float64(totalPixels)))
+}
+
+func scaleEMUFloat(value int64, totalEMU int64, totalPixels int) float64 {
+	if totalEMU == 0 {
+		return 0
+	}
+	return float64(value) / float64(totalEMU) * float64(totalPixels)
 }
 
 func sourceCropRect(bounds image.Rectangle, element slideElement) image.Rectangle {
