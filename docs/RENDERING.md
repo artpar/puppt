@@ -2,7 +2,7 @@
 
 `puppt render` is implemented as a Puppt-owned `.pptx` interpretation and PNG output path. It must not shell out to LibreOffice, PowerPoint, Keynote, browser renderers, or image conversion tools.
 
-The Apple Notes PNGs checked in under `testdata/realworld-ppts/reference-renders/manual-using-apple-note` are the current golden test targets for the persistent renderer goal. They are not part of the renderer implementation and are not invoked by the CLI. LibreOffice exports under `testdata/realworld-ppts/reference-renders/libreoffice-7.6.0.3` are retained as an alternate comparison set because different host renderers can differ visibly.
+The Apple Notes PNGs checked in under `testdata/realworld-ppts/reference-renders/manual-using-apple-note` are the current golden test targets for the persistent renderer goal. They are reference artifacts only: they are not part of the renderer implementation and are not invoked by the CLI. LibreOffice exports under `testdata/realworld-ppts/reference-renders/libreoffice-7.6.0.3` are retained only as a secondary comparison reference because different host renderers can differ visibly; they are not a renderer dependency or acceptance target.
 
 Current scope:
 
@@ -37,4 +37,4 @@ Current scope:
 - explicit `unsupported` JSON entries for visible objects that are detected but not yet painted
 - empty placeholder shells are ignored when they have no visible content to paint
 
-Full parity remains in progress. The real-world comparison harness is gated behind `PUPPT_RUN_REALWORLD_RENDER_TESTS=1` and compares all 61 fixture slides against the checked-in Apple Notes reference PNGs by default. Set `PUPPT_REALWORLD_REFERENCE_ROOT` to compare against a different checked-in reference set such as the LibreOffice exports, and set `PUPPT_REALWORLD_ARTIFACT_DIR` to keep `got.png`, `reference.png`, and `diff.png` artifacts for failing slides.
+Full parity remains in progress. The real-world comparison harness is gated behind `PUPPT_RUN_REALWORLD_RENDER_TESTS=1` and compares all 61 fixture slides against the checked-in Apple Notes reference PNGs by default. Set `PUPPT_REALWORLD_REFERENCE_ROOT` to run a diagnostic comparison against a different checked-in reference set such as the secondary LibreOffice exports, and set `PUPPT_REALWORLD_ARTIFACT_DIR` to keep `got.png`, `reference.png`, and `diff.png` artifacts for failing slides.
