@@ -10948,8 +10948,10 @@ func calibriFontCandidates(family string, bold bool, italic bool) []string {
 		styleSuffix = " Italic"
 	}
 	names := []string{family + styleSuffix + ".ttf", family + styleSuffix + ".otf"}
+	names = append(names, calibriOfficeFileNames(family, bold, italic)...)
 	if styleSuffix != "" {
 		names = append(names, family+".ttf", family+".otf")
+		names = append(names, calibriOfficeFileNames(family, false, false)...)
 	}
 	roots := []string{
 		"/Library/Fonts",
@@ -10964,6 +10966,31 @@ func calibriFontCandidates(family string, bold bool, italic bool) []string {
 		}
 	}
 	return paths
+}
+
+func calibriOfficeFileNames(family string, bold bool, italic bool) []string {
+	switch normalizedFontFamily(family) {
+	case "calibri light":
+		switch {
+		case italic:
+			return []string{"calibrili.ttf"}
+		default:
+			return []string{"calibril.ttf"}
+		}
+	case "calibri":
+		switch {
+		case bold && italic:
+			return []string{"calibriz.ttf"}
+		case bold:
+			return []string{"calibrib.ttf"}
+		case italic:
+			return []string{"calibrii.ttf"}
+		default:
+			return []string{"calibri.ttf"}
+		}
+	default:
+		return nil
+	}
 }
 
 func trebuchetMSFontCandidates(bold bool, italic bool) []string {

@@ -5080,6 +5080,28 @@ func TestCalibriFontCandidatesIncludeMicrosoftOfficeCloudFontCache(t *testing.T)
 	}
 }
 
+func TestCalibriFontCandidatesIncludeOfficeFileNames(t *testing.T) {
+	tests := []struct {
+		family string
+		bold   bool
+		italic bool
+		name   string
+	}{
+		{family: "Calibri", name: "calibri.ttf"},
+		{family: "Calibri", bold: true, name: "calibrib.ttf"},
+		{family: "Calibri", italic: true, name: "calibrii.ttf"},
+		{family: "Calibri", bold: true, italic: true, name: "calibriz.ttf"},
+		{family: "Calibri Light", name: "calibril.ttf"},
+		{family: "Calibri Light", italic: true, name: "calibrili.ttf"},
+	}
+	for _, tt := range tests {
+		candidates := exactFontCandidatesForFamily(tt.family, tt.bold, tt.italic)
+		if !slices.Contains(candidates, filepath.Join("/Library/Fonts", tt.name)) {
+			t.Fatalf("expected %s candidates to include Office filename %q, got %+v", tt.family, tt.name, candidates)
+		}
+	}
+}
+
 func TestFirstExistingPathExpandsSortedGlobCandidates(t *testing.T) {
 	dir := t.TempDir()
 	latePath := filepath.Join(dir, "B.ttf")
