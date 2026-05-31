@@ -10955,9 +10955,15 @@ func calibriFontCandidates(family string, bold bool, italic bool) []string {
 	}
 	roots := []string{
 		"/Library/Fonts",
+		"/Library/Fonts/Microsoft",
 		"/System/Library/Fonts/Supplemental",
 		filepath.Join(os.Getenv("HOME"), "Library", "Fonts"),
+		filepath.Join(os.Getenv("HOME"), "Library", "Fonts", "Microsoft"),
 		filepath.Join(os.Getenv("HOME"), "Library", "Group Containers", "UBF8T346G9.Office", "FontCache", "*", "CloudFonts", family),
+		"/usr/local/share/fonts",
+		"/usr/share/fonts",
+		"/usr/share/fonts/truetype/msttcorefonts",
+		filepath.Join(os.Getenv("HOME"), ".local", "share", "fonts"),
 	}
 	var paths []string
 	for _, root := range roots {

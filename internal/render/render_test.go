@@ -5102,6 +5102,26 @@ func TestCalibriFontCandidatesIncludeOfficeFileNames(t *testing.T) {
 	}
 }
 
+func TestCalibriFontCandidatesIncludeMicrosoftAndLinuxFontRoots(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	candidates := exactFontCandidatesForFamily("Calibri", false, false)
+	expected := []string{
+		filepath.Join("/Library/Fonts/Microsoft", "calibri.ttf"),
+		filepath.Join(home, "Library", "Fonts", "Microsoft", "calibri.ttf"),
+		filepath.Join("/usr/local/share/fonts", "calibri.ttf"),
+		filepath.Join("/usr/share/fonts", "calibri.ttf"),
+		filepath.Join("/usr/share/fonts/truetype/msttcorefonts", "calibri.ttf"),
+		filepath.Join(home, ".local", "share", "fonts", "calibri.ttf"),
+	}
+	for _, path := range expected {
+		if !slices.Contains(candidates, path) {
+			t.Fatalf("expected Calibri candidates to include %q, got %+v", path, candidates)
+		}
+	}
+}
+
 func TestFirstExistingPathExpandsSortedGlobCandidates(t *testing.T) {
 	dir := t.TempDir()
 	latePath := filepath.Join(dir, "B.ttf")
