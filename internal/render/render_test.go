@@ -6883,6 +6883,59 @@ func TestMergePlaceholderSourceMergesParagraphStyles(t *testing.T) {
 	}
 }
 
+func TestMergePlaceholderSourceKeepsMasterParagraphFontSizeWhenLayoutDefRPrOmitsSize(t *testing.T) {
+	masterStyleNode, err := parseXMLNode([]byte(`<a:lvl1pPr xmlns:a="a">
+  <a:lnSpc><a:spcPct val="90000"/></a:lnSpc>
+  <a:buSzPts val="2800"/>
+  <a:buFont typeface="Arial"/>
+  <a:buChar char="•"/>
+  <a:defRPr sz="2800">
+    <a:latin typeface="Calibri"/>
+  </a:defRPr>
+</a:lvl1pPr>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	layoutStyleNode, err := parseXMLNode([]byte(`<a:lvl1pPr xmlns:a="a" marL="457200" indent="-342900">
+  <a:lnSpc><a:spcPct val="90000"/></a:lnSpc>
+  <a:buSzPts val="1800"/>
+  <a:buChar char="•"/>
+  <a:defRPr/>
+</a:lvl1pPr>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	master := slideElement{
+		IsPlaceholder:   true,
+		PlaceholderType: "body",
+		PlaceholderParagraphStyles: map[int]paragraphStyle{
+			0: parseParagraphStyle(masterStyleNode, defaultThemeColors()),
+		},
+	}
+	layout := slideElement{
+		IsPlaceholder:   true,
+		PlaceholderType: "body",
+		PlaceholderParagraphStyles: map[int]paragraphStyle{
+			0: parseParagraphStyle(layoutStyleNode, defaultThemeColors()),
+		},
+	}
+
+	got := mergePlaceholderSource(master, layout)
+	style := got.PlaceholderParagraphStyles[0]
+	if style.FontSize != 2800 {
+		t.Fatalf("layout defRPr without sz should not erase master placeholder font size: %+v", style)
+	}
+	if style.FontFamily != "Calibri" {
+		t.Fatalf("layout defRPr without latin should not erase master placeholder font family: %+v", style)
+	}
+	if !style.HasMarginLeft || style.MarginLeft != 457200 || !style.HasIndent || style.Indent != -342900 {
+		t.Fatalf("layout paragraph geometry should still override master geometry: %+v", style)
+	}
+	if style.BulletFontSize != 1800 {
+		t.Fatalf("layout bullet size should override master bullet size independently of text font size: %+v", style)
+	}
+}
+
 func TestResolveSlidePlaceholdersMatchesInheritedIdxFallback(t *testing.T) {
 	elements := []slideElement{{
 		Kind:           "sp",
