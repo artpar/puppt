@@ -7390,15 +7390,6 @@ func fitNormalAutofitElement(element slideElement, bounds image.Rectangle, dpiOv
 	}
 	bestScale := startScale
 	maxLines := normalAutofitMaxSoftLines(element)
-	if element.LineSpacingReductionPct > 0 {
-		withoutLineSpacingReduction := element
-		withoutLineSpacingReduction.LineSpacingReductionPct = 0
-		withoutLineSpacingReduction.HasLineSpacingReductionPct = false
-		if textHeightFitsAtScale(withoutLineSpacingReduction, bounds, startScale, maxLines, dpi) {
-			element.LineSpacingReductionPct = 0
-			element.HasLineSpacingReductionPct = false
-		}
-	}
 	if scale, ok := largestFittingNormalAutofitScale(element, bounds, startScale, maxLines, dpi); ok {
 		bestScale = scale
 	}
@@ -7613,7 +7604,7 @@ func scaledTextElement(element slideElement, dpiOverride ...int) slideElement {
 		dpi = normalizeOutputDPI(dpiOverride[0])
 	}
 	applyFontScale := element.FontScalePct > 0 && element.FontScalePct != 100000
-	applyLineSpacingReduction := element.LineSpacingReductionPct > 0 && element.FontScalePct > 0 && element.FontScalePct != 100000
+	applyLineSpacingReduction := element.LineSpacingReductionPct > 0
 	scaleForDPI := dpi != defaultOutputDPI
 	if !scaleForDPI && !applyFontScale && !applyLineSpacingReduction {
 		return element

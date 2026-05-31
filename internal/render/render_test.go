@@ -7908,7 +7908,7 @@ func TestFitNormalAutofitElementSelectsLargestFittingScale(t *testing.T) {
 	}
 }
 
-func TestFitNormalAutofitElementSkipsLineSpacingReductionWhenTextFitsVertically(t *testing.T) {
+func TestFitNormalAutofitElementPreservesAuthoredLineSpacingReduction(t *testing.T) {
 	got := fitNormalAutofitElement(slideElement{
 		HasNormAutofit:             true,
 		HasLineSpacingReductionPct: true,
@@ -7926,8 +7926,8 @@ func TestFitNormalAutofitElementSkipsLineSpacingReductionWhenTextFitsVertically(
 			}},
 		}},
 	}, image.Rect(0, 0, 500, 100))
-	if got.HasLineSpacingReductionPct || got.LineSpacingReductionPct != 0 {
-		t.Fatalf("line spacing reduction should be unused when text already fits vertically: %+v", got)
+	if !got.HasLineSpacingReductionPct || got.LineSpacingReductionPct != 10000 {
+		t.Fatalf("authored line spacing reduction should be preserved: %+v", got)
 	}
 }
 
@@ -8273,7 +8273,7 @@ func TestScaledTextElementAppliesNormalAutofitFontScale(t *testing.T) {
 	}
 }
 
-func TestScaledTextElementDefersNormalAutofitLineSpacingReductionWithoutFontScale(t *testing.T) {
+func TestScaledTextElementAppliesNormalAutofitLineSpacingReductionWithoutFontScale(t *testing.T) {
 	got := scaledTextElement(slideElement{
 		LineSpacingReductionPct: 10000,
 		FontSize:                2000,
@@ -8291,8 +8291,8 @@ func TestScaledTextElementDefersNormalAutofitLineSpacingReductionWithoutFontScal
 	if got.FontSize != 2000 || got.TextParagraphs[0].FontSize != 2000 || got.TextParagraphs[0].Runs[0].FontSize != 2000 {
 		t.Fatalf("line spacing reduction must not scale font sizes: %+v", got)
 	}
-	if got.TextParagraphs[0].LineSpacingPct != 90000 {
-		t.Fatalf("line spacing reduction without font scaling should be deferred: %+v", got)
+	if got.TextParagraphs[0].LineSpacingPct != 80000 {
+		t.Fatalf("line spacing reduction should apply independently of font scaling: %+v", got)
 	}
 	if got.TextParagraphs[0].SpaceBefore != 8 || got.TextParagraphs[0].SpaceAfter != 12 {
 		t.Fatalf("line spacing reduction must not scale paragraph spacing: %+v", got)
@@ -8311,7 +8311,7 @@ func TestScaledTextElementScalesParagraphSpacingForDPI(t *testing.T) {
 	}
 }
 
-func TestScaledTextElementDoesNotApplyLineSpacingReductionAtFullScale(t *testing.T) {
+func TestScaledTextElementAppliesLineSpacingReductionAtFullScale(t *testing.T) {
 	got := scaledTextElement(slideElement{
 		FontScalePct:            100000,
 		LineSpacingReductionPct: 10000,
@@ -8321,8 +8321,8 @@ func TestScaledTextElementDoesNotApplyLineSpacingReductionAtFullScale(t *testing
 			LineSpacingPct: 100000,
 		}},
 	})
-	if got.TextParagraphs[0].LineSpacingPct != 100000 {
-		t.Fatalf("line spacing reduction should wait until normal autofit scales text below 100%%: %+v", got)
+	if got.TextParagraphs[0].LineSpacingPct != 90000 {
+		t.Fatalf("line spacing reduction should apply when fontScale is 100%%: %+v", got)
 	}
 }
 
