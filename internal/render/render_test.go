@@ -5423,6 +5423,9 @@ func TestElementShouldReportFontResolutionSkipsTinyImagePlaceholderMarkerText(t 
 	if messages := fontResolutionUnsupportedMessages(element); len(messages) == 0 {
 		t.Fatal("test fixture should use a font that would normally report fallback")
 	}
+	if elementShouldRenderText(element) {
+		t.Fatalf("tiny image-placeholder marker text should not render: %+v", element)
+	}
 	if elementShouldReportFontResolution(element) {
 		t.Fatalf("tiny image-placeholder marker text should not report font resolution: %+v", element)
 	}
@@ -5446,6 +5449,40 @@ func TestElementShouldReportFontResolutionKeepsVisibleImageShapeText(t *testing.
 	}
 	if !elementShouldReportFontResolution(element) {
 		t.Fatalf("visible image-shape text should still report font resolution: %+v", element)
+	}
+	if !elementShouldRenderText(element) {
+		t.Fatalf("visible image-shape text should still render: %+v", element)
+	}
+}
+
+func TestRenderShapeSkipsTinyImagePlaceholderMarkerText(t *testing.T) {
+	img := image.NewRGBA(image.Rect(0, 0, 96, 96))
+	element := slideElement{
+		Kind:         "pic",
+		Name:         "Picture Placeholder 8",
+		Text:         ".",
+		EmbedID:      "rId1",
+		HasTransform: true,
+		ExtCX:        emuPerInch,
+		ExtCY:        emuPerInch,
+		TextParagraphs: []textParagraph{{
+			Text:       ".",
+			FontFamily: "Missing Office Font",
+			FontSize:   100,
+			Runs: []textRun{{
+				Text:       ".",
+				FontFamily: "Missing Office Font",
+				FontSize:   100,
+			}},
+		}},
+	}
+
+	unsupported := renderShape("ppt/slides/slide1.xml", slideSize{CX: emuPerInch, CY: emuPerInch}, img, &element)
+	if len(unsupported) != 0 {
+		t.Fatalf("hidden image-placeholder marker text should not report unsupported content, got %+v", unsupported)
+	}
+	if hasOpaquePixel(img) {
+		t.Fatal("hidden image-placeholder marker text should not paint pixels")
 	}
 }
 

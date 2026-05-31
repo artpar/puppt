@@ -6016,7 +6016,7 @@ func renderShape(slidePart string, size slideSize, img *image.RGBA, element *sli
 			rendered = true
 		}
 	}
-	if element.Text != "" {
+	if element.Text != "" && elementShouldRenderText(*element) {
 		if elementShouldReportFontResolution(*element) {
 			for _, message := range fontResolutionUnsupportedMessages(*element) {
 				unsupported = append(unsupported, unsupportedItem(slidePart, partialUnsupportedCode, fmt.Sprintf("shape object %q %s", elementLabel(*element), message)))
@@ -10491,13 +10491,14 @@ func fontResolutionUnsupportedMessages(element slideElement) []string {
 }
 
 func elementShouldReportFontResolution(element slideElement) bool {
+	return elementShouldRenderText(element)
+}
+
+func elementShouldRenderText(element slideElement) bool {
 	if strings.TrimSpace(element.Text) == "" {
 		return false
 	}
-	if !elementHasOnlyTinyImagePlaceholderMarkerText(element) {
-		return true
-	}
-	return false
+	return !elementHasOnlyTinyImagePlaceholderMarkerText(element)
 }
 
 func elementHasOnlyTinyImagePlaceholderMarkerText(element slideElement) bool {
