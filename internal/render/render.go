@@ -11140,11 +11140,22 @@ func calibriFontCandidates(family string, bold bool, italic bool) []string {
 		"/System/Library/Fonts/Supplemental",
 		filepath.Join(os.Getenv("HOME"), "Library", "Fonts"),
 		filepath.Join(os.Getenv("HOME"), "Library", "Fonts", "Microsoft"),
+		filepath.Join("/Applications", "Microsoft Word.app", "Contents", "Resources", "DFonts"),
+		filepath.Join("/Applications", "Microsoft Excel.app", "Contents", "Resources", "DFonts"),
+		filepath.Join(os.Getenv("HOME"), "Applications", "Microsoft Word.app", "Contents", "Resources", "DFonts"),
+		filepath.Join(os.Getenv("HOME"), "Applications", "Microsoft Excel.app", "Contents", "Resources", "DFonts"),
+		filepath.Join(os.Getenv("HOME"), "Library", "Group Containers", "UBF8T346G9.Office", "FontCache", "*", "CloudFonts"),
 		filepath.Join(os.Getenv("HOME"), "Library", "Group Containers", "UBF8T346G9.Office", "FontCache", "*", "CloudFonts", family),
 		"/usr/local/share/fonts",
 		"/usr/share/fonts",
 		"/usr/share/fonts/truetype/msttcorefonts",
 		filepath.Join(os.Getenv("HOME"), ".local", "share", "fonts"),
+	}
+	if localAppData := os.Getenv("LOCALAPPDATA"); localAppData != "" {
+		roots = append(roots,
+			filepath.Join(localAppData, "Microsoft", "FontCache", "*", "CloudFonts"),
+			filepath.Join(localAppData, "Microsoft", "FontCache", "*", "CloudFonts", family),
+		)
 	}
 	var paths []string
 	for _, root := range roots {

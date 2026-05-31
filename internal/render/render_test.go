@@ -5200,11 +5200,20 @@ func TestFontResolutionDistinguishesExactAndSubstituteFonts(t *testing.T) {
 func TestCalibriFontCandidatesIncludeMicrosoftOfficeCloudFontCache(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	localAppData := filepath.Join(t.TempDir(), "LocalAppData")
+	t.Setenv("LOCALAPPDATA", localAppData)
 
 	candidates := exactFontCandidatesForFamily("Calibri", false, false)
-	expected := filepath.Join(home, "Library", "Group Containers", "UBF8T346G9.Office", "FontCache", "*", "CloudFonts", "Calibri", "Calibri.ttf")
-	if !slices.Contains(candidates, expected) {
-		t.Fatalf("expected Microsoft Office cloud font cache candidate %q in %+v", expected, candidates)
+	expected := []string{
+		filepath.Join(home, "Library", "Group Containers", "UBF8T346G9.Office", "FontCache", "*", "CloudFonts", "Calibri.ttf"),
+		filepath.Join(home, "Library", "Group Containers", "UBF8T346G9.Office", "FontCache", "*", "CloudFonts", "Calibri", "Calibri.ttf"),
+		filepath.Join(localAppData, "Microsoft", "FontCache", "*", "CloudFonts", "Calibri.ttf"),
+		filepath.Join(localAppData, "Microsoft", "FontCache", "*", "CloudFonts", "Calibri", "Calibri.ttf"),
+	}
+	for _, candidate := range expected {
+		if !slices.Contains(candidates, candidate) {
+			t.Fatalf("expected Microsoft Office cloud font cache candidate %q in %+v", candidate, candidates)
+		}
 	}
 }
 
@@ -5238,6 +5247,9 @@ func TestCalibriFontCandidatesIncludeMicrosoftAndLinuxFontRoots(t *testing.T) {
 	expected := []string{
 		filepath.Join("/Library/Fonts/Microsoft", "calibri.ttf"),
 		filepath.Join(home, "Library", "Fonts", "Microsoft", "calibri.ttf"),
+		filepath.Join("/Applications", "Microsoft Word.app", "Contents", "Resources", "DFonts", "Calibri.ttf"),
+		filepath.Join("/Applications", "Microsoft Excel.app", "Contents", "Resources", "DFonts", "Calibri.ttf"),
+		filepath.Join(home, "Applications", "Microsoft Word.app", "Contents", "Resources", "DFonts", "Calibri.ttf"),
 		filepath.Join("/usr/local/share/fonts", "calibri.ttf"),
 		filepath.Join("/usr/share/fonts", "calibri.ttf"),
 		filepath.Join("/usr/share/fonts/truetype/msttcorefonts", "calibri.ttf"),
