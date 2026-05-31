@@ -553,6 +553,35 @@ func TestRenderShapeUsesStrokeWidthForSystemDotRectOutline(t *testing.T) {
 	}
 }
 
+func TestRenderShapeHonorsExplicitFlatCapForSystemDotRectOutline(t *testing.T) {
+	size := slideSize{CX: emuPerInch, CY: emuPerInch}
+	img := image.NewRGBA(image.Rect(0, 0, 96, 96))
+	element := slideElement{
+		Kind:         "sp",
+		Name:         "Flat Cap System Dot Rectangle",
+		PrstGeom:     "rect",
+		HasTransform: true,
+		ExtCX:        emuPerInch,
+		ExtCY:        emuPerInch,
+		HasLine:      true,
+		LineColor:    color.RGBA{B: 255, A: 255},
+		LineWidth:    19050,
+		LineDash:     "sysDot",
+		LineCap:      "flat",
+	}
+
+	unsupported := renderShape("ppt/slides/slide1.xml", size, img, &element)
+	if len(unsupported) != 0 || !element.Rendered {
+		t.Fatalf("unexpected flat-cap system-dot outline render result: unsupported=%+v rendered=%v", unsupported, element.Rendered)
+	}
+	if _, _, _, a := img.At(2, 0).RGBA(); a == 0 {
+		t.Fatal("expected explicit flat cap to draw through the dash segment endpoint")
+	}
+	if _, _, _, a := img.At(3, 0).RGBA(); a != 0 {
+		t.Fatalf("expected flat-cap system-dot gap after endpoint, got alpha=%04x", a)
+	}
+}
+
 func TestRenderShapeHonorsCenteredRectLineAlignment(t *testing.T) {
 	size := slideSize{CX: emuPerInch, CY: emuPerInch}
 	img := image.NewRGBA(image.Rect(0, 0, 96, 96))

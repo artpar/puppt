@@ -6023,7 +6023,7 @@ func renderShape(slidePart string, size slideSize, img *image.RGBA, element *sli
 		lineWidth := emuLineWidthToPixels(element.LineWidth, size.CX, img.Bounds().Dx())
 		switch element.PrstGeom {
 		case "rect", "roundRect", "round1Rect", "":
-			drawStyledRectOutlineAligned(img, target, element.LineColor, lineWidth, element.LineDash, element.LineAlign)
+			drawStyledRectOutlineAlignedWithCap(img, target, element.LineColor, lineWidth, element.LineDash, element.LineAlign, element.LineCap)
 			rendered = true
 		case "ellipse":
 			drawEllipseOutline(img, target, element.LineColor, lineWidth)
@@ -9876,6 +9876,10 @@ func drawStyledRectOutline(img *image.RGBA, rect image.Rectangle, c color.RGBA, 
 }
 
 func drawStyledRectOutlineAligned(img *image.RGBA, rect image.Rectangle, c color.RGBA, width int, dash string, align string) {
+	drawStyledRectOutlineAlignedWithCap(img, rect, c, width, dash, align, "")
+}
+
+func drawStyledRectOutlineAlignedWithCap(img *image.RGBA, rect image.Rectangle, c color.RGBA, width int, dash string, align string, cap string) {
 	rect = alignedStrokeRect(rect, width, align)
 	if dash == "" {
 		drawRectOutline(img, rect, c, width)
@@ -9885,10 +9889,10 @@ func drawStyledRectOutlineAligned(img *image.RGBA, rect image.Rectangle, c color
 		return
 	}
 	for i := 0; i < width; i++ {
-		drawStyledLineWithPatternWidth(img, rect.Min.X, rect.Min.Y+i, rect.Max.X-1, rect.Min.Y+i, c, 1, dash, "flat", width)
-		drawStyledLineWithPatternWidth(img, rect.Min.X, rect.Max.Y-1-i, rect.Max.X-1, rect.Max.Y-1-i, c, 1, dash, "flat", width)
-		drawStyledLineWithPatternWidth(img, rect.Min.X+i, rect.Min.Y, rect.Min.X+i, rect.Max.Y-1, c, 1, dash, "flat", width)
-		drawStyledLineWithPatternWidth(img, rect.Max.X-1-i, rect.Min.Y, rect.Max.X-1-i, rect.Max.Y-1, c, 1, dash, "flat", width)
+		drawStyledLineWithPatternWidth(img, rect.Min.X, rect.Min.Y+i, rect.Max.X-1, rect.Min.Y+i, c, 1, dash, cap, width)
+		drawStyledLineWithPatternWidth(img, rect.Min.X, rect.Max.Y-1-i, rect.Max.X-1, rect.Max.Y-1-i, c, 1, dash, cap, width)
+		drawStyledLineWithPatternWidth(img, rect.Min.X+i, rect.Min.Y, rect.Min.X+i, rect.Max.Y-1, c, 1, dash, cap, width)
+		drawStyledLineWithPatternWidth(img, rect.Max.X-1-i, rect.Min.Y, rect.Max.X-1-i, rect.Max.Y-1, c, 1, dash, cap, width)
 	}
 }
 
@@ -11454,7 +11458,7 @@ func drawPictureRasterLayer(img *image.RGBA, target image.Rectangle, pictureImag
 }
 
 func drawPictureOutline(img *image.RGBA, target image.Rectangle, element slideElement, lineWidth int) {
-	drawStyledRectOutlineAligned(img, target, element.LineColor, lineWidth, element.LineDash, element.LineAlign)
+	drawStyledRectOutlineAlignedWithCap(img, target, element.LineColor, lineWidth, element.LineDash, element.LineAlign, element.LineCap)
 }
 
 func drawPictureShadow(img *image.RGBA, target image.Rectangle, element slideElement, size slideSize) bool {
