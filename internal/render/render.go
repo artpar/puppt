@@ -1219,6 +1219,9 @@ func collectTableLineUnsupportedFeatureMessages(line *xmlNode, messages map[stri
 	if cmpd := attrValue(line.Attrs, "cmpd"); !isSupportedTableCompoundLine(cmpd) {
 		messages["uses compound border lines that were not rendered"] = true
 	}
+	if firstChild(line, "noFill") == nil && (firstChild(line, "round") != nil || firstChild(line, "bevel") != nil) {
+		messages["uses border line joins that were not rendered"] = true
+	}
 	for _, name := range []string{"headEnd", "tailEnd"} {
 		marker := firstChild(line, name)
 		if marker == nil {

@@ -2394,6 +2394,7 @@ func TestParseTableModelRecordsUnsupportedVisibleFeatures(t *testing.T) {
 		"uses effects that were not rendered",
 		"uses border line caps that were not rendered",
 		"uses compound border lines that were not rendered",
+		"uses border line joins that were not rendered",
 		"uses border line end decorations that were not rendered",
 	} {
 		if !slices.Contains(table.UnsupportedFeatures, want) {
@@ -2402,6 +2403,25 @@ func TestParseTableModelRecordsUnsupportedVisibleFeatures(t *testing.T) {
 	}
 	if slices.Contains(table.UnsupportedFeatures, "uses merged cells rendered with simplified layout") {
 		t.Fatalf("merged cells are rendered through table span geometry and should not be reported partial: %+v", table.UnsupportedFeatures)
+	}
+}
+
+func TestParseTableModelDoesNotReportInvisibleBorderLineJoins(t *testing.T) {
+	root, err := parseXMLNode([]byte(`<a:tbl xmlns:a="a">
+		<a:tblGrid><a:gridCol w="914400"/></a:tblGrid>
+		<a:tr h="914400"><a:tc><a:txBody><a:bodyPr/><a:p><a:r><a:t>Cell</a:t></a:r></a:p></a:txBody>
+			<a:tcPr>
+				<a:lnB><a:noFill/><a:round/></a:lnB>
+			</a:tcPr>
+		</a:tc></a:tr>
+	</a:tbl>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	table := parseTableModel(root, defaultThemeColors())
+	if slices.Contains(table.UnsupportedFeatures, "uses border line joins that were not rendered") {
+		t.Fatalf("invisible no-fill border join should not be reported partial: %+v", table.UnsupportedFeatures)
 	}
 }
 
