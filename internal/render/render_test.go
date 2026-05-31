@@ -2380,7 +2380,7 @@ func TestParseTableModelRecordsUnsupportedVisibleFeatures(t *testing.T) {
 				<a:tcPr>
 					<a:gradFill><a:gsLst><a:gs pos="0"><a:srgbClr val="FFFFFF"/></a:gs><a:gs pos="100000"><a:srgbClr val="000000"/></a:gs></a:gsLst></a:gradFill>
 					<a:effectLst><a:outerShdw blurRad="12700" dist="12700" dir="5400000"><a:srgbClr val="000000"/></a:outerShdw></a:effectLst>
-					<a:lnB cmpd="thickThin" cap="unsupportedCap"><a:solidFill><a:srgbClr val="FF0000"/></a:solidFill><a:round/><a:tailEnd type="triangle"/></a:lnB>
+					<a:lnB cmpd="thickThin" cap="unsupportedCap"><a:solidFill><a:srgbClr val="FF0000"/></a:solidFill><a:bevel/><a:tailEnd type="triangle"/></a:lnB>
 			</a:tcPr>
 		</a:tc></a:tr>
 	</a:tbl>`))
@@ -2406,6 +2406,52 @@ func TestParseTableModelRecordsUnsupportedVisibleFeatures(t *testing.T) {
 	}
 }
 
+func TestRenderGraphicFramePaintsRoundTableBorderJoins(t *testing.T) {
+	size := slideSize{CX: emuPerInch, CY: emuPerInch}
+	img := image.NewRGBA(image.Rect(0, 0, 96, 96))
+	roundBorder := tableCellBorder{
+		Specified: true,
+		HasLine:   true,
+		Color:     color.RGBA{R: 0xff, A: 0xff},
+		Width:     emuPerInch / 12,
+		Cap:       "flat",
+		Compound:  "sng",
+		Join:      "round",
+	}
+	element := slideElement{
+		Kind:         "graphicFrame",
+		Name:         "Round Join Table",
+		HasTransform: true,
+		OffX:         emuPerInch / 4,
+		OffY:         emuPerInch / 4,
+		ExtCX:        emuPerInch / 2,
+		ExtCY:        emuPerInch / 2,
+		HasTable:     true,
+		Table: tableModel{
+			Columns: []int64{1},
+			Rows: []tableRow{{
+				Height: 1,
+				Cells: []tableCell{{
+					RowSpan:      1,
+					ColSpan:      1,
+					BorderTop:    roundBorder,
+					BorderLeft:   roundBorder,
+					BorderRight:  tableCellBorder{Specified: true, NoLine: true},
+					BorderBottom: tableCellBorder{Specified: true, NoLine: true},
+				}},
+			}},
+		},
+	}
+
+	unsupported := renderGraphicFrame(&pptx.Package{}, "ppt/slides/slide1.xml", size, img, &element, nil, tableStyleSet{})
+	if len(unsupported) != 0 || !element.Rendered {
+		t.Fatalf("expected supported round-join table render, got unsupported=%+v rendered=%v", unsupported, element.Rendered)
+	}
+	if alpha := img.RGBAAt(22, 22).A; alpha == 0 {
+		t.Fatalf("expected round join to paint diagonal corner coverage, alpha=%d", alpha)
+	}
+}
+
 func TestParseTableModelDoesNotReportInvisibleBorderLineJoins(t *testing.T) {
 	root, err := parseXMLNode([]byte(`<a:tbl xmlns:a="a">
 		<a:tblGrid><a:gridCol w="914400"/></a:tblGrid>
@@ -2422,6 +2468,25 @@ func TestParseTableModelDoesNotReportInvisibleBorderLineJoins(t *testing.T) {
 	table := parseTableModel(root, defaultThemeColors())
 	if slices.Contains(table.UnsupportedFeatures, "uses border line joins that were not rendered") {
 		t.Fatalf("invisible no-fill border join should not be reported partial: %+v", table.UnsupportedFeatures)
+	}
+}
+
+func TestParseTableModelDoesNotReportRenderedRoundBorderLineJoins(t *testing.T) {
+	root, err := parseXMLNode([]byte(`<a:tbl xmlns:a="a">
+		<a:tblGrid><a:gridCol w="914400"/></a:tblGrid>
+		<a:tr h="914400"><a:tc><a:txBody><a:bodyPr/><a:p><a:r><a:t>Cell</a:t></a:r></a:p></a:txBody>
+			<a:tcPr>
+				<a:lnB><a:solidFill><a:srgbClr val="FF0000"/></a:solidFill><a:round/></a:lnB>
+			</a:tcPr>
+		</a:tc></a:tr>
+	</a:tbl>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	table := parseTableModel(root, defaultThemeColors())
+	if slices.Contains(table.UnsupportedFeatures, "uses border line joins that were not rendered") {
+		t.Fatalf("rendered round border join should not be reported partial: %+v", table.UnsupportedFeatures)
 	}
 }
 

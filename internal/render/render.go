@@ -1219,7 +1219,7 @@ func collectTableLineUnsupportedFeatureMessages(line *xmlNode, messages map[stri
 	if cmpd := attrValue(line.Attrs, "cmpd"); !isSupportedTableCompoundLine(cmpd) {
 		messages["uses compound border lines that were not rendered"] = true
 	}
-	if firstChild(line, "noFill") == nil && (firstChild(line, "round") != nil || firstChild(line, "bevel") != nil) {
+	if firstChild(line, "noFill") == nil && firstChild(line, "bevel") != nil {
 		messages["uses border line joins that were not rendered"] = true
 	}
 	for _, name := range []string{"headEnd", "tailEnd"} {
@@ -5125,10 +5125,15 @@ func drawTableBorders(img *image.RGBA, target image.Rectangle, size slideSize, t
 				continue
 			}
 			style := resolvedTableCellStyle(table, tableStyles, rowIndex, columnIndex)
-			drawTableCellBorderWithDefault(img, size, target, cellRect, cell.BorderTop, tableEdgeTop, tableEdgeBorder(style.Borders, tableEdgeTop, rowIndex, columnIndex, rowCount, columnCount), true)
-			drawTableCellBorderWithDefault(img, size, target, cellRect, cell.BorderBottom, tableEdgeBottom, tableEdgeBorder(style.Borders, tableEdgeBottom, rowIndex, columnIndex, rowCount, columnCount), true)
-			drawTableCellBorderWithDefault(img, size, target, cellRect, cell.BorderLeft, tableEdgeLeft, tableEdgeBorder(style.Borders, tableEdgeLeft, rowIndex, columnIndex, rowCount, columnCount), true)
-			drawTableCellBorderWithDefault(img, size, target, cellRect, cell.BorderRight, tableEdgeRight, tableEdgeBorder(style.Borders, tableEdgeRight, rowIndex, columnIndex, rowCount, columnCount), true)
+			top := effectiveTableCellBorder(cell.BorderTop, tableEdgeBorder(style.Borders, tableEdgeTop, rowIndex, columnIndex, rowCount, columnCount), true)
+			bottom := effectiveTableCellBorder(cell.BorderBottom, tableEdgeBorder(style.Borders, tableEdgeBottom, rowIndex, columnIndex, rowCount, columnCount), true)
+			left := effectiveTableCellBorder(cell.BorderLeft, tableEdgeBorder(style.Borders, tableEdgeLeft, rowIndex, columnIndex, rowCount, columnCount), true)
+			right := effectiveTableCellBorder(cell.BorderRight, tableEdgeBorder(style.Borders, tableEdgeRight, rowIndex, columnIndex, rowCount, columnCount), true)
+			drawTableCellBorder(img, size, target, cellRect, top, tableEdgeTop)
+			drawTableCellBorder(img, size, target, cellRect, bottom, tableEdgeBottom)
+			drawTableCellBorder(img, size, target, cellRect, left, tableEdgeLeft)
+			drawTableCellBorder(img, size, target, cellRect, right, tableEdgeRight)
+			drawTableCellRoundBorderJoins(img, size, target, cellRect, top, bottom, left, right)
 		}
 	}
 }
@@ -5258,14 +5263,84 @@ func doubleCompoundLineMetrics(width int) (int, int, int) {
 	return strokeWidth, firstOffset, secondOffset
 }
 
-func drawTableCellBorderWithDefault(img *image.RGBA, size slideSize, tableRect image.Rectangle, rect image.Rectangle, border tableCellBorder, edge int, defaultBorder tableCellBorder, hasDefaultBorder bool) {
+func effectiveTableCellBorder(border tableCellBorder, defaultBorder tableCellBorder, hasDefaultBorder bool) tableCellBorder {
 	if border.Specified {
-		drawTableCellBorder(img, size, tableRect, rect, border, edge)
-		return
+		return border
 	}
 	if hasDefaultBorder {
-		drawTableCellBorder(img, size, tableRect, rect, defaultBorder, edge)
+		return defaultBorder
 	}
+	return tableCellBorder{}
+}
+
+func drawTableCellRoundBorderJoins(img *image.RGBA, size slideSize, tableRect image.Rectangle, rect image.Rectangle, top tableCellBorder, bottom tableCellBorder, left tableCellBorder, right tableCellBorder) {
+	topY := rect.Min.Y
+	bottomY := rect.Max.Y
+	if bottomY >= tableRect.Max.Y {
+		bottomY = rect.Max.Y - 1
+	}
+	leftX := rect.Min.X
+	rightX := rect.Max.X
+	if rightX >= tableRect.Max.X {
+		rightX = rect.Max.X - 1
+	}
+	drawTableRoundBorderJoin(img, size, leftX, topY, top, left)
+	drawTableRoundBorderJoin(img, size, rightX, topY, top, right)
+	drawTableRoundBorderJoin(img, size, leftX, bottomY, bottom, left)
+	drawTableRoundBorderJoin(img, size, rightX, bottomY, bottom, right)
+}
+
+func drawTableRoundBorderJoin(img *image.RGBA, size slideSize, x int, y int, first tableCellBorder, second tableCellBorder) {
+	for _, border := range []tableCellBorder{first, second} {
+		if !tableBorderHasRenderableRoundJoin(border) {
+			continue
+		}
+		width := emuLineWidthToPixels(border.Width, size.CX, img.Bounds().Dx())
+		drawRoundLineJoin(img, x, y, border.Color, width)
+	}
+}
+
+func tableBorderHasRenderableRoundJoin(border tableCellBorder) bool {
+	return border.Specified && border.HasLine && !border.NoLine && border.Join == "round" && (border.Compound == "" || border.Compound == "sng")
+}
+
+func drawRoundLineJoin(img *image.RGBA, centerX int, centerY int, c color.RGBA, width int) {
+	if c.A == 0 {
+		return
+	}
+	if width < 1 {
+		width = 1
+	}
+	radius := float64(width) / 2
+	padding := int(math.Ceil(radius)) + 1
+	bounds := image.Rect(centerX-padding, centerY-padding, centerX+padding+1, centerY+padding+1).Intersect(img.Bounds())
+	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
+		for x := bounds.Min.X; x < bounds.Max.X; x++ {
+			coverage := circleCoverage(float64(x), float64(y), float64(centerX), float64(centerY), radius)
+			if coverage == 4 && c.A == 255 {
+				img.SetRGBA(x, y, c)
+			} else if coverage > 0 {
+				layer := c
+				layer.A = coverageAlpha(c.A, coverage)
+				blendPixel(img, x, y, layer)
+			}
+		}
+	}
+}
+
+func circleCoverage(x float64, y float64, centerX float64, centerY float64, radius float64) int {
+	if radius <= 0 {
+		return 0
+	}
+	coverage := 0
+	for _, offset := range coverageSampleOffsets {
+		dx := x + offset.x - centerX
+		dy := y + offset.y - centerY
+		if dx*dx+dy*dy <= radius*radius {
+			coverage++
+		}
+	}
+	return coverage
 }
 
 func tableCellTextRect(cellRect image.Rectangle, cell tableCell, size slideSize, imageBounds image.Rectangle) image.Rectangle {
