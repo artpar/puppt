@@ -102,6 +102,7 @@ type relativeRect struct {
 
 type textStyle struct {
 	FontSize        int
+	HasBold         bool
 	Bold            bool
 	HasTextColor    bool
 	TextColor       color.RGBA
@@ -140,7 +141,9 @@ type paragraphStyle struct {
 	HasBulletColor   bool
 	BulletColor      color.RGBA
 	BulletColorTx    bool
+	HasBold          bool
 	Bold             bool
+	HasItalic        bool
 	Italic           bool
 	HasCharSpacing   bool
 	CharSpacing      int
@@ -309,7 +312,9 @@ type textParagraph struct {
 	BulletFontFamily string
 	BulletFontTx     bool
 	FontSize         int
+	HasBold          bool
 	Bold             bool
+	HasItalic        bool
 	Italic           bool
 	HasCharSpacing   bool
 	CharSpacing      int
@@ -2693,9 +2698,11 @@ func textParagraphsFromNodeWithTheme(node *xmlNode, theme themeColors) []textPar
 		}
 		if len(paragraph.Runs) > 0 {
 			if textRunsAllBold(paragraph.Runs) {
+				paragraph.HasBold = true
 				paragraph.Bold = true
 			}
 			if textRunsAllItalic(paragraph.Runs) {
+				paragraph.HasItalic = true
 				paragraph.Italic = true
 			}
 		}
@@ -2814,10 +2821,12 @@ func applyParagraphStyle(paragraph *textParagraph, style paragraphStyle) {
 	if paragraph.FontSize == 0 {
 		paragraph.FontSize = style.FontSize
 	}
-	if !paragraph.Bold {
+	if !paragraph.HasBold && !paragraph.Bold && (style.HasBold || style.Bold) {
+		paragraph.HasBold = style.HasBold
 		paragraph.Bold = style.Bold
 	}
-	if !paragraph.Italic {
+	if !paragraph.HasItalic && !paragraph.Italic && (style.HasItalic || style.Italic) {
+		paragraph.HasItalic = style.HasItalic
 		paragraph.Italic = style.Italic
 	}
 	if !paragraph.HasCharSpacing && style.HasCharSpacing {
@@ -2957,8 +2966,14 @@ func parseParagraphStyle(node *xmlNode, theme themeColors) paragraphStyle {
 		if size := parseIntAttr(defRPr.Attrs, "sz"); size > 0 {
 			style.FontSize = int(size)
 		}
-		style.Bold = attrValue(defRPr.Attrs, "b") == "1"
-		style.Italic = attrValue(defRPr.Attrs, "i") == "1"
+		if value := attrValue(defRPr.Attrs, "b"); value != "" {
+			style.HasBold = true
+			style.Bold = boolAttrOn(value)
+		}
+		if value := attrValue(defRPr.Attrs, "i"); value != "" {
+			style.HasItalic = true
+			style.Italic = boolAttrOn(value)
+		}
 		if value := attrValue(defRPr.Attrs, "spc"); value != "" {
 			style.HasCharSpacing = true
 			style.CharSpacing = int(parseIntAttr(defRPr.Attrs, "spc"))
@@ -3202,7 +3217,9 @@ func applyRunPropertiesToParagraph(paragraph *textParagraph, rPr *xmlNode, theme
 	applyRunPropertiesToRun(&run, rPr, "", theme)
 	paragraph.FontFamily = concreteParagraphFontFamily(run.FontFamily)
 	paragraph.FontSize = run.FontSize
+	paragraph.HasBold = run.HasBold
 	paragraph.Bold = run.Bold
+	paragraph.HasItalic = run.HasItalic
 	paragraph.Italic = run.Italic
 	paragraph.HasCharSpacing = run.HasCharSpacing
 	paragraph.CharSpacing = run.CharSpacing
@@ -3219,10 +3236,12 @@ func applyRunPropertiesToParagraphDefaults(paragraph *textParagraph, rPr *xmlNod
 	if paragraph.FontSize == 0 {
 		paragraph.FontSize = run.FontSize
 	}
-	if !paragraph.Bold {
+	if run.HasBold {
+		paragraph.HasBold = true
 		paragraph.Bold = run.Bold
 	}
-	if !paragraph.Italic {
+	if run.HasItalic {
+		paragraph.HasItalic = true
 		paragraph.Italic = run.Italic
 	}
 	if !paragraph.HasCharSpacing && run.HasCharSpacing {
@@ -3806,7 +3825,8 @@ func mergeTextStyle(base textStyle, override textStyle) textStyle {
 	if merged.FontSize == 0 {
 		merged.FontSize = base.FontSize
 	}
-	if !merged.Bold {
+	if !merged.HasBold && !merged.Bold {
+		merged.HasBold = base.HasBold
 		merged.Bold = base.Bold
 	}
 	if !merged.HasTextColor {
@@ -3860,8 +3880,9 @@ func parseTextStyle(styleNode *xmlNode, theme themeColors) (textStyle, bool) {
 		if size := parseIntAttr(defRPr.Attrs, "sz"); size > 0 {
 			style.FontSize = int(size)
 		}
-		if attrValue(defRPr.Attrs, "b") == "1" {
-			style.Bold = true
+		if value := attrValue(defRPr.Attrs, "b"); value != "" {
+			style.HasBold = true
+			style.Bold = boolAttrOn(value)
 		}
 		if solidFill := firstChild(defRPr, "solidFill"); solidFill != nil {
 			if textColor, ok := colorFromSolidFillWithTheme(solidFill, theme); ok {
@@ -3870,7 +3891,7 @@ func parseTextStyle(styleNode *xmlNode, theme themeColors) (textStyle, bool) {
 			}
 		}
 	}
-	return style, style.FontSize > 0 || style.Bold || style.HasTextColor || style.TextAlign != "" || len(style.ParagraphStyles) > 0
+	return style, style.FontSize > 0 || style.HasBold || style.HasTextColor || style.TextAlign != "" || len(style.ParagraphStyles) > 0
 }
 
 func firstLevelParagraphProperties(styleNode *xmlNode) *xmlNode {
@@ -4129,10 +4150,12 @@ func mergeParagraphStyle(base paragraphStyle, override paragraphStyle) paragraph
 	} else if !merged.HasBulletColor {
 		merged.BulletColorTx = base.BulletColorTx
 	}
-	if !merged.Bold {
+	if !merged.HasBold && !merged.Bold {
+		merged.HasBold = base.HasBold
 		merged.Bold = base.Bold
 	}
-	if !merged.Italic {
+	if !merged.HasItalic && !merged.Italic {
+		merged.HasItalic = base.HasItalic
 		merged.Italic = base.Italic
 	}
 	if !merged.HasCharSpacing {
@@ -4354,10 +4377,11 @@ func applyParagraphStylesToElement(element *slideElement, styles map[int]paragra
 
 func applyStyleBoldToParagraphs(element *slideElement) {
 	if len(element.TextParagraphs) == 0 && strings.TrimSpace(element.Text) != "" {
-		element.TextParagraphs = []textParagraph{{Text: strings.TrimSpace(element.Text), Bold: true}}
+		element.TextParagraphs = []textParagraph{{Text: strings.TrimSpace(element.Text), HasBold: true, Bold: true}}
 		return
 	}
 	for index := range element.TextParagraphs {
+		element.TextParagraphs[index].HasBold = true
 		element.TextParagraphs[index].Bold = true
 	}
 }

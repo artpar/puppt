@@ -4061,7 +4061,7 @@ func TestParseTextStylesNormalizesOfficeSymbolBullets(t *testing.T) {
 	if style.BulletSizePct != 80000 {
 		t.Fatalf("expected paragraph bullet size percent, got %+v", style)
 	}
-	if !style.Bold || !style.HasTextColor || style.TextColor != (color.RGBA{R: 0x11, G: 0x22, B: 0x33, A: 0xff}) {
+	if !style.HasBold || !style.Bold || !style.HasTextColor || style.TextColor != (color.RGBA{R: 0x11, G: 0x22, B: 0x33, A: 0xff}) {
 		t.Fatalf("expected paragraph defRPr bold and text color, got %+v", style)
 	}
 	if !style.HasBulletColor || style.BulletColor != (color.RGBA{R: 0x70, G: 0xad, B: 0x47, A: 0xff}) {
@@ -4147,6 +4147,24 @@ func TestMergeParagraphStyleRespectsAutoNumberPrecedence(t *testing.T) {
 	}
 }
 
+func TestMergeParagraphStyleHonorsExplicitNonBoldOverride(t *testing.T) {
+	got := mergeParagraphStyle(
+		paragraphStyle{HasBold: true, Bold: true, HasItalic: true, Italic: true},
+		paragraphStyle{HasBold: true, Bold: false, HasItalic: true, Italic: false},
+	)
+	if !got.HasBold || got.Bold || !got.HasItalic || got.Italic {
+		t.Fatalf("explicit false text style should block inherited true style: %+v", got)
+	}
+}
+
+func TestApplyParagraphStyleHonorsExplicitNonBoldParagraph(t *testing.T) {
+	paragraph := textParagraph{HasBold: true, Bold: false, HasItalic: true, Italic: false}
+	applyParagraphStyle(&paragraph, paragraphStyle{HasBold: true, Bold: true, HasItalic: true, Italic: true})
+	if paragraph.Bold || paragraph.Italic {
+		t.Fatalf("explicit paragraph non-bold/non-italic should block inherited true style: %+v", paragraph)
+	}
+}
+
 func TestApplyParagraphStyleKeepsLocalExplicitBulletProperties(t *testing.T) {
 	paragraph := textParagraph{
 		BulletFontFamily: "Arial",
@@ -4223,6 +4241,29 @@ func TestTextParagraphsFromNodeUsesParagraphDefaultRunProperties(t *testing.T) {
 	redSegment := runToSegment(got[0].Runs[1], got[0])
 	if !redSegment.HasTextColor || redSegment.TextColor.R != 0xff || redSegment.TextColor.G != 0 || redSegment.TextColor.B != 0 {
 		t.Fatalf("explicit run color should win over paragraph default: %+v", redSegment)
+	}
+}
+
+func TestTextParagraphsFromNodeHonorsExplicitParagraphDefaultNonBold(t *testing.T) {
+	root, err := parseXMLNode([]byte(`<p:txBody xmlns:p="p" xmlns:a="a">
+  <a:lstStyle>
+    <a:lvl1pPr><a:defRPr sz="1800" b="1" i="1"/></a:lvl1pPr>
+  </a:lstStyle>
+  <a:p>
+    <a:pPr><a:defRPr b="0" i="0"/></a:pPr>
+    <a:r><a:rPr/><a:t>Not bold</a:t></a:r>
+  </a:p>
+</p:txBody>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := textParagraphsFromNode(root)
+	if len(got) != 1 {
+		t.Fatalf("unexpected paragraphs: %+v", got)
+	}
+	segment := runToSegment(got[0].Runs[0], got[0])
+	if segment.Bold || segment.Italic {
+		t.Fatalf("explicit paragraph default b=0/i=0 should block inherited true style: %+v", segment)
 	}
 }
 
