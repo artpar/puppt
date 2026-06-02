@@ -73,6 +73,12 @@ func TestMicroFixtureSpecFixtureManifestFormatIncludesSchemaAnchors(t *testing.T
 
 func TestMicroFixtureManifestsDoNotClassifySupportedImageMetadataAsUnsupported(t *testing.T) {
 	root := resolveTestArtifactPath(filepath.Join("testdata", "realworld-ppts", "render-artifacts", "object-debug-2026-06-01"))
+	if _, err := os.Stat(root); err != nil {
+		if os.IsNotExist(err) {
+			t.Skip("real-world render artifact corpus is not present")
+		}
+		t.Fatalf("stat real-world render artifact corpus %s: %v", root, err)
+	}
 	var offenders []string
 	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
