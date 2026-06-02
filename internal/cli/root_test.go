@@ -231,6 +231,51 @@ func TestRenderAllUsesInputFileNameFolderForDirectoryOutput(t *testing.T) {
 	}
 }
 
+func TestRenderDefaultsToAllSlidesInCurrentDirectory(t *testing.T) {
+	dir := t.TempDir()
+	deckPath := filepath.Join(dir, "default all.pptx")
+	if err := fixtures.WriteMinimalPPTX(deckPath, []string{
+		"ppt/slides/slide1.xml",
+		"ppt/slides/slide2.xml",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	workingDir := filepath.Join(dir, "work")
+	if err := os.Mkdir(workingDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	previousDir, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(workingDir); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chdir(previousDir); err != nil {
+			t.Errorf("restore cwd: %v", err)
+		}
+	})
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	if err := Execute(context.Background(), []string{"render", deckPath, "--dpi", "96"}, &stdout, &stderr); err != nil {
+		t.Fatalf("default render failed: %v\n%s", err, stdout.String())
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("render wrote stderr: %s", stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "Rendered 2 slides") {
+		t.Fatalf("unexpected render summary: %s", stdout.String())
+	}
+	for _, name := range []string{"slide-001.png", "slide-002.png"} {
+		outputPath := filepath.Join(workingDir, "default all", name)
+		if _, err := os.Stat(outputPath); err != nil {
+			t.Fatalf("expected default rendered output %s: %v", outputPath, err)
+		}
+	}
+}
+
 func TestRenderSlideRangeSupportsOutputTemplate(t *testing.T) {
 	dir := t.TempDir()
 	deckPath := filepath.Join(dir, "deck.pptx")

@@ -90,10 +90,9 @@ func newRenderCommand() *cobra.Command {
 	cmd.Flags().IntVar(&slideNumber, "slide", 0, "1-based slide number to render")
 	cmd.Flags().StringVar(&slideRange, "slides", "", "1-based slide range/list to render, e.g. 1-3,5")
 	cmd.Flags().BoolVar(&allSlides, "all", false, "render all slides")
-	cmd.Flags().StringVar(&outputPath, "out", "", "path to write rendered PNG, output directory, or template containing {slide}")
+	cmd.Flags().StringVar(&outputPath, "out", "", "path to write rendered PNG, output directory, or template containing {slide}; defaults to current directory")
 	cmd.Flags().IntVar(&outputDPI, "dpi", 72, "output PNG resolution in pixels per inch")
 	cmd.Flags().BoolVar(&emitJSON, "json", false, "emit stable machine-readable JSON")
-	cmd.MarkFlagRequired("out")
 	return cmd
 }
 
@@ -108,13 +107,13 @@ func renderSlideSelection(ctx context.Context, inputPath string, slideNumber int
 	if allSlides {
 		selectedModes++
 	}
-	if selectedModes != 1 {
-		return nil, errors.New("exactly one of --slide, --slides, or --all is required")
+	if selectedModes > 1 {
+		return nil, errors.New("only one of --slide, --slides, or --all can be set")
 	}
 	if slideNumber > 0 {
 		return []int{slideNumber}, nil
 	}
-	if allSlides {
+	if allSlides || selectedModes == 0 {
 		count, err := renderworkflow.SlideCount(ctx, inputPath)
 		if err != nil {
 			return nil, err
@@ -178,9 +177,9 @@ func parsePositiveSlideNumber(value string) (int, error) {
 
 func renderSelectedSlides(ctx context.Context, inputPath string, slides []int, outputPath string, dpi int) (model.CommandResult, error) {
 	if outputPath == "" {
-		return model.CommandResult{}, errors.New("render output path is required")
+		outputPath = "."
 	}
-	if len(slides) == 1 {
+	if len(slides) == 1 && outputPath != "." {
 		slideOutput := outputPath
 		if slideOutputPlaceholder.MatchString(outputPath) {
 			var err error
@@ -204,7 +203,7 @@ func renderSelectedSlides(ctx context.Context, inputPath string, slides []int, o
 		Warnings:      []model.Warning{},
 		Errors:        []model.ErrorItem{},
 		Unsupported:   []model.SkipItem{},
-		Summary:       model.Summary{Human: fmt.Sprintf("Rendered %d slides to %s.", len(slides), outputPath)},
+		Summary:       model.Summary{Human: fmt.Sprintf("Rendered %d slides to %s.", len(slides), renderOutputSummaryPath(inputPath, outputPath))},
 	}
 	for _, slide := range slides {
 		slideOutput, err := renderOutputPathForSlide(inputPath, outputPath, slide, true)
@@ -279,6 +278,16 @@ func deckOutputDirectoryName(inputPath string) string {
 		return "deck"
 	}
 	return name
+}
+
+func renderOutputSummaryPath(inputPath string, outputPath string) string {
+	if slideOutputPlaceholder.MatchString(outputPath) || strings.EqualFold(filepath.Ext(outputPath), ".png") {
+		return outputPath
+	}
+	if outputPath == "." {
+		return filepath.Join(".", deckOutputDirectoryName(inputPath))
+	}
+	return filepath.Join(outputPath, deckOutputDirectoryName(inputPath))
 }
 
 func ensureRenderOutputParent(path string) (string, error) {
