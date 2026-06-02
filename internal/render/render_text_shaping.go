@@ -41,10 +41,14 @@ var currentTextShapingBackend textShapingBackend = harfbuzzTextShapingBackend{}
 var textShapingFontSourceCache sync.Map
 var textShapingFaceCache sync.Map
 var textShapingHarfbuzzShaperPool sync.Pool
+var textShapingOutputCache sync.Map
 
 func (harfbuzzTextShapingBackend) ShapeText(input textShapingInput) (textShapingOutput, bool) {
 	if input.Text == "" || textContainsRTL(input.Text) {
 		return textShapingOutput{}, false
+	}
+	if cached, ok := textShapingOutputCache.Load(input); ok {
+		return cached.(textShapingOutput), true
 	}
 	source, err := cachedTextShapingFontSource(input.FontFamily, input.Bold, input.Italic)
 	if err != nil {
@@ -78,11 +82,13 @@ func (harfbuzzTextShapingBackend) ShapeText(input textShapingInput) (textShaping
 		shaping.AddSpacing(outputs, runes, 0, fixed.I(spacing))
 		output = outputs[0]
 	}
-	return textShapingOutput{
+	result := textShapingOutput{
 		Advance:   int(math.Round(float64(output.Advance) / 64)),
 		Glyphs:    len(output.Glyphs),
 		FontLabel: source.Label,
-	}, true
+	}
+	actual, _ := textShapingOutputCache.LoadOrStore(input, result)
+	return actual.(textShapingOutput), true
 }
 
 func pooledTextShapingHarfbuzzShaper() *shaping.HarfbuzzShaper {

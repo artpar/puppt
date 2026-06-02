@@ -30,9 +30,11 @@ func renderElementsWithDebug(pkg *pptx.Package, slidePart string, sourcePart str
 	for _, relationship := range relationships {
 		relationshipByID[relationship.ID] = relationship
 	}
-	// M03 render-scene lowering is a zero-diff prepaint boundary while legacy
-	// backends are migrated one primitive family at a time.
-	_, _ = renderSceneFromElements(pkg, slidePart, sourcePart, size, img.Bounds(), elements, relationshipByID)
+	if debug != nil {
+		// M03 render-scene lowering is a zero-diff prepaint boundary while legacy
+		// backends are migrated one primitive family at a time.
+		_, _ = renderSceneFromElements(pkg, slidePart, sourcePart, size, img.Bounds(), elements, relationshipByID)
+	}
 
 	var unsupported []model.SkipItem
 	for index := range elements {

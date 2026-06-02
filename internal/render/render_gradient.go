@@ -24,6 +24,10 @@ func drawGradientRect(img *image.RGBA, bounds image.Rectangle, gradient gradient
 		draw.Draw(img, bounds, &image.Uniform{C: gradient.Stops[0].Color}, image.Point{}, op)
 		return
 	}
+	if replace || gradientStopsAreOpaque(gradient.Stops) {
+		drawOpaqueGradientRect(img, bounds, gradient)
+		return
+	}
 	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
 		for x := bounds.Min.X; x < bounds.Max.X; x++ {
 			var position int64
@@ -41,6 +45,86 @@ func drawGradientRect(img *image.RGBA, bounds image.Rectangle, gradient gradient
 			} else {
 				blendPixel(img, x, y, c)
 			}
+		}
+	}
+}
+
+func gradientStopsAreOpaque(stops []gradientStop) bool {
+	for _, stop := range stops {
+		if stop.Color.A != 255 {
+			return false
+		}
+	}
+	return true
+}
+
+func drawOpaqueGradientRect(img *image.RGBA, bounds image.Rectangle, gradient gradientPaint) {
+	if gradient.Path == "" && !gradient.HasAngle {
+		drawVerticalOpaqueGradientRect(img, bounds, gradient)
+		return
+	}
+	if gradient.Path == "circle" {
+		drawRadialOpaqueGradientRect(img, bounds, gradient)
+		return
+	}
+	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
+		offset := img.PixOffset(bounds.Min.X, y)
+		for x := bounds.Min.X; x < bounds.Max.X; x++ {
+			var position int64
+			switch gradient.Path {
+			case "circle":
+				position = radialGradientPosition(bounds, x, y, gradient)
+			case "rect":
+				position = rectangularGradientPosition(bounds, x, y, gradient)
+			default:
+				position = linearGradientPosition(bounds, x, y, gradient)
+			}
+			c := colorAtGradientPositionForPath(gradient.Stops, position, gradient.Path)
+			img.Pix[offset] = c.R
+			img.Pix[offset+1] = c.G
+			img.Pix[offset+2] = c.B
+			img.Pix[offset+3] = c.A
+			offset += 4
+		}
+	}
+}
+
+func drawRadialOpaqueGradientRect(img *image.RGBA, bounds image.Rectangle, gradient gradientPaint) {
+	params := radialGradientParamsForBounds(bounds, gradient)
+	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
+		offset := img.PixOffset(bounds.Min.X, y)
+		for x := bounds.Min.X; x < bounds.Max.X; x++ {
+			position := radialGradientPositionWithParams(float64(x)+0.5, float64(y)+0.5, params)
+			c := colorAtGradientPositionForPath(gradient.Stops, position, gradient.Path)
+			img.Pix[offset] = c.R
+			img.Pix[offset+1] = c.G
+			img.Pix[offset+2] = c.B
+			img.Pix[offset+3] = c.A
+			offset += 4
+		}
+	}
+}
+
+func drawVerticalOpaqueGradientRect(img *image.RGBA, bounds image.Rectangle, gradient gradientPaint) {
+	height := bounds.Dy()
+	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
+		position := int64(0)
+		if height > 1 {
+			position = int64(math.Round((float64(y) + 0.5 - float64(bounds.Min.Y)) / float64(height) * 100000))
+		}
+		if position < 0 {
+			position = 0
+		} else if position > 100000 {
+			position = 100000
+		}
+		c := colorAtGradientPositionForPath(gradient.Stops, position, gradient.Path)
+		offset := img.PixOffset(bounds.Min.X, y)
+		for x := bounds.Min.X; x < bounds.Max.X; x++ {
+			img.Pix[offset] = c.R
+			img.Pix[offset+1] = c.G
+			img.Pix[offset+2] = c.B
+			img.Pix[offset+3] = c.A
+			offset += 4
 		}
 	}
 }
@@ -319,23 +403,40 @@ func radialGradientOuterRect(bounds image.Rectangle) floatRect {
 }
 
 func radialGradientPosition(bounds image.Rectangle, x int, y int, gradient gradientPaint) int64 {
-	origin := radialGradientFocusPoint(bounds, gradient)
 	sampleX := float64(x) + 0.5
 	sampleY := float64(y) + 0.5
-	dx := sampleX - origin.X
-	dy := sampleY - origin.Y
+	return radialGradientPositionWithParams(sampleX, sampleY, radialGradientParamsForBounds(bounds, gradient))
+}
+
+type radialGradientParams struct {
+	Origin floatPoint
+	Inner  floatRect
+	Outer  floatRect
+}
+
+func radialGradientParamsForBounds(bounds image.Rectangle, gradient gradientPaint) radialGradientParams {
+	outer := radialGradientOuterRect(bounds)
+	inner := gradientFocusRect(bounds, gradient)
+	return radialGradientParams{
+		Origin: radialGradientFocusPointFromRects(inner, outer),
+		Inner:  inner,
+		Outer:  outer,
+	}
+}
+
+func radialGradientPositionWithParams(sampleX float64, sampleY float64, params radialGradientParams) int64 {
+	dx := sampleX - params.Origin.X
+	dy := sampleY - params.Origin.Y
 	distance := math.Hypot(dx, dy)
 	if distance <= 0 {
 		return 0
 	}
 
-	outer := radialGradientOuterRect(bounds)
-	inner := gradientFocusRect(bounds, gradient)
-	if pointInEllipse(sampleX, sampleY, inner) {
+	if pointInEllipse(sampleX, sampleY, params.Inner) {
 		return 0
 	}
-	innerDistance := rayEllipseExitDistance(origin, dx/distance, dy/distance, inner)
-	outerDistance := rayEllipseExitDistance(origin, dx/distance, dy/distance, outer)
+	innerDistance := rayEllipseExitDistance(params.Origin, dx/distance, dy/distance, params.Inner)
+	outerDistance := rayEllipseExitDistance(params.Origin, dx/distance, dy/distance, params.Outer)
 	if outerDistance <= innerDistance {
 		return 100000
 	}
@@ -403,6 +504,10 @@ func rayEllipseExitDistance(origin floatPoint, unitX float64, unitY float64, rec
 func radialGradientFocusPoint(bounds image.Rectangle, gradient gradientPaint) floatPoint {
 	inner := gradientFocusRect(bounds, gradient)
 	outer := radialGradientOuterRect(bounds)
+	return radialGradientFocusPointFromRects(inner, outer)
+}
+
+func radialGradientFocusPointFromRects(inner floatRect, outer floatRect) floatPoint {
 	outerLeft := outer.MinX
 	outerTop := outer.MinY
 	outerWidth := outer.MaxX - outer.MinX

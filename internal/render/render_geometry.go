@@ -7,6 +7,8 @@ import (
 	"math"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 )
 
 func drawPolygon(img *image.RGBA, bounds image.Rectangle, points []pathPoint, c color.RGBA) {
@@ -1152,6 +1154,8 @@ func applyDisplayP3OutputTransform(img *image.RGBA) {
 }
 
 var srgbLinearByteTable = buildSRGBLinearByteTable()
+var displayP3MemoOnce sync.Once
+var displayP3Memo []uint32
 
 func buildSRGBLinearByteTable() [256]float64 {
 	var table [256]float64
@@ -1162,6 +1166,13 @@ func buildSRGBLinearByteTable() [256]float64 {
 }
 
 func srgbToDisplayP3(r uint8, g uint8, b uint8) (uint8, uint8, uint8) {
+	key := int(r)<<16 | int(g)<<8 | int(b)
+	displayP3MemoOnce.Do(func() {
+		displayP3Memo = make([]uint32, 1<<24)
+	})
+	if cached := atomic.LoadUint32(&displayP3Memo[key]); cached != 0 {
+		return uint8(cached >> 16), uint8(cached >> 8), uint8(cached)
+	}
 	linearR := srgbByteToLinear(r)
 	linearG := srgbByteToLinear(g)
 	linearB := srgbByteToLinear(b)
@@ -1170,7 +1181,11 @@ func srgbToDisplayP3(r uint8, g uint8, b uint8) (uint8, uint8, uint8) {
 	p3R := 0.822461969*linearR + 0.177538031*linearG
 	p3G := 0.033194199*linearR + 0.966805801*linearG
 	p3B := 0.017082631*linearR + 0.072397440*linearG + 0.910519929*linearB
-	return linearToSRGBByte(p3R), linearToSRGBByte(p3G), linearToSRGBByte(p3B)
+	outR := linearToSRGBByte(p3R)
+	outG := linearToSRGBByte(p3G)
+	outB := linearToSRGBByte(p3B)
+	atomic.StoreUint32(&displayP3Memo[key], 0x01000000|uint32(outR)<<16|uint32(outG)<<8|uint32(outB))
+	return outR, outG, outB
 }
 
 func srgbByteToLinear(value uint8) float64 {

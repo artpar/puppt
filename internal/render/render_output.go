@@ -5,6 +5,7 @@ import (
 	"hash/crc32"
 	"image"
 	"image/png"
+	"io"
 	"math"
 	"os"
 	"path/filepath"
@@ -25,12 +26,49 @@ func writePNGWithDPI(outputPath string, img image.Image, dpi int) error {
 		return err
 	}
 	defer file.Close()
-	var data bytes.Buffer
-	if err := png.Encode(&data, img); err != nil {
+	writer := newPNGMetadataWriter(file, normalizeOutputDPI(dpi))
+	encoder := png.Encoder{CompressionLevel: png.NoCompression}
+	if err := encoder.Encode(writer, img); err != nil {
 		return err
 	}
-	_, err = file.Write(pngWithOutputMetadata(data.Bytes(), normalizeOutputDPI(dpi)))
-	return err
+	return nil
+}
+
+type pngMetadataWriter struct {
+	dst      io.Writer
+	dpi      int
+	prefix   []byte
+	inserted bool
+}
+
+func newPNGMetadataWriter(dst io.Writer, dpi int) *pngMetadataWriter {
+	return &pngMetadataWriter{dst: dst, dpi: dpi, prefix: make([]byte, 0, 33)}
+}
+
+func (writer *pngMetadataWriter) Write(data []byte) (int, error) {
+	written := len(data)
+	for len(data) > 0 {
+		if !writer.inserted {
+			need := 33 - len(writer.prefix)
+			if need > len(data) {
+				writer.prefix = append(writer.prefix, data...)
+				return written, nil
+			}
+			writer.prefix = append(writer.prefix, data[:need]...)
+			data = data[need:]
+			output := pngWithOutputMetadataPrefix(writer.prefix, writer.dpi)
+			if _, err := writer.dst.Write(output); err != nil {
+				return 0, err
+			}
+			writer.inserted = true
+			continue
+		}
+		if _, err := writer.dst.Write(data); err != nil {
+			return 0, err
+		}
+		break
+	}
+	return written, nil
 }
 
 func pngWithOutputMetadata(data []byte, dpi int) []byte {
@@ -53,6 +91,13 @@ func pngWithOutputMetadata(data []byte, dpi int) []byte {
 	output = append(output, densityChunk...)
 	output = append(output, data[33:]...)
 	return output
+}
+
+func pngWithOutputMetadataPrefix(prefix []byte, dpi int) []byte {
+	if len(prefix) != 33 {
+		return prefix
+	}
+	return pngWithOutputMetadata(prefix, dpi)
 }
 
 func pngChunk(chunkType string, data []byte) []byte {
