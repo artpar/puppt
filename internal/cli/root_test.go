@@ -146,11 +146,12 @@ func TestRenderSlideRangeWritesDirectoryOutputs(t *testing.T) {
 	if payload.Status != "partial" || len(payload.Outputs) != 3 || len(payload.Renders) != 3 {
 		t.Fatalf("unexpected range payload: %+v", payload)
 	}
+	deckOutputDir := filepath.Join(outputDir, "deck")
 	for index, wantSlide := range []int{1, 2, 3} {
 		if payload.Renders[index].SlideNumber != wantSlide {
 			t.Fatalf("unexpected rendered slide order: %+v", payload.Renders)
 		}
-		outputPath := filepath.Join(outputDir, filepath.Base(payload.Outputs[index]))
+		outputPath := filepath.Join(deckOutputDir, filepath.Base(payload.Outputs[index]))
 		if payload.Outputs[index] != outputPath {
 			t.Fatalf("unexpected output path %q want %q", payload.Outputs[index], outputPath)
 		}
@@ -182,9 +183,50 @@ func TestRenderAllWritesAllSlides(t *testing.T) {
 	if !strings.Contains(stdout.String(), "Rendered 2 slides") {
 		t.Fatalf("unexpected render summary: %s", stdout.String())
 	}
+	deckOutputDir := filepath.Join(outputDir, "deck")
 	for _, name := range []string{"slide-001.png", "slide-002.png"} {
-		if _, err := os.Stat(filepath.Join(outputDir, name)); err != nil {
+		if _, err := os.Stat(filepath.Join(deckOutputDir, name)); err != nil {
 			t.Fatalf("expected rendered output %s: %v", name, err)
+		}
+	}
+}
+
+func TestRenderAllUsesInputFileNameFolderForDirectoryOutput(t *testing.T) {
+	dir := t.TempDir()
+	deckPath := filepath.Join(dir, "quarterly deck.pptx")
+	outputDir := filepath.Join(dir, "renders")
+	if err := fixtures.WriteMinimalPPTX(deckPath, []string{
+		"ppt/slides/slide1.xml",
+		"ppt/slides/slide2.xml",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	if err := Execute(context.Background(), []string{"render", deckPath, "--all", "--out", outputDir, "--json"}, &stdout, &stderr); err != nil {
+		t.Fatalf("render all failed: %v\n%s", err, stdout.String())
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("render wrote stderr: %s", stderr.String())
+	}
+
+	var payload struct {
+		Outputs []string `json:"outputs"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
+		t.Fatalf("invalid json: %v\n%s", err, stdout.String())
+	}
+	wantDir := filepath.Join(outputDir, "quarterly deck")
+	if len(payload.Outputs) != 2 {
+		t.Fatalf("unexpected outputs: %+v", payload.Outputs)
+	}
+	for _, output := range payload.Outputs {
+		if filepath.Dir(output) != wantDir {
+			t.Fatalf("expected output under deck folder %s, got %s", wantDir, output)
+		}
+		if _, err := os.Stat(output); err != nil {
+			t.Fatalf("expected rendered output %s: %v", output, err)
 		}
 	}
 }

@@ -184,7 +184,7 @@ func renderSelectedSlides(ctx context.Context, inputPath string, slides []int, o
 		slideOutput := outputPath
 		if slideOutputPlaceholder.MatchString(outputPath) {
 			var err error
-			slideOutput, err = renderOutputPathForSlide(outputPath, slides[0], true)
+			slideOutput, err = renderOutputPathForSlide(inputPath, outputPath, slides[0], true)
 			if err != nil {
 				return model.CommandResult{}, err
 			}
@@ -207,7 +207,7 @@ func renderSelectedSlides(ctx context.Context, inputPath string, slides []int, o
 		Summary:       model.Summary{Human: fmt.Sprintf("Rendered %d slides to %s.", len(slides), outputPath)},
 	}
 	for _, slide := range slides {
-		slideOutput, err := renderOutputPathForSlide(outputPath, slide, true)
+		slideOutput, err := renderOutputPathForSlide(inputPath, outputPath, slide, true)
 		if err != nil {
 			return result, err
 		}
@@ -237,7 +237,7 @@ func renderSelectedSlides(ctx context.Context, inputPath string, slides []int, o
 
 var slideOutputPlaceholder = regexp.MustCompile(`\{slide(?::0?([0-9]+))?\}`)
 
-func renderOutputPathForSlide(outputPath string, slide int, multiple bool) (string, error) {
+func renderOutputPathForSlide(inputPath string, outputPath string, slide int, multiple bool) (string, error) {
 	if !multiple {
 		return outputPath, nil
 	}
@@ -255,15 +255,30 @@ func renderOutputPathForSlide(outputPath string, slide int, multiple bool) (stri
 		return ensureRenderOutputParent(path)
 	}
 	if info, err := os.Stat(outputPath); err == nil && info.IsDir() {
-		return filepath.Join(outputPath, fmt.Sprintf("slide-%03d.png", slide)), nil
+		outputDir := filepath.Join(outputPath, deckOutputDirectoryName(inputPath))
+		if err := os.MkdirAll(outputDir, 0o755); err != nil {
+			return "", err
+		}
+		return filepath.Join(outputDir, fmt.Sprintf("slide-%03d.png", slide)), nil
 	}
 	if strings.EqualFold(filepath.Ext(outputPath), ".png") {
 		return "", errors.New("multiple-slide render requires --out to be a directory or a template containing {slide}")
 	}
-	if err := os.MkdirAll(outputPath, 0o755); err != nil {
+	outputDir := filepath.Join(outputPath, deckOutputDirectoryName(inputPath))
+	if err := os.MkdirAll(outputDir, 0o755); err != nil {
 		return "", err
 	}
-	return filepath.Join(outputPath, fmt.Sprintf("slide-%03d.png", slide)), nil
+	return filepath.Join(outputDir, fmt.Sprintf("slide-%03d.png", slide)), nil
+}
+
+func deckOutputDirectoryName(inputPath string) string {
+	base := filepath.Base(inputPath)
+	extension := filepath.Ext(base)
+	name := strings.TrimSuffix(base, extension)
+	if name == "" {
+		return "deck"
+	}
+	return name
 }
 
 func ensureRenderOutputParent(path string) (string, error) {
