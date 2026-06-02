@@ -57,5 +57,5 @@ release:
   github:
     owner: artpar
     name: puppt
-  draft: true
+  draft: false
   prerelease: auto

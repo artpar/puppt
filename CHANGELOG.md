@@ -11,7 +11,7 @@ behavior.
 - Add GoReleaser packaging for cross-platform CLI artifacts.
 - Add GitHub Actions release workflow.
 
-## v0.1.0 - TBD
+## v0.1.0 - 2026-06-02
 
 - Initial versioned CLI release.
 - Includes `inspect`, `plan`, `edit`, `create`, `validate`, `review`, `render`,

@@ -36,8 +36,7 @@ deck content wherever the package structure allows it.
 ## Quick Start
 
 Download release artifacts and checksums from
-[GitHub Releases](https://github.com/artpar/puppt/releases) after the first
-versioned release is published.
+[GitHub Releases](https://github.com/artpar/puppt/releases).
 
 Install from source:
 
