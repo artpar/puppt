@@ -2735,7 +2735,10 @@ func TestMeasureTextRenderLinesUsesFontLineMetricHeight(t *testing.T) {
 		t.Fatal(err)
 	}
 	metrics := face.Metrics()
-	want := defaultLineMetricHeight(metrics)
+	want := visibleLineAdvance(defaultLineMetricHeight(metrics), measuredTextLine{
+		Ascent:  metrics.Ascent.Ceil(),
+		Descent: metrics.Descent.Ceil(),
+	})
 
 	got, err := measureTextRenderLines(faces, []textRenderLine{{Text: "A", FontSize: 1800}}, 1800)
 	if err != nil {
