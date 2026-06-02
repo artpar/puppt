@@ -6,6 +6,11 @@ parity work. It is scoped by `swe_skill.md`, `docs/RENDERING.md`,
 `docs/OOXML_DRAWINGML_COVERAGE_MATRIX.md`, and the current object-attributed
 investigation log.
 
+Execution is split into independently chaseable milestones under
+`docs/renderer-milestones/`. Start with
+`docs/renderer-milestones/00-INDEX.md` and do not skip milestone acceptance
+criteria when moving between sessions.
+
 ## Goal Statement
 
 Complete Puppt's renderer as a production-grade, source-backed Go renderer for
@@ -89,6 +94,28 @@ No production behavior should be described as supported merely because it looks
 close to a reference image. It is supported only when the source semantics are
 implemented, the fixture proves that implementation, and the visual gate shows no
 unaccepted practical regression.
+
+## Scope And Gate Decisions
+
+These M01 decisions define what later milestones must not reopen without an
+explicit update to this goal and the milestone index:
+
+- Puppt's target is static PresentationML/DrawingML rendering from OOXML source
+  semantics, not host-renderer pixel cloning.
+- The support matrix and OOXML/DrawingML coverage matrix are separate ledgers:
+  the support matrix describes product capabilities, while the coverage matrix
+  accounts for schema declarations, status, source anchors, evidence, and gaps.
+- Exact-pixel checks are required for deterministic synthetic fixtures and stay
+  available for diagnostics, but real-world acceptance also needs structural and
+  perceptual evidence.
+- Perceptual metrics validate source-backed renderer behavior; they cannot
+  justify a production change without a named schema row, source XML object,
+  render primitive, and fixture.
+- Unsupported visible content must be preserved where package semantics allow
+  it and reported explicitly in JSON/human output, or rejected before mutation.
+- A final completion claim must prove spec conformance for the supported subset,
+  practical renderer compatibility, CLI/JSON stability, dependency-boundary
+  compliance, and updated maintenance docs.
 
 ## First-Principles Implementation Policy
 
@@ -226,10 +253,10 @@ Required artifacts:
 
 ### Phase 3: Rank Real Failures By Ownership
 
-Generate the ownership summary from current artifacts and select the smallest
-clean failures before making renderer changes. A clean failure means the
-differing visible pixels belong to the target object and are not confounded by
-partial-alpha underpaint or later-object occlusion.
+Generate the ownership summary from current artifacts and select source-backed,
+high-impact clean failures in milestone order before making renderer changes.
+A clean failure means the differing visible pixels belong to the target object
+and are not confounded by partial-alpha underpaint or later-object occlusion.
 
 Current leading failures from the investigation log:
 
@@ -298,7 +325,7 @@ For each primitive:
 
 - add or tighten a micro-fixture test first
 - inspect the current production render path before editing
-- implement the smallest coherent source-backed change
+- implement the coherent source-backed change required by the evidence
 - run the focused object fixture
 - run the relevant neighboring fixtures in the same failure family
 - run the full real-world perceptual and no-regression gate before accepting the

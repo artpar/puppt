@@ -44,7 +44,7 @@ A Puppt change is not done until:
 
 1. The relevant source documents have been checked.
 2. The current code path has been inspected before editing.
-3. The implementation is the smallest coherent step toward the v1 goal.
+3. The implementation is a coherent, source-backed step toward the v1 goal.
 4. Tests or fixtures cover the behavior at the right level of risk.
 5. Validation commands have been run and recorded.
 6. JSON and human-facing output remain honest and stable.

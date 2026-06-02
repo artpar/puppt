@@ -111,6 +111,17 @@ func textLayoutUnsupportedMessages(element slideElement) []string {
 }
 
 func textLayoutUnsupportedMessagesForTarget(element slideElement, bounds image.Rectangle, dpi int) []string {
+	messages := staticTextUnsupportedMessages(element)
+	if normalAutofitRequiresSimplifiedSizing(element, bounds, dpi) {
+		messages = append(messages, "normal autofit was rendered with simplified sizing")
+	}
+	if !shapeAutofitLayoutSupported(element) {
+		messages = append(messages, "shape autofit was rendered with simplified sizing")
+	}
+	return messages
+}
+
+func staticTextUnsupportedMessages(element slideElement) []string {
 	var messages []string
 	if element.TextWrap != "" && element.TextWrap != "square" && element.TextWrap != "none" {
 		messages = append(messages, fmt.Sprintf("text body wrap mode %q was not rendered", element.TextWrap))
@@ -134,11 +145,19 @@ func textLayoutUnsupportedMessagesForTarget(element slideElement, bounds image.R
 	if element.TextColumnCount > 1 {
 		messages = append(messages, "text body columns were not rendered")
 	}
-	if normalAutofitRequiresSimplifiedSizing(element, bounds, dpi) {
-		messages = append(messages, "normal autofit was rendered with simplified sizing")
+	if element.HasTextRightToLeftColumns && element.TextRightToLeftColumns && element.TextColumnCount > 1 {
+		messages = append(messages, "text body right-to-left column order was rendered left-to-right (dml-main.xsd:2637 CT_TextBodyProperties@rtlCol)")
 	}
-	if !shapeAutofitLayoutSupported(element) {
-		messages = append(messages, "shape autofit was rendered with simplified sizing")
+	if len(element.Text3DFeatures) > 0 {
+		features := append([]string{}, element.Text3DFeatures...)
+		sort.Strings(features)
+		messages = append(messages, fmt.Sprintf("%s were not rendered", strings.Join(features, ", ")))
+	}
+	if elementContainsAuthoredRTLParagraph(element) {
+		messages = append(messages, "paragraph rtl=1 was rendered with left-to-right fallback (dml-main.xsd:3013 CT_TextParagraphProperties@rtl)")
+	}
+	if elementContainsRTLText(element) {
+		messages = append(messages, "bidirectional/RTL text was rendered with left-to-right fallback (dml-main.xsd CT_TextParagraph/CT_RegularTextRun)")
 	}
 	return messages
 }

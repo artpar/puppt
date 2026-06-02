@@ -45,6 +45,8 @@ func textParagraphsFromNodeWithTheme(node *xmlNode, theme themeColors) []textPar
 		if pPr := firstChild(paragraphNode, "pPr"); pPr != nil {
 			paragraph.Level = int(parseIntAttr(pPr.Attrs, "lvl"))
 			paragraph.TextAlign = attrValue(pPr.Attrs, "algn")
+			paragraph.FontAlign = attrValue(pPr.Attrs, "fontAlgn")
+			applyParagraphPropertyFlags(&paragraph, pPr)
 		}
 		style := styles[paragraph.Level]
 		applyParagraphStyle(&paragraph, style)
@@ -163,7 +165,7 @@ func textParagraphsFromNodeWithTheme(node *xmlNode, theme themeColors) []textPar
 				paragraph.Italic = true
 			}
 		}
-		if paragraph.Text == "" && len(paragraph.Runs) == 0 {
+		if paragraph.Text == "" && len(paragraph.Runs) == 0 && !hasLocalBulletChoice {
 			paragraph.NoBullet = true
 			paragraph.Bullet = ""
 		}
@@ -197,6 +199,10 @@ func autoNumberBullet(kind string, index int) string {
 		index = 1
 	}
 	switch kind {
+	case "alphaLcParenBoth":
+		return "(" + alphaNumber(index, false) + ")"
+	case "alphaUcParenBoth":
+		return "(" + alphaNumber(index, true) + ")"
 	case "alphaLcPeriod":
 		return alphaNumber(index, false) + "."
 	case "alphaUcPeriod":
@@ -205,8 +211,24 @@ func autoNumberBullet(kind string, index int) string {
 		return alphaNumber(index, false) + ")"
 	case "alphaUcParenR":
 		return alphaNumber(index, true) + ")"
+	case "arabicParenBoth":
+		return fmt.Sprintf("(%d)", index)
 	case "arabicParenR":
 		return fmt.Sprintf("%d)", index)
+	case "arabicPlain":
+		return fmt.Sprintf("%d", index)
+	case "romanLcParenBoth":
+		return "(" + romanNumber(index, false) + ")"
+	case "romanUcParenBoth":
+		return "(" + romanNumber(index, true) + ")"
+	case "romanLcParenR":
+		return romanNumber(index, false) + ")"
+	case "romanUcParenR":
+		return romanNumber(index, true) + ")"
+	case "romanLcPeriod":
+		return romanNumber(index, false) + "."
+	case "romanUcPeriod":
+		return romanNumber(index, true) + "."
 	default:
 		return fmt.Sprintf("%d.", index)
 	}
@@ -225,6 +247,41 @@ func alphaNumber(index int, upper bool) string {
 		}
 	}
 	return string(chars)
+}
+
+func romanNumber(index int, upper bool) string {
+	type romanToken struct {
+		value int
+		lower string
+		upper string
+	}
+	tokens := []romanToken{
+		{1000, "m", "M"},
+		{900, "cm", "CM"},
+		{500, "d", "D"},
+		{400, "cd", "CD"},
+		{100, "c", "C"},
+		{90, "xc", "XC"},
+		{50, "l", "L"},
+		{40, "xl", "XL"},
+		{10, "x", "X"},
+		{9, "ix", "IX"},
+		{5, "v", "V"},
+		{4, "iv", "IV"},
+		{1, "i", "I"},
+	}
+	var output strings.Builder
+	for _, token := range tokens {
+		for index >= token.value {
+			if upper {
+				output.WriteString(token.upper)
+			} else {
+				output.WriteString(token.lower)
+			}
+			index -= token.value
+		}
+	}
+	return output.String()
 }
 
 func applyParagraphStyle(paragraph *textParagraph, style paragraphStyle) {
@@ -286,12 +343,35 @@ func applyParagraphStyle(paragraph *textParagraph, style paragraphStyle) {
 		paragraph.HasItalic = style.HasItalic
 		paragraph.Italic = style.Italic
 	}
+	if !paragraph.HasTextCaps && style.HasTextCaps {
+		paragraph.HasTextCaps = true
+		paragraph.TextCaps = style.TextCaps
+	}
 	if !paragraph.HasCharSpacing && style.HasCharSpacing {
 		paragraph.HasCharSpacing = true
 		paragraph.CharSpacing = style.CharSpacing
 	}
 	if paragraph.TextAlign == "" {
 		paragraph.TextAlign = style.TextAlign
+	}
+	if paragraph.FontAlign == "" {
+		paragraph.FontAlign = style.FontAlign
+	}
+	if !paragraph.HasRTL && style.HasRTL {
+		paragraph.HasRTL = true
+		paragraph.RTL = style.RTL
+	}
+	if !paragraph.HasEALineBreak && style.HasEALineBreak {
+		paragraph.HasEALineBreak = true
+		paragraph.EALineBreak = style.EALineBreak
+	}
+	if !paragraph.HasLatinLineBreak && style.HasLatinLineBreak {
+		paragraph.HasLatinLineBreak = true
+		paragraph.LatinLineBreak = style.LatinLineBreak
+	}
+	if !paragraph.HasHangingPunct && style.HasHangingPunct {
+		paragraph.HasHangingPunct = true
+		paragraph.HangingPunct = style.HangingPunct
 	}
 	if !paragraph.HasTextColor && style.HasTextColor {
 		paragraph.HasTextColor = true
@@ -358,6 +438,8 @@ func paragraphLevelFromStyleNode(name string) (int, bool) {
 func parseParagraphStyle(node *xmlNode, theme themeColors) paragraphStyle {
 	var style paragraphStyle
 	style.TextAlign = attrValue(node.Attrs, "algn")
+	style.FontAlign = attrValue(node.Attrs, "fontAlgn")
+	applyParagraphStylePropertyFlags(&style, node)
 	if value := attrValue(node.Attrs, "marL"); value != "" {
 		style.HasMarginLeft = true
 		style.MarginLeft = parseIntAttr(node.Attrs, "marL")
@@ -431,6 +513,10 @@ func parseParagraphStyle(node *xmlNode, theme themeColors) paragraphStyle {
 			style.HasItalic = true
 			style.Italic = boolAttrOn(value)
 		}
+		if value := textCapsType(attrValue(defRPr.Attrs, "cap")); value != "" {
+			style.HasTextCaps = true
+			style.TextCaps = value
+		}
 		if value := attrValue(defRPr.Attrs, "spc"); value != "" {
 			style.HasCharSpacing = true
 			style.CharSpacing = int(parseIntAttr(defRPr.Attrs, "spc"))
@@ -444,6 +530,44 @@ func parseParagraphStyle(node *xmlNode, theme themeColors) paragraphStyle {
 	}
 	applyBulletSizePropertiesToParagraphStyle(&style, node)
 	return style
+}
+
+func applyParagraphPropertyFlags(paragraph *textParagraph, node *xmlNode) {
+	if value := attrValue(node.Attrs, "rtl"); value != "" {
+		paragraph.HasRTL = true
+		paragraph.RTL = boolAttrOn(value)
+	}
+	if value := attrValue(node.Attrs, "eaLnBrk"); value != "" {
+		paragraph.HasEALineBreak = true
+		paragraph.EALineBreak = boolAttrOn(value)
+	}
+	if value := attrValue(node.Attrs, "latinLnBrk"); value != "" {
+		paragraph.HasLatinLineBreak = true
+		paragraph.LatinLineBreak = boolAttrOn(value)
+	}
+	if value := attrValue(node.Attrs, "hangingPunct"); value != "" {
+		paragraph.HasHangingPunct = true
+		paragraph.HangingPunct = boolAttrOn(value)
+	}
+}
+
+func applyParagraphStylePropertyFlags(style *paragraphStyle, node *xmlNode) {
+	if value := attrValue(node.Attrs, "rtl"); value != "" {
+		style.HasRTL = true
+		style.RTL = boolAttrOn(value)
+	}
+	if value := attrValue(node.Attrs, "eaLnBrk"); value != "" {
+		style.HasEALineBreak = true
+		style.EALineBreak = boolAttrOn(value)
+	}
+	if value := attrValue(node.Attrs, "latinLnBrk"); value != "" {
+		style.HasLatinLineBreak = true
+		style.LatinLineBreak = boolAttrOn(value)
+	}
+	if value := attrValue(node.Attrs, "hangingPunct"); value != "" {
+		style.HasHangingPunct = true
+		style.HangingPunct = boolAttrOn(value)
+	}
 }
 
 func applyBulletSizePropertiesToParagraphStyle(style *paragraphStyle, node *xmlNode) {
@@ -496,12 +620,6 @@ func normalizeBulletChar(raw string) string {
 
 func normalizeBulletCharForFont(raw string, fontFamily string) string {
 	font := strings.ToLower(strings.TrimSpace(fontFamily))
-	if strings.Contains(font, "wingdings") && exactFontFamilyAvailable(fontFamily) {
-		if mapped := legacySymbolBulletPrivateUseChar(raw); mapped != "" {
-			return mapped
-		}
-		return raw
-	}
 	switch raw {
 	case "§":
 		return "▪"
@@ -513,6 +631,11 @@ func normalizeBulletCharForFont(raw string, fontFamily string) string {
 	case "\uf075":
 		return "▶"
 	default:
+		if strings.Contains(font, "wingdings") && exactFontFamilyAvailable(fontFamily) {
+			if mapped := legacySymbolBulletPrivateUseChar(raw); mapped != "" {
+				return mapped
+			}
+		}
 		return raw
 	}
 }
@@ -673,11 +796,14 @@ func applyRunPropertiesToParagraph(paragraph *textParagraph, rPr *xmlNode, theme
 	var run textRun
 	applyRunPropertiesToRun(&run, rPr, "", theme)
 	paragraph.FontFamily = concreteParagraphFontFamily(run.FontFamily)
+	paragraph.Language = run.Language
 	paragraph.FontSize = run.FontSize
 	paragraph.HasBold = run.HasBold
 	paragraph.Bold = run.Bold
 	paragraph.HasItalic = run.HasItalic
 	paragraph.Italic = run.Italic
+	paragraph.HasTextCaps = run.HasTextCaps
+	paragraph.TextCaps = run.TextCaps
 	paragraph.HasCharSpacing = run.HasCharSpacing
 	paragraph.CharSpacing = run.CharSpacing
 	paragraph.HasTextColor = run.HasTextColor
@@ -690,6 +816,9 @@ func applyRunPropertiesToParagraphDefaults(paragraph *textParagraph, rPr *xmlNod
 	if paragraph.FontFamily == "" {
 		paragraph.FontFamily = concreteParagraphFontFamily(run.FontFamily)
 	}
+	if paragraph.Language == "" {
+		paragraph.Language = run.Language
+	}
 	if paragraph.FontSize == 0 {
 		paragraph.FontSize = run.FontSize
 	}
@@ -700,6 +829,10 @@ func applyRunPropertiesToParagraphDefaults(paragraph *textParagraph, rPr *xmlNod
 	if run.HasItalic {
 		paragraph.HasItalic = true
 		paragraph.Italic = run.Italic
+	}
+	if !paragraph.HasTextCaps && run.HasTextCaps {
+		paragraph.HasTextCaps = true
+		paragraph.TextCaps = run.TextCaps
 	}
 	if !paragraph.HasCharSpacing && run.HasCharSpacing {
 		paragraph.HasCharSpacing = true
@@ -717,6 +850,7 @@ func concreteParagraphFontFamily(fontFamily string) string {
 }
 
 func applyRunPropertiesToRun(run *textRun, rPr *xmlNode, text string, theme themeColors) {
+	run.Language = attrValue(rPr.Attrs, "lang")
 	run.FontSize = int(parseIntAttr(rPr.Attrs, "sz"))
 	run.FontFamily = typefaceFromRunPropertiesForText(rPr, text)
 	if value := attrValue(rPr.Attrs, "b"); value != "" {
@@ -729,6 +863,10 @@ func applyRunPropertiesToRun(run *textRun, rPr *xmlNode, text string, theme them
 	}
 	run.Underline = runPropertiesUnderline(rPr)
 	run.Strike = textStrikeType(attrValue(rPr.Attrs, "strike"))
+	if value := textCapsType(attrValue(rPr.Attrs, "cap")); value != "" {
+		run.HasTextCaps = true
+		run.TextCaps = value
+	}
 	run.Baseline = int(parseIntAttr(rPr.Attrs, "baseline"))
 	if value := attrValue(rPr.Attrs, "kern"); value != "" {
 		run.HasKern = true
@@ -850,6 +988,15 @@ func textStrikeType(value string) string {
 	}
 }
 
+func textCapsType(value string) string {
+	switch strings.TrimSpace(value) {
+	case "none", "small", "all":
+		return strings.TrimSpace(value)
+	default:
+		return ""
+	}
+}
+
 func textParagraphsHaveRunColor(paragraphs []textParagraph) bool {
 	for _, paragraph := range paragraphs {
 		for _, run := range paragraph.Runs {
@@ -863,7 +1010,7 @@ func textParagraphsHaveRunColor(paragraphs []textParagraph) bool {
 
 func textRunsHaveRunMetricProperties(runs []textRun) bool {
 	for _, run := range runs {
-		if run.FontSize != 0 || strings.TrimSpace(run.FontFamily) != "" || run.HasBold || run.HasItalic || run.Underline || run.Strike != "" || run.Baseline != 0 || run.HasCharSpacing || run.HasKern {
+		if run.FontSize != 0 || strings.TrimSpace(run.FontFamily) != "" || run.HasBold || run.HasItalic || run.Underline || run.Strike != "" || run.HasTextCaps || run.Baseline != 0 || run.HasCharSpacing || run.HasKern {
 			return true
 		}
 	}

@@ -129,7 +129,7 @@ func drawShapeTextLayerWithDPI(img *image.RGBA, bounds image.Rectangle, element 
 		}
 		if len(line.Segments) > 0 {
 			lineBounds := textLineBounds(bounds, line)
-			x, err := alignedSegmentedTextXAtDPI(faces, face, boldFace, line.Segments, lineBounds, textAlign, dpi, line.TabStops)
+			x, err := alignedSegmentedTextXAtDPI(faces, face, boldFace, line.Segments, lineBounds, textAlign, dpi, element.FontSize, line.TabStops)
 			if err != nil {
 				return err
 			}
@@ -139,7 +139,7 @@ func drawShapeTextLayerWithDPI(img *image.RGBA, bounds image.Rectangle, element 
 			justifyExtra := 0
 			justifyRemainder := 0
 			if line.Justify && textAlign == "just" {
-				lineWidth, err := measureStyledSegmentsAtDPI(faces, face, boldFace, line.Segments, dpi, line.TabStops)
+				lineWidth, err := measureStyledSegmentsAtDPIWithFallback(faces, face, boldFace, line.Segments, element.FontSize, dpi, line.TabStops)
 				if err != nil {
 					return err
 				}
@@ -151,10 +151,7 @@ func drawShapeTextLayerWithDPI(img *image.RGBA, bounds image.Rectangle, element 
 			}
 			lineStart := x
 			for _, segment := range line.Segments {
-				fontSize := segment.FontSize
-				if fontSize == 0 {
-					fontSize = element.FontSize
-				}
+				fontSize := segmentRenderFontSize(segment, element.FontSize)
 				segmentFace, err := faces.GetForFamily(segment.FontFamily, fontSize, segment.Bold, segment.Italic)
 				if err != nil {
 					return err
@@ -175,13 +172,14 @@ func drawShapeTextLayerWithDPI(img *image.RGBA, bounds image.Rectangle, element 
 					continue
 				}
 				drawer.Face = segmentFace
-				segmentWidth := measureTextSegmentWithTabsAndSpacingAtDPI(segmentFace, segment.Text, 0, dpi, line.TabStops, segment.CharSpacing)
+				segmentWidth := measureTextLineSegmentWithTabsAndSpacingAtDPI(faces, segmentFace, segment, 0, dpi, line.TabStops)
 				if justifyExtra > 0 || justifyRemainder > 0 {
 					segmentSpaces := textSpaceCount(segment.Text)
 					segmentWidth += segmentSpaces * justifyExtra
 					segmentWidth += minInt(segmentSpaces, justifyRemainder)
 				}
-				segmentBaseline := baseline - segmentBaselineShiftAtDPI(segment, element.FontSize, dpi)
+				fontAlignShift := segmentFontAlignmentShift(segmentFace, current, line.FontAlign)
+				segmentBaseline := baseline - fontAlignShift - segmentBaselineShiftAtDPI(segment, element.FontSize, dpi)
 				if segment.HasHighlightColor {
 					drawTextHighlight(img, segmentFace, x, segmentBaseline, segmentWidth, segment.HighlightColor)
 				}
@@ -189,7 +187,8 @@ func drawShapeTextLayerWithDPI(img *image.RGBA, bounds image.Rectangle, element 
 				if justifyExtra > 0 || justifyRemainder > 0 {
 					x = drawJustifiedTextSegment(drawer, segmentFace, segment.Text, x, segmentBaseline, justifyExtra, &justifyRemainder, segment.CharSpacing, dpi)
 				} else {
-					x = drawTextSegmentWithTabsAndSpacingAtDPI(drawer, segmentFace, segment.Text, x, lineStart, segmentBaseline, dpi, line.TabStops, segment.CharSpacing)
+					drawTextSegmentWithTabsAndSpacingAtDPI(drawer, segmentFace, segment.Text, x, lineStart, segmentBaseline, dpi, line.TabStops, segment.CharSpacing)
+					x = lineStart + measureTextLineSegmentWithTabsAndSpacingAtDPI(faces, segmentFace, segment, x-lineStart, dpi, line.TabStops)
 				}
 				if segment.Underline {
 					drawTextUnderline(img, segmentFace, segmentStart, segmentBaseline, x-segmentStart, underlineColorForSegment(segment, textColor))
@@ -598,11 +597,11 @@ func reducedLineSpacing(lineSpacingPct int, reductionPct int) int {
 }
 
 func alignedSegmentedTextX(faces *fontFaceCache, face font.Face, boldFace font.Face, segments []textLineSegment, bounds image.Rectangle, align string) (int, error) {
-	return alignedSegmentedTextXAtDPI(faces, face, boldFace, segments, bounds, align, defaultOutputDPI, nil)
+	return alignedSegmentedTextXAtDPI(faces, face, boldFace, segments, bounds, align, defaultOutputDPI, 0, nil)
 }
 
-func alignedSegmentedTextXAtDPI(faces *fontFaceCache, face font.Face, boldFace font.Face, segments []textLineSegment, bounds image.Rectangle, align string, dpi int, tabStops []int) (int, error) {
-	width, err := measureStyledSegmentsAtDPI(faces, face, boldFace, segments, dpi, tabStops)
+func alignedSegmentedTextXAtDPI(faces *fontFaceCache, face font.Face, boldFace font.Face, segments []textLineSegment, bounds image.Rectangle, align string, dpi int, fallbackFontSize int, tabStops []int) (int, error) {
+	width, err := measureStyledSegmentsAtDPIWithFallback(faces, face, boldFace, segments, fallbackFontSize, dpi, tabStops)
 	if err != nil {
 		return 0, err
 	}
@@ -633,9 +632,10 @@ func textRenderLinesForElement(faces *fontFaceCache, face font.Face, boldFace fo
 	pendingSpaceAfter := 0
 	pendingSpaceAfterPct := 0
 	for _, paragraph := range element.TextParagraphs {
+		paragraph = textParagraphWithElementDefaults(paragraph, element)
 		var paragraphLines []textRenderLine
 		if len(paragraph.Runs) > 0 {
-			lines, err := textRenderLinesForStyledParagraph(faces, face, boldFace, paragraph, maxWidth, element.TextWrap, dpi)
+			lines, err := textRenderLinesForStyledParagraph(faces, face, boldFace, paragraph, maxWidth, element.TextWrap, dpi, element.FontSize)
 			if err != nil {
 				return nil, err
 			}
@@ -650,7 +650,7 @@ func textRenderLinesForElement(faces *fontFaceCache, face font.Face, boldFace fo
 				}
 			}
 			for index, line := range layoutParagraphLines(paragraphFace, paragraph, maxWidth, element.TextWrap) {
-				renderLine := textRenderLine{Text: line, Bold: paragraph.Bold, Italic: paragraph.Italic, FontSize: paragraph.FontSize, TextAlign: paragraph.TextAlign, LineSpacingPct: paragraph.LineSpacingPct, TabStops: paragraphTabStopsAtDPI(paragraph, dpi, maxWidth)}
+				renderLine := textRenderLine{Text: line, Bold: paragraph.Bold, Italic: paragraph.Italic, FontSize: paragraph.FontSize, TextAlign: paragraph.TextAlign, FontAlign: paragraph.FontAlign, LineSpacingPct: paragraph.LineSpacingPct, TabStops: paragraphTabStopsAtDPI(paragraph, dpi, maxWidth)}
 				if index == 0 {
 					renderLine.SpaceBefore = paragraph.SpaceBefore
 					renderLine.SpaceBeforePct = paragraph.SpaceBeforePct
@@ -659,7 +659,17 @@ func textRenderLinesForElement(faces *fontFaceCache, face font.Face, boldFace fo
 			}
 		}
 		if len(paragraphLines) == 0 {
-			continue
+			paragraphLines = append(paragraphLines, textRenderLine{
+				Bold:           paragraph.Bold,
+				Italic:         paragraph.Italic,
+				FontSize:       paragraph.FontSize,
+				TextAlign:      paragraph.TextAlign,
+				FontAlign:      paragraph.FontAlign,
+				SpaceBefore:    paragraph.SpaceBefore,
+				SpaceBeforePct: paragraph.SpaceBeforePct,
+				LineSpacingPct: paragraph.LineSpacingPct,
+				TabStops:       paragraphTabStopsAtDPI(paragraph, dpi, maxWidth),
+			})
 		}
 		if len(output) == 0 && !element.IncludeFirstLastSpacing {
 			paragraphLines[0].SpaceBefore = 0
@@ -679,7 +689,15 @@ func textRenderLinesForElement(faces *fontFaceCache, face font.Face, boldFace fo
 	return output, nil
 }
 
-func textRenderLinesForStyledParagraph(faces *fontFaceCache, face font.Face, boldFace font.Face, paragraph textParagraph, maxWidth int, wrap string, dpi int) ([]textRenderLine, error) {
+func textParagraphWithElementDefaults(paragraph textParagraph, element slideElement) textParagraph {
+	if !paragraph.HasTextColor && element.HasTextColor {
+		paragraph.HasTextColor = true
+		paragraph.TextColor = element.TextColor
+	}
+	return paragraph
+}
+
+func textRenderLinesForStyledParagraph(faces *fontFaceCache, face font.Face, boldFace font.Face, paragraph textParagraph, maxWidth int, wrap string, dpi int, fallbackFontSize int) ([]textRenderLine, error) {
 	prefix, hangingPrefix := paragraphPrefixes(paragraph)
 	firstOffset, hangingOffset, hasOffset := paragraphPixelOffsetsAtDPI(paragraph, dpi)
 	rightOffset := paragraphRightOffsetAtDPI(paragraph, dpi)
@@ -705,7 +723,7 @@ func textRenderLinesForStyledParagraph(faces *fontFaceCache, face font.Face, bol
 			output = append(output, textRenderLineWithOffsets(textRenderLineFromSegmentsWithTabs(appendPrefixSegment(linePrefix, paragraph, runsToSegments(chunk, paragraph)), lineTabStops), lineOffset, rightOffset, hasOffset))
 			continue
 		}
-		lines, err := wrapStyledRuns(faces, face, boldFace, chunk, paragraph, linePrefix, hangingPrefix, maxWidth, firstOffset, hangingOffset, rightOffset, hasOffset, dpi, lineTabStops)
+		lines, err := wrapStyledRuns(faces, face, boldFace, chunk, paragraph, linePrefix, hangingPrefix, maxWidth, firstOffset, hangingOffset, rightOffset, hasOffset, dpi, fallbackFontSize, lineTabStops)
 		if err != nil {
 			return nil, err
 		}
@@ -716,6 +734,7 @@ func textRenderLinesForStyledParagraph(faces *fontFaceCache, face font.Face, bol
 		output[0].SpaceBeforePct = paragraph.SpaceBeforePct
 		for index := range output {
 			output[index].TextAlign = paragraph.TextAlign
+			output[index].FontAlign = paragraph.FontAlign
 			output[index].LineSpacingPct = paragraph.LineSpacingPct
 		}
 	}
@@ -839,6 +858,9 @@ func splitRunsOnBreaks(runs []textRun) [][]textRun {
 		parts := strings.Split(run.Text, "\n")
 		for index, part := range parts {
 			if index > 0 {
+				breakRun := run
+				breakRun.Text = ""
+				current = append(current, breakRun)
 				chunks = append(chunks, current)
 				current = nil
 			}
@@ -868,9 +890,22 @@ func runsContainTabs(runs []textRun) bool {
 func runsToSegments(runs []textRun, paragraph textParagraph) []textLineSegment {
 	segments := make([]textLineSegment, 0, len(runs))
 	for _, run := range runs {
-		segments = append(segments, runToSegment(run, paragraph))
+		segments = append(segments, runToSegments(run, paragraph)...)
 	}
 	return segments
+}
+
+func runToSegments(run textRun, paragraph textParagraph) []textLineSegment {
+	segment := runToSegment(run, paragraph)
+	switch segment.TextCaps {
+	case "all":
+		segment.Text = strings.Map(func(r rune) rune { return unicode.ToUpper(r) }, segment.Text)
+		return []textLineSegment{segment}
+	case "small":
+		return smallCapsSegments(segment)
+	default:
+		return []textLineSegment{segment}
+	}
 }
 
 func runToSegment(run textRun, paragraph textParagraph) textLineSegment {
@@ -885,12 +920,14 @@ func runToSegment(run textRun, paragraph textParagraph) textLineSegment {
 	segment := textLineSegment{
 		Text:              run.Text,
 		FontFamily:        paragraphFontFamily(run, paragraph),
+		Language:          resolvedRunLanguage(run, paragraph),
 		Bold:              resolvedRunBold(run, paragraph),
 		Italic:            resolvedRunItalic(run, paragraph),
 		Underline:         run.Underline,
 		HasUnderlineColor: run.HasUnderlineColor,
 		UnderlineColor:    run.UnderlineColor,
 		Strike:            run.Strike,
+		TextCaps:          resolvedRunTextCaps(run, paragraph),
 		FontSize:          fontSize,
 		Baseline:          run.Baseline,
 		BaselineFontSize:  baselineFontSize,
@@ -907,6 +944,52 @@ func runToSegment(run textRun, paragraph textParagraph) textLineSegment {
 		segment.TextColor = paragraph.TextColor
 	}
 	return segment
+}
+
+func smallCapsSegments(segment textLineSegment) []textLineSegment {
+	if segment.Text == "" {
+		return []textLineSegment{segment}
+	}
+	var output []textLineSegment
+	var builder strings.Builder
+	inSmallCaps := false
+	haveMode := false
+	flush := func() {
+		if builder.Len() == 0 {
+			return
+		}
+		next := segment
+		next.Text = builder.String()
+		if inSmallCaps {
+			next.FontSize = scaledSmallCapsFontSize(next.FontSize)
+		}
+		output = append(output, next)
+		builder.Reset()
+	}
+	for _, r := range segment.Text {
+		small := unicode.IsLower(r)
+		if haveMode && small != inSmallCaps {
+			flush()
+		}
+		inSmallCaps = small
+		haveMode = true
+		if small {
+			r = unicode.ToUpper(r)
+		}
+		builder.WriteRune(r)
+	}
+	flush()
+	if len(output) == 0 {
+		return []textLineSegment{segment}
+	}
+	return output
+}
+
+func scaledSmallCapsFontSize(fontSize int) int {
+	if fontSize <= 0 {
+		return fontSize
+	}
+	return int(math.Round(float64(fontSize) * 0.8))
 }
 
 func resolvedRunBold(run textRun, paragraph textParagraph) bool {
@@ -927,6 +1010,26 @@ func resolvedRunItalic(run textRun, paragraph textParagraph) bool {
 		return true
 	}
 	return paragraph.Italic
+}
+
+func resolvedRunTextCaps(run textRun, paragraph textParagraph) string {
+	if run.HasTextCaps {
+		if run.TextCaps == "none" {
+			return ""
+		}
+		return run.TextCaps
+	}
+	if paragraph.HasTextCaps && paragraph.TextCaps != "none" {
+		return paragraph.TextCaps
+	}
+	return ""
+}
+
+func resolvedRunLanguage(run textRun, paragraph textParagraph) string {
+	if run.Language != "" {
+		return run.Language
+	}
+	return paragraph.Language
 }
 
 func resolvedRunCharSpacing(run textRun, paragraph textParagraph) int {
@@ -955,6 +1058,22 @@ func scaledBaselineRunFontSize(fontSize int) int {
 		return 1
 	}
 	return scaled
+}
+
+func segmentRenderFontSize(segment textLineSegment, fallbackFontSize int) int {
+	if segment.FontSize != 0 {
+		return segment.FontSize
+	}
+	if fallbackFontSize <= 0 {
+		if segment.Baseline != 0 {
+			return scaledBaselineRunFontSize(1800)
+		}
+		return 0
+	}
+	if segment.Baseline != 0 {
+		return scaledBaselineRunFontSize(fallbackFontSize)
+	}
+	return fallbackFontSize
 }
 
 func appendPrefixSegment(prefix string, paragraph textParagraph, segments []textLineSegment) []textLineSegment {
@@ -1092,13 +1211,13 @@ func textLineBounds(bounds image.Rectangle, line textRenderLine) image.Rectangle
 	return adjusted
 }
 
-func wrapStyledRuns(faces *fontFaceCache, face font.Face, boldFace font.Face, runs []textRun, paragraph textParagraph, firstPrefix string, hangingPrefix string, maxWidth int, firstOffset int, hangingOffset int, rightOffset int, hasOffset bool, dpi int, tabStopsOverride ...[]int) ([]textRenderLine, error) {
+func wrapStyledRuns(faces *fontFaceCache, face font.Face, boldFace font.Face, runs []textRun, paragraph textParagraph, firstPrefix string, hangingPrefix string, maxWidth int, firstOffset int, hangingOffset int, rightOffset int, hasOffset bool, dpi int, fallbackFontSize int, tabStopsOverride ...[]int) ([]textRenderLine, error) {
 	fullLine := appendPrefixSegment(firstPrefix, paragraph, runsToSegments(runs, paragraph))
 	tabStops := paragraphTabStopsAtDPI(paragraph, dpi, maxWidth)
 	if len(tabStopsOverride) > 0 {
 		tabStops = tabStopsOverride[0]
 	}
-	fullLineWidth, err := measureStyledSegmentsAtDPI(faces, face, boldFace, fullLine, dpi, tabStops)
+	fullLineWidth, err := measureStyledSegmentsAtDPIWithFallback(faces, face, boldFace, fullLine, fallbackFontSize, dpi, tabStops)
 	if err != nil {
 		return nil, err
 	}
@@ -1122,7 +1241,7 @@ func wrapStyledRuns(faces *fontFaceCache, face font.Face, boldFace font.Face, ru
 	for _, token := range tokens {
 		candidateToken := token.segmentWithPrefix(hasWord)
 		candidate := append(append([]textLineSegment{}, line...), candidateToken)
-		width, err := measureStyledSegmentsAtDPI(faces, face, boldFace, candidate, dpi, tabStops)
+		width, err := measureStyledSegmentsAtDPIWithFallback(faces, face, boldFace, candidate, fallbackFontSize, dpi, tabStops)
 		if err != nil {
 			return nil, err
 		}
@@ -1170,21 +1289,22 @@ func styledWordTokens(runs []textRun, paragraph textParagraph) []styledWordToken
 	var pendingSpace strings.Builder
 	seenToken := false
 	for _, run := range runs {
-		segment := runToSegment(run, paragraph)
-		for _, part := range splitTextForWrapping(segment.Text) {
-			if part.Space {
-				pendingSpace.WriteString(part.Text)
-				continue
+		for _, segment := range runToSegments(run, paragraph) {
+			for _, part := range splitTextForWrapping(segment.Text) {
+				if part.Space {
+					pendingSpace.WriteString(part.Text)
+					continue
+				}
+				tokenSegment := segment
+				tokenSegment.Text = part.Text
+				tokens = append(tokens, styledWordToken{
+					Segment:            tokenSegment,
+					Prefix:             pendingSpace.String(),
+					PreserveLinePrefix: !seenToken,
+				})
+				pendingSpace.Reset()
+				seenToken = true
 			}
-			tokenSegment := segment
-			tokenSegment.Text = part.Text
-			tokens = append(tokens, styledWordToken{
-				Segment:            tokenSegment,
-				Prefix:             pendingSpace.String(),
-				PreserveLinePrefix: !seenToken,
-			})
-			pendingSpace.Reset()
-			seenToken = true
 		}
 	}
 	return tokens
@@ -1200,13 +1320,40 @@ func splitTextForWrapping(text string) []wrapTextPart {
 	for index, value := range text {
 		isSpace := unicode.IsSpace(value)
 		if index > start && isSpace != inSpace {
-			parts = append(parts, wrapTextPart{Text: text[start:index], Space: inSpace})
+			appendWrapTextParts(&parts, text[start:index], inSpace)
 			start = index
 			inSpace = isSpace
 		}
 	}
-	parts = append(parts, wrapTextPart{Text: text[start:], Space: inSpace})
+	appendWrapTextParts(&parts, text[start:], inSpace)
 	return parts
+}
+
+func appendWrapTextParts(parts *[]wrapTextPart, text string, space bool) {
+	if text == "" {
+		return
+	}
+	if space {
+		*parts = append(*parts, wrapTextPart{Text: text, Space: true})
+		return
+	}
+	start := 0
+	for index, value := range text {
+		if !isTextWrapBreakAfterAuthoredSeparator(value) || index == start {
+			continue
+		}
+		next := index + utf8.RuneLen(value)
+		if next >= len(text) {
+			continue
+		}
+		*parts = append(*parts, wrapTextPart{Text: text[start:next]})
+		start = next
+	}
+	*parts = append(*parts, wrapTextPart{Text: text[start:]})
+}
+
+func isTextWrapBreakAfterAuthoredSeparator(value rune) bool {
+	return value == '-' || value == '\u2010' || value == '/'
 }
 
 func textLineSpaceCount(segments []textLineSegment) int {
@@ -1232,6 +1379,10 @@ func measureStyledSegments(faces *fontFaceCache, face font.Face, boldFace font.F
 }
 
 func measureStyledSegmentsAtDPI(faces *fontFaceCache, face font.Face, boldFace font.Face, segments []textLineSegment, dpi int, tabStopsOverride ...[]int) (int, error) {
+	return measureStyledSegmentsAtDPIWithFallback(faces, face, boldFace, segments, 0, dpi, tabStopsOverride...)
+}
+
+func measureStyledSegmentsAtDPIWithFallback(faces *fontFaceCache, face font.Face, boldFace font.Face, segments []textLineSegment, fallbackFontSize int, dpi int, tabStopsOverride ...[]int) (int, error) {
 	var tabStops []int
 	if len(tabStopsOverride) > 0 {
 		tabStops = tabStopsOverride[0]
@@ -1243,9 +1394,10 @@ func measureStyledSegmentsAtDPI(faces *fontFaceCache, face font.Face, boldFace f
 			continue
 		}
 		segmentFace := face
-		if segment.FontSize != 0 || segment.FontFamily != "" {
+		segmentFontSize := segmentRenderFontSize(segment, fallbackFontSize)
+		if segmentFontSize != 0 || segment.FontFamily != "" {
 			var err error
-			segmentFace, err = faces.GetForFamily(segment.FontFamily, segment.FontSize, segment.Bold, segment.Italic)
+			segmentFace, err = faces.GetForFamily(segment.FontFamily, segmentFontSize, segment.Bold, segment.Italic)
 			if err != nil {
 				return 0, err
 			}
@@ -1256,7 +1408,7 @@ func measureStyledSegmentsAtDPI(faces *fontFaceCache, face font.Face, boldFace f
 				return 0, err
 			}
 		}
-		width = measureTextSegmentWithTabsAndSpacingAtDPI(faceWithSegmentKerning(segmentFace, segment), segment.Text, width, dpi, tabStops, segment.CharSpacing)
+		width = measureTextLineSegmentWithTabsAndSpacingAtDPI(faces, faceWithSegmentKerning(segmentFace, segment), segment, width, dpi, tabStops)
 	}
 	return width, nil
 }
@@ -1295,6 +1447,32 @@ func measureTextSegmentWithTabsAndSpacingAtDPI(face font.Face, text string, curr
 	parts := strings.Split(text, "\t")
 	for index, part := range parts {
 		width += measureString(face, part) + textCharacterSpacingAdvance(part, spacingPixels)
+		if index < len(parts)-1 {
+			width += textTabAdvanceAtDPI(width, dpi, tabStops)
+		}
+	}
+	return width
+}
+
+func measureTextLineSegmentWithTabsAndSpacingAtDPI(faces *fontFaceCache, face font.Face, segment textLineSegment, currentWidth int, dpi int, tabStops []int) int {
+	if !strings.Contains(segment.Text, "\t") {
+		if advance, ok := shapeTextSegmentAdvanceAtDPI(faces, segment, dpi); ok {
+			return currentWidth + advance
+		}
+		return measureTextSegmentWithTabsAndSpacingAtDPI(face, segment.Text, currentWidth, dpi, tabStops, segment.CharSpacing)
+	}
+	width := currentWidth
+	parts := strings.Split(segment.Text, "\t")
+	for index, part := range parts {
+		if part != "" {
+			partSegment := segment
+			partSegment.Text = part
+			if advance, ok := shapeTextSegmentAdvanceAtDPI(faces, partSegment, dpi); ok {
+				width += advance
+			} else {
+				width = measureTextSegmentWithTabsAndSpacingAtDPI(face, part, width, dpi, tabStops, segment.CharSpacing)
+			}
+		}
 		if index < len(parts)-1 {
 			width += textTabAdvanceAtDPI(width, dpi, tabStops)
 		}
@@ -1408,6 +1586,27 @@ func segmentBaselineShiftAtDPI(segment textLineSegment, fallbackFontSize int, dp
 	points := float64(fontSize) / 100
 	pixels := points * float64(normalizeOutputDPI(dpi)) / 72
 	return int(math.Round(pixels * float64(segment.Baseline) / 100000))
+}
+
+func segmentFontAlignmentShift(face font.Face, line measuredTextLine, fontAlign string) int {
+	if face == nil {
+		return 0
+	}
+	metrics := face.Metrics()
+	ascent := metrics.Ascent.Ceil()
+	descent := metrics.Descent.Ceil()
+	switch fontAlign {
+	case "t":
+		return line.Ascent - ascent
+	case "ctr":
+		lineCenterFromBaseline := float64(line.Descent-line.Ascent) / 2
+		segmentCenterFromBaseline := float64(descent-ascent) / 2
+		return int(math.Round(segmentCenterFromBaseline - lineCenterFromBaseline))
+	case "b":
+		return descent - line.Descent
+	default:
+		return 0
+	}
 }
 
 func markerPixelSize(segment textLineSegment, fallbackFontSize int) int {
@@ -1592,10 +1791,7 @@ func lineFontSize(line textRenderLine, fallbackFontSize int) int {
 func measureSegmentedTextLine(faces *fontFaceCache, segments []textLineSegment, fallbackFontSize int) (measuredTextLine, error) {
 	var measured measuredTextLine
 	for _, segment := range segments {
-		fontSize := segment.FontSize
-		if fontSize == 0 {
-			fontSize = fallbackFontSize
-		}
+		fontSize := segmentRenderFontSize(segment, fallbackFontSize)
 		face, err := faces.GetForFamily(segment.FontFamily, fontSize, segment.Bold, segment.Italic)
 		if err != nil {
 			return measuredTextLine{}, err
@@ -1892,13 +2088,8 @@ func measureString(face font.Face, text string) int {
 }
 
 func textBounds(bounds image.Rectangle, element slideElement, size slideSize, canvas image.Rectangle) image.Rectangle {
-	if element.HasTextTransform && element.TextExtCX > 0 && element.TextExtCY > 0 {
-		bounds = image.Rect(
-			scaleEMU(element.TextOffX, size.CX, canvas.Dx()),
-			scaleEMU(element.TextOffY, size.CY, canvas.Dy()),
-			scaleEMU(element.TextOffX+element.TextExtCX, size.CX, canvas.Dx()),
-			scaleEMU(element.TextOffY+element.TextExtCY, size.CY, canvas.Dy()),
-		)
+	if target, ok := renderTextTransformTarget(element, size, canvas); ok {
+		bounds = target
 	}
 	left := scaleEMU(defaultTextInsetXEMU, size.CX, canvas.Dx())
 	top := scaleEMU(defaultTextInsetYEMU, size.CY, canvas.Dy())

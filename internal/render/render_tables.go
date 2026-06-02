@@ -22,6 +22,14 @@ func parseTableModel(tableNode *xmlNode, theme themeColors) tableModel {
 		table.LastCol = attrValue(properties.Attrs, "lastCol") == "1"
 		table.BandRow = attrValue(properties.Attrs, "bandRow") == "1"
 		table.BandCol = attrValue(properties.Attrs, "bandCol") == "1"
+		if firstChild(properties, "noFill") != nil {
+			table.NoBackground = true
+		} else if solidFill := firstChild(properties, "solidFill"); solidFill != nil {
+			if paint, ok := backgroundPaintFromFillNode(solidFill, theme); ok {
+				table.HasBackground = true
+				table.Background = paint
+			}
+		}
 		if styleID := firstChild(properties, "tableStyleId"); styleID != nil {
 			table.StyleID = strings.TrimSpace(styleID.Text)
 		}
@@ -30,6 +38,7 @@ func parseTableModel(tableNode *xmlNode, theme themeColors) tableModel {
 		for _, gridCol := range childrenByName(grid, "gridCol") {
 			if width := parseIntAttr(gridCol.Attrs, "w"); width > 0 {
 				table.Columns = append(table.Columns, width)
+				table.ColumnIDs = append(table.ColumnIDs, tableGridColumnID(gridCol))
 			}
 		}
 	}
@@ -39,12 +48,27 @@ func parseTableModel(tableNode *xmlNode, theme themeColors) tableModel {
 			row.HasHeight = true
 			row.Height = parseIntAttr(rowNode.Attrs, "h")
 		}
+		row.ID = tableRowID(rowNode)
 		for _, cellNode := range childrenByName(rowNode, "tc") {
 			row.Cells = append(row.Cells, parseTableCell(cellNode, theme))
 		}
 		table.Rows = append(table.Rows, row)
 	}
 	return table
+}
+
+func tableGridColumnID(gridCol *xmlNode) string {
+	if columnID := firstDescendant(gridCol, "colId"); columnID != nil {
+		return attrValue(columnID.Attrs, "val")
+	}
+	return ""
+}
+
+func tableRowID(rowNode *xmlNode) string {
+	if rowID := firstDescendant(rowNode, "rowId"); rowID != nil {
+		return attrValue(rowID.Attrs, "val")
+	}
+	return ""
 }
 
 func tableUnsupportedFeatureMessages(tableNode *xmlNode) []string {
@@ -55,8 +79,8 @@ func tableUnsupportedFeatureMessages(tableNode *xmlNode) []string {
 
 func collectTableUnsupportedFeatureMessages(node *xmlNode, messages map[string]bool) {
 	switch node.Name {
-	case "gradFill", "blipFill", "pattFill", "grpFill":
-		messages["uses a non-solid cell fill that was not rendered"] = true
+	case "blipFill", "grpFill":
+		messages["uses image/group cell fills that were not rendered"] = true
 	case "effectDag":
 		if len(node.Children) > 0 {
 			messages["uses effects that were not rendered"] = true
@@ -65,7 +89,9 @@ func collectTableUnsupportedFeatureMessages(node *xmlNode, messages map[string]b
 		if effectListHasVisibleEffects(node) {
 			messages["uses effects that were not rendered"] = true
 		}
-	case "ln", "lnL", "lnR", "lnT", "lnB", "left", "right", "top", "bottom", "insideH", "insideV":
+	case "cell3D":
+		messages["uses cell 3-D properties that were not rendered"] = true
+	case "ln", "lnL", "lnR", "lnT", "lnB", "lnTlToBr", "lnBlToTr", "left", "right", "top", "bottom", "insideH", "insideV", "tl2br", "tr2bl":
 		collectTableLineUnsupportedFeatureMessages(node, messages)
 	}
 	for _, child := range node.Children {
@@ -99,7 +125,7 @@ func collectTableLineUnsupportedFeatureMessages(line *xmlNode, messages map[stri
 			continue
 		}
 		markerType := attrValue(marker.Attrs, "type")
-		if markerType != "" && markerType != "none" {
+		if !isSupportedLineEndMarker(markerType) {
 			messages["uses border line end decorations that were not rendered"] = true
 		}
 	}
@@ -150,6 +176,22 @@ func parseTableCell(cellNode *xmlNode, theme themeColors) tableCell {
 		if anchor := attrValue(cellProperties.Attrs, "anchor"); anchor != "" {
 			cell.TextAnchor = anchor
 		}
+		if overflow := attrValue(cellProperties.Attrs, "horzOverflow"); overflow != "" {
+			cell.HasTextHorizontalOverflow = true
+			cell.TextHorizontalOverflow = overflow
+		}
+		if overflow := attrValue(cellProperties.Attrs, "vertOverflow"); overflow != "" {
+			cell.HasTextVerticalOverflow = true
+			cell.TextVerticalOverflow = overflow
+		}
+		if vertical := attrValue(cellProperties.Attrs, "vert"); vertical != "" {
+			cell.HasTextVertical = true
+			cell.TextVertical = vertical
+		}
+		if anchorCenter := attrValue(cellProperties.Attrs, "anchorCtr"); anchorCenter != "" {
+			cell.HasTextAnchorCenter = true
+			cell.TextAnchorCenter = boolAttrOn(anchorCenter)
+		}
 		if margins, ok := parseTableCellMargins(cellProperties.Attrs); ok {
 			cell.HasMargins = true
 			cell.MarginLeft = margins.Left
@@ -161,15 +203,32 @@ func parseTableCell(cellNode *xmlNode, theme themeColors) tableCell {
 			cell.NoFill = true
 		}
 		if solidFill := firstChild(cellProperties, "solidFill"); solidFill != nil {
-			if fill, ok := colorFromSolidFillWithTheme(solidFill, theme); ok {
+			if fillPaint, ok := backgroundPaintFromFillNode(solidFill, theme); ok {
 				cell.HasFill = true
-				cell.FillColor = fill
+				cell.FillColor = fillPaint.Color
+				cell.FillPaint = fillPaint
+			}
+		}
+		if gradFill := firstChild(cellProperties, "gradFill"); gradFill != nil {
+			if fillPaint, ok := backgroundPaintFromFillNode(gradFill, theme); ok {
+				cell.HasFill = true
+				cell.FillColor = fillPaint.Color
+				cell.FillPaint = fillPaint
+			}
+		}
+		if pattFill := firstChild(cellProperties, "pattFill"); pattFill != nil {
+			if fillPaint, ok := backgroundPaintFromFillNode(pattFill, theme); ok {
+				cell.HasFill = true
+				cell.FillColor = fillPaint.Color
+				cell.FillPaint = fillPaint
 			}
 		}
 		cell.BorderLeft = parseTableCellBorder(cellProperties, "lnL", theme)
 		cell.BorderRight = parseTableCellBorder(cellProperties, "lnR", theme)
 		cell.BorderTop = parseTableCellBorder(cellProperties, "lnT", theme)
 		cell.BorderBottom = parseTableCellBorder(cellProperties, "lnB", theme)
+		cell.BorderTopLeftToBottomRight = parseTableCellBorder(cellProperties, "lnTlToBr", theme)
+		cell.BorderBottomLeftToTopRight = parseTableCellBorder(cellProperties, "lnBlToTr", theme)
 	}
 	return cell
 }
@@ -207,6 +266,8 @@ func parseTableLineNode(line *xmlNode, theme themeColors, specified bool) tableC
 		if value := attrValue(dash.Attrs, "val"); value != "" && value != "solid" {
 			border.Dash = value
 		}
+	} else if dash := firstChild(line, "custDash"); dash != nil {
+		border.Dash = customDashPatternValue(dash)
 	}
 	if firstChild(line, "round") != nil {
 		border.Join = "round"
@@ -214,6 +275,16 @@ func parseTableLineNode(line *xmlNode, theme themeColors, specified bool) tableC
 		border.Join = "bevel"
 	} else if firstChild(line, "miter") != nil {
 		border.Join = "miter"
+	}
+	if head := firstChild(line, "headEnd"); head != nil {
+		border.HeadMarker = normalizedLineEndMarker(attrValue(head.Attrs, "type"))
+		border.HeadMarkerWidth = attrValue(head.Attrs, "w")
+		border.HeadMarkerLength = attrValue(head.Attrs, "len")
+	}
+	if tail := firstChild(line, "tailEnd"); tail != nil {
+		border.TailMarker = normalizedLineEndMarker(attrValue(tail.Attrs, "type"))
+		border.TailMarkerWidth = attrValue(tail.Attrs, "w")
+		border.TailMarkerLength = attrValue(tail.Attrs, "len")
 	}
 	return border
 }
@@ -255,7 +326,7 @@ func parseTableStyles(data []byte, theme themeColors, fonts themeFonts, fillStyl
 			if !isTableStyleRegionName(child.Name) {
 				continue
 			}
-			style.Regions[child.Name] = parseTableStyleRegion(child, theme, fonts, lineStyles)
+			style.Regions[child.Name] = parseTableStyleRegion(child, theme, fonts, fillStyles, lineStyles)
 		}
 		if style.ID != "" {
 			styles.Styles[normalizedTableStyleID(style.ID)] = style
@@ -306,7 +377,7 @@ func isTableStyleRegionName(name string) bool {
 	}
 }
 
-func parseTableStyleRegion(node *xmlNode, theme themeColors, fonts themeFonts, lineStyles themeLineStyles) tableStyleRegion {
+func parseTableStyleRegion(node *xmlNode, theme themeColors, fonts themeFonts, fillStyles themeFillStyles, lineStyles themeLineStyles) tableStyleRegion {
 	var region tableStyleRegion
 	if textStyle := firstChild(node, "tcTxStyle"); textStyle != nil {
 		if rawBold := attrValue(textStyle.Attrs, "b"); rawBold != "" {
@@ -332,17 +403,17 @@ func parseTableStyleRegion(node *xmlNode, theme themeColors, fonts themeFonts, l
 		if fill := firstChild(cellStyle, "fill"); fill != nil {
 			if firstChild(fill, "noFill") != nil {
 				region.NoFill = true
-			} else if solidFill := firstChild(fill, "solidFill"); solidFill != nil {
-				if fillColor, ok := colorFromSolidFillWithTheme(solidFill, theme); ok {
-					region.HasFill = true
-					region.FillColor = fillColor
-				}
+			} else if fillPaint, ok := fillPaintFromContainer(fill, theme, nil); ok {
+				region.HasFill = true
+				region.FillColor = fillPaint.Color
+				region.FillPaint = fillPaint
 			}
 		}
 		if fillRef := firstChild(cellStyle, "fillRef"); fillRef != nil {
-			if fillColor, ok := colorFromColorNodeWithTheme(fillRef, theme); ok {
+			if fillPaint, ok := tableStyleFillReference(fillRef, theme, fillStyles); ok {
 				region.HasFill = true
-				region.FillColor = fillColor
+				region.FillColor = fillPaint.Color
+				region.FillPaint = fillPaint
 			}
 		}
 		if borders := firstChild(cellStyle, "tcBdr"); borders != nil {
@@ -350,6 +421,23 @@ func parseTableStyleRegion(node *xmlNode, theme themeColors, fonts themeFonts, l
 		}
 	}
 	return region
+}
+
+func tableStyleFillReference(fillRef *xmlNode, theme themeColors, fillStyles themeFillStyles) (backgroundPaint, bool) {
+	if attrValue(fillRef.Attrs, "idx") == "0" {
+		return backgroundPaint{}, false
+	}
+	placeholderColor, hasPlaceholderColor := colorFromColorNodeWithTheme(fillRef, theme)
+	if hasPlaceholderColor {
+		if paint, ok := fillStyles.Style(parseIntAttr(fillRef.Attrs, "idx"), themeWithPlaceholderColor(theme, placeholderColor)); ok {
+			return paint, true
+		}
+		return backgroundPaint{Color: placeholderColor}, true
+	}
+	if paint, ok := fillStyles.Style(parseIntAttr(fillRef.Attrs, "idx"), theme); ok {
+		return paint, true
+	}
+	return backgroundPaint{}, false
 }
 
 func tableStyleFontFamily(fontRef *xmlNode, fonts themeFonts) string {
@@ -379,12 +467,14 @@ func tableStyleDirectFontFamily(textStyle *xmlNode) string {
 
 func parseTableStyleBorders(node *xmlNode, theme themeColors, lineStyles themeLineStyles) tableStyleBorders {
 	return tableStyleBorders{
-		Left:    parseTableStyleBorder(node, "left", theme, lineStyles),
-		Right:   parseTableStyleBorder(node, "right", theme, lineStyles),
-		Top:     parseTableStyleBorder(node, "top", theme, lineStyles),
-		Bottom:  parseTableStyleBorder(node, "bottom", theme, lineStyles),
-		InsideH: parseTableStyleBorder(node, "insideH", theme, lineStyles),
-		InsideV: parseTableStyleBorder(node, "insideV", theme, lineStyles),
+		Left:                 parseTableStyleBorder(node, "left", theme, lineStyles),
+		Right:                parseTableStyleBorder(node, "right", theme, lineStyles),
+		Top:                  parseTableStyleBorder(node, "top", theme, lineStyles),
+		Bottom:               parseTableStyleBorder(node, "bottom", theme, lineStyles),
+		InsideH:              parseTableStyleBorder(node, "insideH", theme, lineStyles),
+		InsideV:              parseTableStyleBorder(node, "insideV", theme, lineStyles),
+		TopLeftToBottomRight: parseTableStyleBorder(node, "tl2br", theme, lineStyles),
+		BottomLeftToTopRight: parseTableStyleBorder(node, "tr2bl", theme, lineStyles),
 	}
 }
 
@@ -437,18 +527,14 @@ func renderTableGraphicFrame(slidePart string, size slideSize, img *image.RGBA, 
 	if !element.HasTransform || element.ExtCX <= 0 || element.ExtCY <= 0 || len(element.Table.Rows) == 0 {
 		return nil
 	}
-	target := image.Rect(
-		scaleEMU(element.OffX, size.CX, img.Bounds().Dx()),
-		scaleEMU(element.OffY, size.CY, img.Bounds().Dy()),
-		scaleEMU(element.OffX+element.ExtCX, size.CX, img.Bounds().Dx()),
-		scaleEMU(element.OffY+element.ExtCY, size.CY, img.Bounds().Dy()),
-	).Intersect(img.Bounds())
+	target := sceneElementClippedPixelTarget(*element, size, img.Bounds())
 	if target.Empty() {
 		return nil
 	}
 	columnOffsets := tableGridOffsets(tableColumnWeights(element.Table), target.Min.X, target.Max.X, element.OffX, element.ExtCX, size.CX, img.Bounds().Dx())
 	rowOffsets := tableRowOffsets(element.Table, target.Min.Y, target.Max.Y, element.OffY, element.ExtCY, size.CY, img.Bounds().Dy())
 	style, hasStyle := tableStyleForTable(element.Table, tableStyles)
+	rowOffsets = tableRowOffsetsWithTextMinimums(element.Table, tableStyles, columnOffsets, rowOffsets, target, size, img.Bounds(), renderDPIForCanvas(size, img.Bounds()))
 	backgroundEffectRendered := true
 	if hasStyle {
 		if style.HasBackgroundEffect && style.BackgroundEffect.HasShadow {
@@ -462,9 +548,15 @@ func renderTableGraphicFrame(slidePart string, size slideSize, img *image.RGBA, 
 			}
 			backgroundEffectRendered = drawShapeShadow(img, target, backgroundElement, size)
 		}
-		if style.HasBackground {
+		if element.Table.NoBackground {
+			// Direct CT_TableProperties/noFill suppresses style table background fill.
+		} else if element.Table.HasBackground {
+			drawTableBackgroundPaint(img, target, element.Table.Background)
+		} else if style.HasBackground {
 			drawTableBackgroundPaint(img, target, style.Background)
 		}
+	} else if element.Table.HasBackground {
+		drawTableBackgroundPaint(img, target, element.Table.Background)
 	}
 	for rowIndex, row := range element.Table.Rows {
 		for columnIndex, cell := range row.Cells {
@@ -476,12 +568,13 @@ func renderTableGraphicFrame(slidePart string, size slideSize, img *image.RGBA, 
 				continue
 			}
 			style := resolvedTableCellStyle(element.Table, tableStyles, rowIndex, columnIndex)
-			if fill, ok := tableCellFill(style, cell); ok {
-				drawTableCellFill(img, cellRect, fill)
+			if fill, ok := tableCellPaint(style, cell); ok {
+				drawTableBackgroundPaint(img, cellRect, fill)
 			}
 		}
 	}
 	drawTableBorders(img, target, size, element.Table, tableStyles, columnOffsets, rowOffsets)
+	drawTableStyleBoundaryBorderOverrides(img, target, size, element.Table, tableStyles, columnOffsets, rowOffsets)
 	var failures []string
 	fontMessages := map[string]bool{}
 	for rowIndex, row := range element.Table.Rows {
@@ -497,29 +590,7 @@ func renderTableGraphicFrame(slidePart string, size slideSize, img *image.RGBA, 
 			hasTextColor := cell.HasTextColor
 			textColor := cell.TextColor
 			style := resolvedTableCellStyle(element.Table, tableStyles, rowIndex, columnIndex)
-			if color, ok := tableCellTextColor(style); ok && !hasTextColor {
-				hasTextColor = true
-				textColor = color
-			}
-			textParagraphs := cell.TextParagraphs
-			if color, ok := tableCellTextColor(style); ok {
-				textParagraphs = tableTextParagraphsWithColor(textParagraphs, cell.Text, color)
-			}
-			if tableCellTextBold(style) {
-				textParagraphs = tableTextParagraphsWithBold(textParagraphs, cell.Text)
-			}
-			fontFamily := tableCellTextFontFamily(style)
-			cellElement := slideElement{
-				Text:           cell.Text,
-				TextParagraphs: textParagraphs,
-				FontFamily:     fontFamily,
-				Italic:         tableCellTextItalic(style),
-				FontSize:       cell.FontSize,
-				HasTextColor:   hasTextColor,
-				TextColor:      textColor,
-				TextAlign:      cell.TextAlign,
-				TextAnchor:     tableCellTextAnchor(cell),
-			}
+			cellElement := tableCellTextElement(style, cell, hasTextColor, textColor)
 			if err := drawShapeTextWithDPI(img, textRect, cellElement, renderDPIForCanvas(size, img.Bounds())); err != nil {
 				failures = append(failures, err.Error())
 			}
@@ -553,6 +624,10 @@ func drawTableBackgroundPaint(img *image.RGBA, target image.Rectangle, paint bac
 		drawGradientRect(img, target, paint.Gradient, false)
 		return
 	}
+	if paint.HasPattern {
+		drawPatternRect(img, target, paint.Pattern)
+		return
+	}
 	if paint.Color.A == 0 {
 		return
 	}
@@ -561,6 +636,45 @@ func drawTableBackgroundPaint(img *image.RGBA, target image.Rectangle, paint bac
 
 func tableCellTextAnchor(cell tableCell) string {
 	return cell.TextAnchor
+}
+
+func tableCellTextElement(style tableStyleRegion, cell tableCell, hasTextColor bool, textColor color.RGBA) slideElement {
+	if color, ok := tableCellTextColor(style); ok && !hasTextColor {
+		hasTextColor = true
+		textColor = color
+	}
+	textParagraphs := cell.TextParagraphs
+	if color, ok := tableCellTextColor(style); ok {
+		textParagraphs = tableTextParagraphsWithColor(textParagraphs, cell.Text, color)
+	}
+	if tableCellTextBold(style) {
+		textParagraphs = tableTextParagraphsWithBold(textParagraphs, cell.Text)
+	}
+	if tableCellTextItalic(style) {
+		textParagraphs = tableTextParagraphsWithItalic(textParagraphs, cell.Text)
+	}
+	if fontFamily := tableCellTextFontFamily(style); fontFamily != "" {
+		textParagraphs = tableTextParagraphsWithFontFamily(textParagraphs, cell.Text, fontFamily)
+	}
+	return slideElement{
+		Text:                      cell.Text,
+		TextParagraphs:            textParagraphs,
+		FontFamily:                tableCellTextFontFamily(style),
+		Italic:                    tableCellTextItalic(style),
+		FontSize:                  cell.FontSize,
+		HasTextColor:              hasTextColor,
+		TextColor:                 textColor,
+		TextAlign:                 cell.TextAlign,
+		TextAnchor:                tableCellTextAnchor(cell),
+		HasTextHorizontalOverflow: cell.HasTextHorizontalOverflow,
+		TextHorizontalOverflow:    cell.TextHorizontalOverflow,
+		HasTextVerticalOverflow:   cell.HasTextVerticalOverflow,
+		TextVerticalOverflow:      cell.TextVerticalOverflow,
+		HasTextVertical:           cell.HasTextVertical,
+		TextVertical:              cell.TextVertical,
+		HasTextAnchorCenter:       cell.HasTextAnchorCenter,
+		TextAnchorCenter:          cell.TextAnchorCenter,
+	}
 }
 
 func drawTableCellFill(img *image.RGBA, rect image.Rectangle, fill color.RGBA) {
@@ -592,7 +706,44 @@ func drawTableBorders(img *image.RGBA, target image.Rectangle, size slideSize, t
 			drawTableCellBorder(img, size, target, cellRect, bottom, tableEdgeBottom)
 			drawTableCellBorder(img, size, target, cellRect, left, tableEdgeLeft)
 			drawTableCellBorder(img, size, target, cellRect, right, tableEdgeRight)
+			topLeftToBottomRight := effectiveTableCellBorder(cell.BorderTopLeftToBottomRight, style.Borders.TopLeftToBottomRight, style.Borders.TopLeftToBottomRight.Specified)
+			bottomLeftToTopRight := effectiveTableCellBorder(cell.BorderBottomLeftToTopRight, style.Borders.BottomLeftToTopRight, style.Borders.BottomLeftToTopRight.Specified)
+			drawTableCellDiagonalBorder(img, size, cellRect, topLeftToBottomRight, true)
+			drawTableCellDiagonalBorder(img, size, cellRect, bottomLeftToTopRight, false)
 			drawTableCellRoundBorderJoins(img, size, target, cellRect, top, bottom, left, right)
+		}
+	}
+}
+
+func drawTableStyleBoundaryBorderOverrides(img *image.RGBA, target image.Rectangle, size slideSize, table tableModel, tableStyles tableStyleSet, columnOffsets []int, rowOffsets []int) {
+	rowCount := len(table.Rows)
+	columnCount := tableColumnCount(table)
+	for rowIndex, row := range table.Rows {
+		for columnIndex, cell := range row.Cells {
+			if cell.HMerge || cell.VMerge || columnIndex+1 >= len(columnOffsets) || rowIndex+1 >= len(rowOffsets) {
+				continue
+			}
+			cellRect := tableCellRect(columnOffsets, rowOffsets, rowIndex, columnIndex, cell).Intersect(target)
+			if cellRect.Empty() {
+				continue
+			}
+			style := resolvedTableCellStyle(table, tableStyles, rowIndex, columnIndex)
+			if style.Borders.TopOverridesInsideH && !cell.BorderTop.Specified {
+				top := effectiveTableCellBorder(tableCellBorder{}, tableEdgeBorder(style.Borders, tableEdgeTop, rowIndex, columnIndex, rowCount, columnCount), true)
+				drawTableCellBorder(img, size, target, cellRect, top, tableEdgeTop)
+			}
+			if style.Borders.BottomOverridesInsideH && !cell.BorderBottom.Specified {
+				bottom := effectiveTableCellBorder(tableCellBorder{}, tableEdgeBorder(style.Borders, tableEdgeBottom, rowIndex, columnIndex, rowCount, columnCount), true)
+				drawTableCellBorder(img, size, target, cellRect, bottom, tableEdgeBottom)
+			}
+			if style.Borders.LeftOverridesInsideV && !cell.BorderLeft.Specified {
+				left := effectiveTableCellBorder(tableCellBorder{}, tableEdgeBorder(style.Borders, tableEdgeLeft, rowIndex, columnIndex, rowCount, columnCount), true)
+				drawTableCellBorder(img, size, target, cellRect, left, tableEdgeLeft)
+			}
+			if style.Borders.RightOverridesInsideV && !cell.BorderRight.Specified {
+				right := effectiveTableCellBorder(tableCellBorder{}, tableEdgeBorder(style.Borders, tableEdgeRight, rowIndex, columnIndex, rowCount, columnCount), true)
+				drawTableCellBorder(img, size, target, cellRect, right, tableEdgeRight)
+			}
 		}
 	}
 }
@@ -607,6 +758,9 @@ const (
 func tableEdgeBorder(borders tableStyleBorders, edge int, rowIndex int, columnIndex int, rowCount int, columnCount int) tableCellBorder {
 	switch edge {
 	case tableEdgeTop:
+		if rowIndex > 0 && borders.TopOverridesInsideH && borders.Top.Specified {
+			return borders.Top
+		}
 		if rowIndex > 0 && borders.InsideH.Specified {
 			return borders.InsideH
 		}
@@ -614,6 +768,11 @@ func tableEdgeBorder(borders tableStyleBorders, edge int, rowIndex int, columnIn
 			return borders.Top
 		}
 	case tableEdgeBottom:
+		if rowCount <= 0 || rowIndex < rowCount-1 {
+			if borders.BottomOverridesInsideH && borders.Bottom.Specified {
+				return borders.Bottom
+			}
+		}
 		if rowCount <= 0 || rowIndex < rowCount-1 {
 			if borders.InsideH.Specified {
 				return borders.InsideH
@@ -626,6 +785,9 @@ func tableEdgeBorder(borders tableStyleBorders, edge int, rowIndex int, columnIn
 			return borders.InsideH
 		}
 	case tableEdgeLeft:
+		if columnIndex > 0 && borders.LeftOverridesInsideV && borders.Left.Specified {
+			return borders.Left
+		}
 		if columnIndex > 0 && borders.InsideV.Specified {
 			return borders.InsideV
 		}
@@ -633,6 +795,11 @@ func tableEdgeBorder(borders tableStyleBorders, edge int, rowIndex int, columnIn
 			return borders.Left
 		}
 	case tableEdgeRight:
+		if columnCount <= 0 || columnIndex < columnCount-1 {
+			if borders.RightOverridesInsideV && borders.Right.Specified {
+				return borders.Right
+			}
+		}
 		if columnCount <= 0 || columnIndex < columnCount-1 {
 			if borders.InsideV.Specified {
 				return borders.InsideV
@@ -662,43 +829,87 @@ func drawTableCellBorder(img *image.RGBA, size slideSize, tableRect image.Rectan
 		return
 	}
 	width := emuLineWidthToPixels(border.Width, size.CX, img.Bounds().Dx())
+	x0, y0, x1, y1 := 0, 0, 0, 0
 	switch edge {
 	case tableEdgeTop:
-		drawTableBorderLine(img, rect.Min.X, rect.Min.Y, rect.Max.X-1, rect.Min.Y, border.Color, width, border.Dash, border.Compound, border.Cap, true)
+		x0, y0, x1, y1 = rect.Min.X, rect.Min.Y, rect.Max.X-1, rect.Min.Y
+		drawTableBorderLine(img, x0, y0, x1, y1, border.Color, width, border.Dash, border.Compound, border.Cap, true)
 	case tableEdgeBottom:
 		y := rect.Max.Y
 		if y >= tableRect.Max.Y {
 			y = rect.Max.Y - 1
 		}
-		drawTableBorderLine(img, rect.Min.X, y, rect.Max.X-1, y, border.Color, width, border.Dash, border.Compound, border.Cap, true)
+		x0, y0, x1, y1 = rect.Min.X, y, rect.Max.X-1, y
+		drawTableBorderLine(img, x0, y0, x1, y1, border.Color, width, border.Dash, border.Compound, border.Cap, true)
 	case tableEdgeLeft:
-		drawTableBorderLine(img, rect.Min.X, rect.Min.Y, rect.Min.X, rect.Max.Y-1, border.Color, width, border.Dash, border.Compound, border.Cap, false)
+		x0, y0, x1, y1 = rect.Min.X, rect.Min.Y, rect.Min.X, rect.Max.Y-1
+		drawTableBorderLine(img, x0, y0, x1, y1, border.Color, width, border.Dash, border.Compound, border.Cap, false)
 	case tableEdgeRight:
 		x := rect.Max.X
 		if x >= tableRect.Max.X {
 			x = rect.Max.X - 1
 		}
-		drawTableBorderLine(img, x, rect.Min.Y, x, rect.Max.Y-1, border.Color, width, border.Dash, border.Compound, border.Cap, false)
+		x0, y0, x1, y1 = x, rect.Min.Y, x, rect.Max.Y-1
+		drawTableBorderLine(img, x0, y0, x1, y1, border.Color, width, border.Dash, border.Compound, border.Cap, false)
 	}
+	drawTableBorderLineMarkers(img, x0, y0, x1, y1, border.Color, width, border)
 }
 
 func isSupportedTableCompoundLine(compound string) bool {
-	return compound == "" || compound == "sng" || compound == "dbl"
+	switch compound {
+	case "", "sng", "dbl", "thickThin", "thinThick", "tri":
+		return true
+	default:
+		return false
+	}
+}
+
+func normalizedLineEndMarker(markerType string) string {
+	if markerType == "none" {
+		return ""
+	}
+	return markerType
+}
+
+func isSupportedLineEndMarker(markerType string) bool {
+	switch markerType {
+	case "", "none", "triangle", "stealth", "diamond", "oval", "arrow":
+		return true
+	default:
+		return false
+	}
 }
 
 func drawTableBorderLine(img *image.RGBA, x0 int, y0 int, x1 int, y1 int, c color.RGBA, width int, dash string, compound string, cap string, horizontal bool) {
-	if compound != "dbl" {
-		drawStyledLine(img, x0, y0, x1, y1, c, width, dash, cap)
+	drawStyledCompoundLine(img, x0, y0, x1, y1, c, width, dash, cap, compound)
+}
+
+func drawTableCellDiagonalBorder(img *image.RGBA, size slideSize, rect image.Rectangle, border tableCellBorder, topLeftToBottomRight bool) {
+	if !border.Specified || border.NoLine || !border.HasLine {
 		return
 	}
-	strokeWidth, firstOffset, secondOffset := doubleCompoundLineMetrics(width)
-	if horizontal {
-		drawStyledLine(img, x0, y0+firstOffset, x1, y1+firstOffset, c, strokeWidth, dash, cap)
-		drawStyledLine(img, x0, y0+secondOffset, x1, y1+secondOffset, c, strokeWidth, dash, cap)
-		return
+	width := emuLineWidthToPixels(border.Width, size.CX, img.Bounds().Dx())
+	x0, y0 := rect.Min.X, rect.Min.Y
+	x1, y1 := rect.Max.X-1, rect.Max.Y-1
+	if !topLeftToBottomRight {
+		x0, y0 = rect.Min.X, rect.Max.Y-1
+		x1, y1 = rect.Max.X-1, rect.Min.Y
 	}
-	drawStyledLine(img, x0+firstOffset, y0, x1+firstOffset, y1, c, strokeWidth, dash, cap)
-	drawStyledLine(img, x0+secondOffset, y0, x1+secondOffset, y1, c, strokeWidth, dash, cap)
+	drawTableDiagonalBorderLine(img, x0, y0, x1, y1, border.Color, width, border.Dash, border.Compound, border.Cap)
+	drawTableBorderLineMarkers(img, x0, y0, x1, y1, border.Color, width, border)
+}
+
+func drawTableDiagonalBorderLine(img *image.RGBA, x0 int, y0 int, x1 int, y1 int, c color.RGBA, width int, dash string, compound string, cap string) {
+	drawStyledCompoundLine(img, x0, y0, x1, y1, c, width, dash, cap, compound)
+}
+
+func drawTableBorderLineMarkers(img *image.RGBA, x0 int, y0 int, x1 int, y1 int, c color.RGBA, width int, border tableCellBorder) {
+	if border.HeadMarker != "" {
+		drawLineEndMarker(img, border.HeadMarker, x0, y0, x0-x1, y0-y1, c, width, border.HeadMarkerWidth, border.HeadMarkerLength)
+	}
+	if border.TailMarker != "" {
+		drawLineEndMarker(img, border.TailMarker, x1, y1, x1-x0, y1-y0, c, width, border.TailMarkerWidth, border.TailMarkerLength)
+	}
 }
 
 func doubleCompoundLineMetrics(width int) (int, int, int) {
@@ -842,19 +1053,33 @@ func tableCellRect(columnOffsets []int, rowOffsets []int, rowIndex int, columnIn
 }
 
 func tableCellFill(style tableStyleRegion, cell tableCell) (color.RGBA, bool) {
-	if cell.NoFill {
+	paint, ok := tableCellPaint(style, cell)
+	if !ok || paint.HasGradient || paint.HasPattern {
 		return color.RGBA{}, false
+	}
+	return paint.Color, true
+}
+
+func tableCellPaint(style tableStyleRegion, cell tableCell) (backgroundPaint, bool) {
+	if cell.NoFill {
+		return backgroundPaint{}, false
 	}
 	if cell.HasFill {
-		return cell.FillColor, true
+		if cell.FillPaint.HasGradient || cell.FillPaint.HasPattern || cell.FillPaint.Color.A != 0 {
+			return cell.FillPaint, true
+		}
+		return backgroundPaint{Color: cell.FillColor}, true
 	}
 	if style.NoFill {
-		return color.RGBA{}, false
+		return backgroundPaint{}, false
 	}
 	if style.HasFill {
-		return style.FillColor, true
+		if style.FillPaint.HasGradient || style.FillPaint.HasPattern || style.FillPaint.Color.A != 0 {
+			return style.FillPaint, true
+		}
+		return backgroundPaint{Color: style.FillColor}, true
 	}
-	return color.RGBA{}, false
+	return backgroundPaint{}, false
 }
 
 func tableCellTextColor(style tableStyleRegion) (color.RGBA, bool) {
@@ -895,7 +1120,7 @@ func resolvedTableCellStyle(table tableModel, styles tableStyleSet, rowIndex int
 		if !ok {
 			continue
 		}
-		mergeTableStyleRegion(&resolved, region)
+		mergeTableStyleRegionForCell(&resolved, region, regionName)
 	}
 	return resolved
 }
@@ -984,6 +1209,25 @@ func tableColumnCount(table tableModel) int {
 	return columnCount
 }
 
+func mergeTableStyleRegionForCell(dst *tableStyleRegion, src tableStyleRegion, regionName string) {
+	mergeTableStyleRegion(dst, src)
+	if regionName == "wholeTbl" {
+		return
+	}
+	if src.Borders.Top.Specified {
+		dst.Borders.TopOverridesInsideH = true
+	}
+	if src.Borders.Bottom.Specified {
+		dst.Borders.BottomOverridesInsideH = true
+	}
+	if src.Borders.Left.Specified {
+		dst.Borders.LeftOverridesInsideV = true
+	}
+	if src.Borders.Right.Specified {
+		dst.Borders.RightOverridesInsideV = true
+	}
+}
+
 func mergeTableStyleRegion(dst *tableStyleRegion, src tableStyleRegion) {
 	if src.NoFill {
 		dst.NoFill = true
@@ -1015,6 +1259,12 @@ func mergeTableStyleRegion(dst *tableStyleRegion, src tableStyleRegion) {
 	mergeTableBorder(&dst.Borders.Bottom, src.Borders.Bottom)
 	mergeTableBorder(&dst.Borders.InsideH, src.Borders.InsideH)
 	mergeTableBorder(&dst.Borders.InsideV, src.Borders.InsideV)
+	mergeTableBorder(&dst.Borders.TopLeftToBottomRight, src.Borders.TopLeftToBottomRight)
+	mergeTableBorder(&dst.Borders.BottomLeftToTopRight, src.Borders.BottomLeftToTopRight)
+	dst.Borders.TopOverridesInsideH = dst.Borders.TopOverridesInsideH || src.Borders.TopOverridesInsideH
+	dst.Borders.BottomOverridesInsideH = dst.Borders.BottomOverridesInsideH || src.Borders.BottomOverridesInsideH
+	dst.Borders.LeftOverridesInsideV = dst.Borders.LeftOverridesInsideV || src.Borders.LeftOverridesInsideV
+	dst.Borders.RightOverridesInsideV = dst.Borders.RightOverridesInsideV || src.Borders.RightOverridesInsideV
 }
 
 func mergeTableBorder(dst *tableCellBorder, src tableCellBorder) {
@@ -1039,6 +1289,50 @@ func tableTextParagraphsWithBold(paragraphs []textParagraph, fallbackText string
 		for runIndex := range runs {
 			runs[runIndex].Bold = true
 		}
+		output[paragraphIndex].Runs = runs
+	}
+	return output
+}
+
+func tableTextParagraphsWithItalic(paragraphs []textParagraph, fallbackText string) []textParagraph {
+	if len(paragraphs) == 0 {
+		if strings.TrimSpace(fallbackText) == "" {
+			return nil
+		}
+		return []textParagraph{{Text: strings.TrimSpace(fallbackText), Italic: true}}
+	}
+	output := make([]textParagraph, len(paragraphs))
+	copy(output, paragraphs)
+	for paragraphIndex := range output {
+		output[paragraphIndex].Italic = true
+		runs := make([]textRun, len(output[paragraphIndex].Runs))
+		copy(runs, output[paragraphIndex].Runs)
+		for runIndex := range runs {
+			runs[runIndex].Italic = true
+		}
+		output[paragraphIndex].Runs = runs
+	}
+	return output
+}
+
+func tableTextParagraphsWithFontFamily(paragraphs []textParagraph, fallbackText string, fontFamily string) []textParagraph {
+	if strings.TrimSpace(fontFamily) == "" {
+		return paragraphs
+	}
+	if len(paragraphs) == 0 {
+		if strings.TrimSpace(fallbackText) == "" {
+			return nil
+		}
+		return []textParagraph{{Text: strings.TrimSpace(fallbackText), FontFamily: fontFamily}}
+	}
+	output := make([]textParagraph, len(paragraphs))
+	copy(output, paragraphs)
+	for paragraphIndex := range output {
+		if strings.TrimSpace(output[paragraphIndex].FontFamily) == "" {
+			output[paragraphIndex].FontFamily = fontFamily
+		}
+		runs := make([]textRun, len(output[paragraphIndex].Runs))
+		copy(runs, output[paragraphIndex].Runs)
 		output[paragraphIndex].Runs = runs
 	}
 	return output
@@ -1120,6 +1414,268 @@ func tableRowOffsets(table tableModel, min int, max int, originEMU int64, frameE
 	bodyOffsets := proportionalOffsets(weights[1:], headerEnd, max)
 	offsets = append(offsets, bodyOffsets[1:]...)
 	return offsets
+}
+
+func tableRowOffsetsWithTextMinimums(table tableModel, tableStyles tableStyleSet, columnOffsets []int, rowOffsets []int, target image.Rectangle, size slideSize, imageBounds image.Rectangle, dpi int) []int {
+	if len(rowOffsets) != len(table.Rows)+1 || len(rowOffsets) <= 1 || len(columnOffsets) <= 1 {
+		return rowOffsets
+	}
+	minimums := tableTextMinimumRowHeights(table, tableStyles, columnOffsets, target, size, imageBounds, dpi)
+	if tableRowsHaveOnlyZeroAuthoredHeights(table) {
+		return proportionalOffsets(tableMinimumHeightWeights(minimums), rowOffsets[0], rowOffsets[len(rowOffsets)-1])
+	}
+	if table.FirstRow && tableOnlyFirstRowTextMinimumExceedsHeight(rowOffsets, minimums) && tableTextMinimumsExceedFrame(rowOffsets, minimums) {
+		return proportionalOffsets(tableMinimumHeightWeights(minimums), rowOffsets[0], rowOffsets[len(rowOffsets)-1])
+	}
+	return adjustTableRowOffsetsForMinimumHeights(rowOffsets, minimums)
+}
+
+func tableRowsHaveOnlyZeroAuthoredHeights(table tableModel) bool {
+	if len(table.Rows) == 0 {
+		return false
+	}
+	for _, row := range table.Rows {
+		if !row.HasHeight || row.Height != 0 {
+			return false
+		}
+	}
+	return true
+}
+
+func tableMinimumHeightWeights(minimums []int) []int64 {
+	weights := make([]int64, len(minimums))
+	for index, minimum := range minimums {
+		if minimum > 0 {
+			weights[index] = int64(minimum)
+		} else {
+			weights[index] = 1
+		}
+	}
+	return weights
+}
+
+func tableTextMinimumsExceedFrame(rowOffsets []int, minimums []int) bool {
+	if len(rowOffsets) != len(minimums)+1 || len(rowOffsets) <= 1 {
+		return false
+	}
+	totalMinimum := 0
+	hasGrowth := false
+	for index, minimum := range minimums {
+		if minimum < 0 {
+			minimum = 0
+		}
+		totalMinimum += minimum
+		if minimum > rowOffsets[index+1]-rowOffsets[index] {
+			hasGrowth = true
+		}
+	}
+	return hasGrowth && totalMinimum > rowOffsets[len(rowOffsets)-1]-rowOffsets[0]
+}
+
+func tableOnlyFirstRowTextMinimumExceedsHeight(rowOffsets []int, minimums []int) bool {
+	if len(rowOffsets) < 2 || len(minimums) == 0 {
+		return false
+	}
+	if minimums[0] <= rowOffsets[1]-rowOffsets[0] {
+		return false
+	}
+	for index := 1; index < len(minimums); index++ {
+		if minimums[index] > rowOffsets[index+1]-rowOffsets[index] {
+			return false
+		}
+	}
+	return true
+}
+
+func tableTextMinimumRowHeights(table tableModel, tableStyles tableStyleSet, columnOffsets []int, target image.Rectangle, size slideSize, imageBounds image.Rectangle, dpi int) []int {
+	minimums := make([]int, len(table.Rows))
+	for rowIndex, row := range table.Rows {
+		for columnIndex, cell := range row.Cells {
+			if cell.HMerge || cell.VMerge || !tableCellHasMeasurableText(cell) || columnIndex+1 >= len(columnOffsets) {
+				continue
+			}
+			columnEnd := columnIndex + cell.ColSpan
+			if columnEnd >= len(columnOffsets) {
+				columnEnd = len(columnOffsets) - 1
+			}
+			if columnEnd <= columnIndex {
+				columnEnd = columnIndex + 1
+			}
+			cellRect := image.Rect(columnOffsets[columnIndex], 0, columnOffsets[columnEnd], target.Dy()).Intersect(image.Rect(target.Min.X, 0, target.Max.X, target.Dy()))
+			if cellRect.Empty() {
+				continue
+			}
+			style := resolvedTableCellStyle(table, tableStyles, rowIndex, columnIndex)
+			cellElement := tableCellTextElement(style, cell, cell.HasTextColor, cell.TextColor)
+			textWidth := tableCellTextRect(cellRect, cell, size, imageBounds).Dx()
+			textHeight := measuredTableCellTextHeight(cellElement, textWidth, dpi)
+			if textHeight <= 0 {
+				continue
+			}
+			top, bottom := tableCellVerticalMarginPixels(cell, size, imageBounds)
+			height := top + textHeight + bottom
+			span := tableCellRowSpanWithinTable(table, rowIndex, cell)
+			minimum := height
+			if span > 1 {
+				minimum = int(math.Ceil(float64(height) / float64(span)))
+			}
+			for spanIndex := 0; spanIndex < span; spanIndex++ {
+				targetRow := rowIndex + spanIndex
+				if minimum > minimums[targetRow] {
+					minimums[targetRow] = minimum
+				}
+			}
+		}
+	}
+	return minimums
+}
+
+func tableCellRowSpanWithinTable(table tableModel, rowIndex int, cell tableCell) int {
+	if cell.RowSpan <= 1 {
+		return 1
+	}
+	span := cell.RowSpan
+	if rowIndex+span > len(table.Rows) {
+		span = len(table.Rows) - rowIndex
+	}
+	if span < 1 {
+		return 1
+	}
+	return span
+}
+
+func measuredTableCellTextHeight(element slideElement, width int, dpi int) int {
+	if width <= 0 || !tableTextElementHasMeasurableText(element) {
+		return 0
+	}
+	faces := newFontFaceCacheWithDPI(element.Italic, element.FontFamily, dpi, element.FontPointScale)
+	defer faces.Close()
+	face, err := faces.Get(element.FontSize, false)
+	if err != nil {
+		return 0
+	}
+	boldFace, err := faces.Get(element.FontSize, true)
+	if err != nil {
+		return 0
+	}
+	lines, err := textRenderLinesForElement(faces, face, boldFace, element, width, dpi)
+	if err != nil {
+		return 0
+	}
+	measured, err := measureTextRenderLines(faces, lines, element.FontSize)
+	if err != nil {
+		return 0
+	}
+	return measuredTextAnchorHeight(measured, element.TextAnchor)
+}
+
+func tableCellHasMeasurableText(cell tableCell) bool {
+	return tableTextElementHasMeasurableText(slideElement{
+		Text:           cell.Text,
+		TextParagraphs: cell.TextParagraphs,
+		FontSize:       cell.FontSize,
+	})
+}
+
+func tableTextElementHasMeasurableText(element slideElement) bool {
+	if strings.TrimSpace(element.Text) != "" {
+		return true
+	}
+	for _, paragraph := range element.TextParagraphs {
+		if paragraph.FontSize > 0 || paragraph.HasSpaceBefore || paragraph.HasSpaceAfter || paragraph.HasLineSpacing {
+			return true
+		}
+		for _, run := range paragraph.Runs {
+			if strings.TrimSpace(run.Text) != "" {
+				return true
+			}
+			if run.Text != "" && run.FontSize > 0 {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func tableCellVerticalMarginPixels(cell tableCell, size slideSize, imageBounds image.Rectangle) (int, int) {
+	topEMU := int64(defaultTableCellVerticalMarginEMU)
+	bottomEMU := int64(defaultTableCellVerticalMarginEMU)
+	if cell.HasMargins {
+		topEMU = cell.MarginTop
+		bottomEMU = cell.MarginBottom
+	}
+	return scaleEMU(topEMU, size.CY, imageBounds.Dy()), scaleEMU(bottomEMU, size.CY, imageBounds.Dy())
+}
+
+func adjustTableRowOffsetsForMinimumHeights(rowOffsets []int, minimums []int) []int {
+	if len(rowOffsets) != len(minimums)+1 || len(rowOffsets) <= 1 {
+		return rowOffsets
+	}
+	heights := make([]int, len(minimums))
+	total := 0
+	for index := range heights {
+		height := rowOffsets[index+1] - rowOffsets[index]
+		if height < 0 {
+			return rowOffsets
+		}
+		heights[index] = height
+		total += height
+	}
+	growth := 0
+	capacity := 0
+	for index, minimum := range minimums {
+		if minimum < 0 {
+			minimum = 0
+		}
+		if minimum > heights[index] {
+			growth += minimum - heights[index]
+			continue
+		}
+		capacity += heights[index] - minimum
+	}
+	if growth <= 0 {
+		return rowOffsets
+	}
+	if capacity < growth {
+		return rowOffsets
+	}
+	adjustedHeights := append([]int(nil), heights...)
+	for index, minimum := range minimums {
+		if minimum > adjustedHeights[index] {
+			adjustedHeights[index] = minimum
+		}
+	}
+	shrunk := 0
+	capacitySeen := 0
+	for index, minimum := range minimums {
+		cap := heights[index] - minimum
+		if cap <= 0 {
+			continue
+		}
+		capacitySeen += cap
+		targetShrink := int(math.Round(float64(growth) * float64(capacitySeen) / float64(capacity)))
+		shrink := targetShrink - shrunk
+		if shrink > cap {
+			shrink = cap
+		}
+		adjustedHeights[index] = heights[index] - shrink
+		shrunk += shrink
+	}
+	if shrunk != growth {
+		return rowOffsets
+	}
+	adjusted := make([]int, len(rowOffsets))
+	adjusted[0] = rowOffsets[0]
+	for index, height := range adjustedHeights {
+		adjusted[index+1] = adjusted[index] + height
+	}
+	if adjusted[len(adjusted)-1] != rowOffsets[len(rowOffsets)-1] {
+		return rowOffsets
+	}
+	if total != adjusted[len(adjusted)-1]-adjusted[0] {
+		return rowOffsets
+	}
+	return adjusted
 }
 
 func tableFirstRowHasSpanningCells(table tableModel) bool {

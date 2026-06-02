@@ -5,6 +5,8 @@ import (
 	"image/color"
 	"image/draw"
 	"math"
+	"strconv"
+	"strings"
 )
 
 func drawPolygon(img *image.RGBA, bounds image.Rectangle, points []pathPoint, c color.RGBA) {
@@ -15,6 +17,26 @@ func drawPolygon(img *image.RGBA, bounds image.Rectangle, points []pathPoint, c 
 	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
 		for x := bounds.Min.X; x < bounds.Max.X; x++ {
 			coverage := polygonCoverage(float64(x), float64(y), polygon)
+			if coverage == 4 && c.A == 255 {
+				img.SetRGBA(x, y, c)
+			} else if coverage > 0 {
+				layer := c
+				layer.A = coverageAlpha(c.A, coverage)
+				blendPixel(img, x, y, layer)
+			}
+		}
+	}
+}
+
+func drawPolygonWithFloatBounds(img *image.RGBA, paintBounds image.Rectangle, bounds floatRect, points []pathPoint, c color.RGBA) {
+	paintBounds = paintBounds.Intersect(img.Bounds())
+	if len(points) < 3 || paintBounds.Empty() || c.A == 0 || bounds.MaxX <= bounds.MinX || bounds.MaxY <= bounds.MinY {
+		return
+	}
+	polygon := polygonFloatPoints(bounds, points)
+	for y := paintBounds.Min.Y; y < paintBounds.Max.Y; y++ {
+		for x := paintBounds.Min.X; x < paintBounds.Max.X; x++ {
+			coverage := polygonFloatCoverage(float64(x), float64(y), polygon)
 			if coverage == 4 && c.A == 255 {
 				img.SetRGBA(x, y, c)
 			} else if coverage > 0 {
@@ -37,12 +59,51 @@ func drawPolygonOutline(img *image.RGBA, bounds image.Rectangle, points []pathPo
 	}
 }
 
+func drawPathOutlineStyled(img *image.RGBA, bounds image.Rectangle, points []pathPoint, c color.RGBA, width int, dash string, cap string, join string, compound string, closed bool) {
+	if len(points) < 2 || bounds.Empty() {
+		return
+	}
+	scaled := polygonImagePoints(bounds, points)
+	limit := len(scaled) - 1
+	if closed {
+		limit = len(scaled)
+	}
+	for index := 0; index < limit; index++ {
+		next := index + 1
+		if next >= len(scaled) {
+			next = 0
+		}
+		drawStyledCompoundLine(img, scaled[index].X, scaled[index].Y, scaled[next].X, scaled[next].Y, c, width, dash, cap, compound)
+	}
+	if join == "round" && (compound == "" || compound == "sng") {
+		for index, point := range scaled {
+			if !closed && (index == 0 || index == len(scaled)-1) {
+				continue
+			}
+			drawRoundLineJoin(img, point.X, point.Y, c, width)
+		}
+	}
+}
+
 func polygonImagePoints(bounds image.Rectangle, points []pathPoint) []image.Point {
 	polygon := make([]image.Point, 0, len(points))
 	for _, point := range points {
 		polygon = append(polygon, image.Point{
 			X: bounds.Min.X + int(math.Round(point.X*float64(bounds.Dx()))),
 			Y: bounds.Min.Y + int(math.Round(point.Y*float64(bounds.Dy()))),
+		})
+	}
+	return polygon
+}
+
+func polygonFloatPoints(bounds floatRect, points []pathPoint) []floatPoint {
+	width := bounds.MaxX - bounds.MinX
+	height := bounds.MaxY - bounds.MinY
+	polygon := make([]floatPoint, 0, len(points))
+	for _, point := range points {
+		polygon = append(polygon, floatPoint{
+			X: bounds.MinX + point.X*width,
+			Y: bounds.MinY + point.Y*height,
 		})
 	}
 	return polygon
@@ -94,6 +155,16 @@ func polygonCoverage(x float64, y float64, polygon []image.Point) int {
 	coverage := 0
 	for _, offset := range coverageSampleOffsets {
 		if pointInPolygonFloat(x+offset.x, y+offset.y, polygon) {
+			coverage++
+		}
+	}
+	return coverage
+}
+
+func polygonFloatCoverage(x float64, y float64, polygon []floatPoint) int {
+	coverage := 0
+	for _, offset := range coverageSampleOffsets {
+		if pointInPolygonFloatPoints(x+offset.x, y+offset.y, polygon) {
 			coverage++
 		}
 	}
@@ -693,6 +764,23 @@ func pointInPolygonFloat(x float64, y float64, polygon []image.Point) bool {
 	return inside
 }
 
+func pointInPolygonFloatPoints(x float64, y float64, polygon []floatPoint) bool {
+	inside := false
+	j := len(polygon) - 1
+	for i := range polygon {
+		yi := polygon[i].Y
+		yj := polygon[j].Y
+		if (yi > y) != (yj > y) {
+			xIntersect := (polygon[j].X-polygon[i].X)*(y-yi)/(yj-yi) + polygon[i].X
+			if x < xIntersect {
+				inside = !inside
+			}
+		}
+		j = i
+	}
+	return inside
+}
+
 func emuLineWidthToPixels(widthEMU int64, slideCX int64, outputWidth int) int {
 	if widthEMU <= 0 {
 		return 1
@@ -725,12 +813,24 @@ func drawStyledRectOutlineAligned(img *image.RGBA, rect image.Rectangle, c color
 }
 
 func drawStyledRectOutlineAlignedWithCap(img *image.RGBA, rect image.Rectangle, c color.RGBA, width int, dash string, align string, cap string) {
+	drawStyledRectOutlineCompound(img, rect, c, width, dash, align, cap, "", "")
+}
+
+func drawStyledRectOutlineCompound(img *image.RGBA, rect image.Rectangle, c color.RGBA, width int, dash string, align string, cap string, join string, compound string) {
 	rect = alignedStrokeRect(rect, width, align)
 	if dash == "" {
-		drawRectOutline(img, rect, c, width)
+		if join != "round" && (compound == "" || compound == "sng") {
+			drawRectOutline(img, rect, c, width)
+			return
+		}
+		drawPathOutlineStyled(img, rect, []pathPoint{{X: 0, Y: 0}, {X: 1, Y: 0}, {X: 1, Y: 1}, {X: 0, Y: 1}}, c, width, dash, cap, join, compound, true)
 		return
 	}
 	if rect.Empty() {
+		return
+	}
+	if join == "round" || (compound != "" && compound != "sng") {
+		drawPathOutlineStyled(img, rect, []pathPoint{{X: 0, Y: 0}, {X: 1, Y: 0}, {X: 1, Y: 1}, {X: 0, Y: 1}}, c, width, dash, cap, join, compound, true)
 		return
 	}
 	for i := 0; i < width; i++ {
@@ -853,6 +953,94 @@ func gaussianBlurAlpha(src []uint8, width int, height int, radius int) []uint8 {
 			continue
 		}
 		dst[index] = uint8(math.Round(value))
+	}
+	return dst
+}
+
+func gaussianBlurRGBA(src *image.RGBA, radius int) *image.RGBA {
+	bounds := src.Bounds()
+	width := bounds.Dx()
+	height := bounds.Dy()
+	dst := image.NewRGBA(image.Rect(0, 0, width, height))
+	if radius <= 0 || width <= 0 || height <= 0 {
+		draw.Draw(dst, dst.Bounds(), src, bounds.Min, draw.Src)
+		return dst
+	}
+	alpha := make([]float64, width*height)
+	redAlpha := make([]float64, width*height)
+	greenAlpha := make([]float64, width*height)
+	blueAlpha := make([]float64, width*height)
+	for y := 0; y < height; y++ {
+		for x := 0; x < width; x++ {
+			pixel := src.RGBAAt(bounds.Min.X+x, bounds.Min.Y+y)
+			index := y*width + x
+			a := float64(pixel.A)
+			alpha[index] = a
+			redAlpha[index] = float64(pixel.R) * a
+			greenAlpha[index] = float64(pixel.G) * a
+			blueAlpha[index] = float64(pixel.B) * a
+		}
+	}
+	alpha = gaussianBlurFloatPlane(alpha, width, height, radius)
+	redAlpha = gaussianBlurFloatPlane(redAlpha, width, height, radius)
+	greenAlpha = gaussianBlurFloatPlane(greenAlpha, width, height, radius)
+	blueAlpha = gaussianBlurFloatPlane(blueAlpha, width, height, radius)
+	for y := 0; y < height; y++ {
+		for x := 0; x < width; x++ {
+			index := y*width + x
+			a := alpha[index]
+			if a <= 0 {
+				continue
+			}
+			dst.SetRGBA(x, y, color.RGBA{
+				R: clampColor(int64(math.Round(redAlpha[index] / a))),
+				G: clampColor(int64(math.Round(greenAlpha[index] / a))),
+				B: clampColor(int64(math.Round(blueAlpha[index] / a))),
+				A: clampColor(int64(math.Round(a))),
+			})
+		}
+	}
+	return dst
+}
+
+func gaussianBlurFloatPlane(src []float64, width int, height int, radius int) []float64 {
+	if radius <= 0 || width <= 0 || height <= 0 {
+		dst := make([]float64, len(src))
+		copy(dst, src)
+		return dst
+	}
+	kernel := gaussianKernel(radius)
+	tmp := make([]float64, len(src))
+	dst := make([]float64, len(src))
+	for y := 0; y < height; y++ {
+		for x := 0; x < width; x++ {
+			sum := 0.0
+			for offset := -radius; offset <= radius; offset++ {
+				sampleX := x + offset
+				if sampleX < 0 {
+					sampleX = 0
+				} else if sampleX >= width {
+					sampleX = width - 1
+				}
+				sum += src[y*width+sampleX] * kernel[offset+radius]
+			}
+			tmp[y*width+x] = sum
+		}
+	}
+	for y := 0; y < height; y++ {
+		for x := 0; x < width; x++ {
+			sum := 0.0
+			for offset := -radius; offset <= radius; offset++ {
+				sampleY := y + offset
+				if sampleY < 0 {
+					sampleY = 0
+				} else if sampleY >= height {
+					sampleY = height - 1
+				}
+				sum += tmp[sampleY*width+x] * kernel[offset+radius]
+			}
+			dst[y*width+x] = sum
+		}
 	}
 	return dst
 }
@@ -1035,13 +1223,71 @@ func drawStyledLine(img *image.RGBA, x0 int, y0 int, x1 int, y1 int, c color.RGB
 	drawStyledLineWithPatternWidth(img, x0, y0, x1, y1, c, width, dash, cap, width)
 }
 
+func drawStyledCompoundLine(img *image.RGBA, x0 int, y0 int, x1 int, y1 int, c color.RGBA, width int, dash string, cap string, compound string) {
+	if compound == "" || compound == "sng" {
+		drawStyledLine(img, x0, y0, x1, y1, c, width, dash, cap)
+		return
+	}
+	for _, segment := range compoundLineSegments(width, compound) {
+		ox0, oy0, ox1, oy1 := offsetLineEndpoints(x0, y0, x1, y1, segment.offset)
+		drawStyledLineWithPatternWidth(img, ox0, oy0, ox1, oy1, c, segment.width, dash, cap, width)
+	}
+}
+
+type compoundLineSegment struct {
+	offset int
+	width  int
+}
+
+func compoundLineSegments(width int, compound string) []compoundLineSegment {
+	if width < 1 {
+		width = 1
+	}
+	switch compound {
+	case "dbl":
+		strokeWidth, firstOffset, secondOffset := doubleCompoundLineMetrics(width)
+		return []compoundLineSegment{{offset: firstOffset, width: strokeWidth}, {offset: secondOffset, width: strokeWidth}}
+	case "thickThin":
+		thick := maxInt(1, width/2)
+		thin := maxInt(1, width/4)
+		return []compoundLineSegment{{offset: -maxInt(1, width/4), width: thick}, {offset: maxInt(1, width/3), width: thin}}
+	case "thinThick":
+		thick := maxInt(1, width/2)
+		thin := maxInt(1, width/4)
+		return []compoundLineSegment{{offset: -maxInt(1, width/3), width: thin}, {offset: maxInt(1, width/4), width: thick}}
+	case "tri":
+		stroke := maxInt(1, width/4)
+		outer := maxInt(1, width/2)
+		return []compoundLineSegment{{offset: -outer, width: stroke}, {offset: 0, width: stroke}, {offset: outer, width: stroke}}
+	default:
+		return []compoundLineSegment{{width: width}}
+	}
+}
+
+func offsetLineEndpoints(x0 int, y0 int, x1 int, y1 int, offset int) (int, int, int, int) {
+	if offset == 0 {
+		return x0, y0, x1, y1
+	}
+	dx := float64(x1 - x0)
+	dy := float64(y1 - y0)
+	length := math.Hypot(dx, dy)
+	if length == 0 {
+		return x0, y0, x1, y1
+	}
+	perpX := -dy / length
+	perpY := dx / length
+	ox := int(math.Round(perpX * float64(offset)))
+	oy := int(math.Round(perpY * float64(offset)))
+	return x0 + ox, y0 + oy, x1 + ox, y1 + oy
+}
+
 func drawStyledLineWithPatternWidth(img *image.RGBA, x0 int, y0 int, x1 int, y1 int, c color.RGBA, width int, dash string, cap string, patternWidth int) {
 	if cap == "" || cap == "sq" {
 		if dash == "" {
 			drawLine(img, x0, y0, x1, y1, c, width)
 			return
 		}
-		drawDashedLineLegacyWithPatternWidth(img, x0, y0, x1, y1, c, width, dash, patternWidth)
+		drawDashedLineWithPatternWidth(img, x0, y0, x1, y1, c, width, dash, "sq", patternWidth)
 		return
 	}
 	if dash == "" {
@@ -1230,6 +1476,9 @@ func pointInLineStroke(x float64, y float64, x0 float64, y0 float64, x1 float64,
 }
 
 func lineDashPatternPixels(dash string, width int) []int {
+	if strings.HasPrefix(dash, "cust:") {
+		return customLineDashPatternPixels(strings.TrimPrefix(dash, "cust:"), width)
+	}
 	patterns := map[string]string{
 		"dash":          "1111000",
 		"dashDot":       "11110001000",
@@ -1247,6 +1496,31 @@ func lineDashPatternPixels(dash string, width int) []int {
 		bits = patterns["dash"]
 	}
 	return binaryDashPatternPixels(bits, width)
+}
+
+func customLineDashPatternPixels(encoded string, width int) []int {
+	if encoded == "" {
+		return nil
+	}
+	unit := maxInt(width, 1)
+	var pattern []int
+	for _, part := range strings.Split(encoded, ",") {
+		pieces := strings.Split(part, "/")
+		if len(pieces) != 2 {
+			continue
+		}
+		d, errD := strconv.ParseInt(pieces[0], 10, 64)
+		sp, errSp := strconv.ParseInt(pieces[1], 10, 64)
+		if errD != nil || errSp != nil {
+			continue
+		}
+		pattern = append(pattern, maxInt(1, int(math.Round(float64(unit)*float64(d)/100000))))
+		pattern = append(pattern, maxInt(1, int(math.Round(float64(unit)*float64(sp)/100000))))
+	}
+	if len(pattern) == 0 {
+		return nil
+	}
+	return pattern
 }
 
 func binaryDashPatternPixels(bits string, width int) []int {
@@ -1269,9 +1543,13 @@ func binaryDashPatternPixels(bits string, width int) []int {
 }
 
 func drawLineTriangleMarker(img *image.RGBA, tipX int, tipY int, dirX int, dirY int, c color.RGBA, lineWidth int, markerWidth string, markerLength string) {
+	drawLineEndMarker(img, "triangle", tipX, tipY, dirX, dirY, c, lineWidth, markerWidth, markerLength)
+}
+
+func drawLineEndMarker(img *image.RGBA, markerType string, tipX int, tipY int, dirX int, dirY int, c color.RGBA, lineWidth int, markerWidth string, markerLength string) bool {
 	length := math.Hypot(float64(dirX), float64(dirY))
 	if length == 0 {
-		return
+		return true
 	}
 	unitX := float64(dirX) / length
 	unitY := float64(dirY) / length
@@ -1281,6 +1559,67 @@ func drawLineTriangleMarker(img *image.RGBA, tipX int, tipY int, dirX int, dirY 
 	baseY := float64(tipY) - unitY*drawLength
 	perpX := -unitY
 	perpY := unitX
+	switch markerType {
+	case "triangle":
+		drawFilledPolygon(img, []image.Point{
+			{X: tipX, Y: tipY},
+			{X: int(math.Round(baseX + perpX*markerHalfWidth)), Y: int(math.Round(baseY + perpY*markerHalfWidth))},
+			{X: int(math.Round(baseX - perpX*markerHalfWidth)), Y: int(math.Round(baseY - perpY*markerHalfWidth))},
+		}, c)
+	case "stealth":
+		innerX := float64(tipX) - unitX*drawLength*0.62
+		innerY := float64(tipY) - unitY*drawLength*0.62
+		drawFilledPolygon(img, []image.Point{
+			{X: tipX, Y: tipY},
+			{X: int(math.Round(baseX + perpX*markerHalfWidth)), Y: int(math.Round(baseY + perpY*markerHalfWidth))},
+			{X: int(math.Round(innerX)), Y: int(math.Round(innerY))},
+			{X: int(math.Round(baseX - perpX*markerHalfWidth)), Y: int(math.Round(baseY - perpY*markerHalfWidth))},
+		}, c)
+	case "diamond":
+		midX := float64(tipX) - unitX*drawLength/2
+		midY := float64(tipY) - unitY*drawLength/2
+		backX := float64(tipX) - unitX*drawLength
+		backY := float64(tipY) - unitY*drawLength
+		drawFilledPolygon(img, []image.Point{
+			{X: tipX, Y: tipY},
+			{X: int(math.Round(midX + perpX*markerHalfWidth)), Y: int(math.Round(midY + perpY*markerHalfWidth))},
+			{X: int(math.Round(backX)), Y: int(math.Round(backY))},
+			{X: int(math.Round(midX - perpX*markerHalfWidth)), Y: int(math.Round(midY - perpY*markerHalfWidth))},
+		}, c)
+	case "oval":
+		centerX := int(math.Round(float64(tipX) - unitX*drawLength/2))
+		centerY := int(math.Round(float64(tipY) - unitY*drawLength/2))
+		drawMarkerOval(img, centerX, centerY, int(math.Round(drawLength/2)), int(math.Round(markerHalfWidth)), c)
+	case "arrow":
+		leftX := int(math.Round(baseX + perpX*markerHalfWidth))
+		leftY := int(math.Round(baseY + perpY*markerHalfWidth))
+		rightX := int(math.Round(baseX - perpX*markerHalfWidth))
+		rightY := int(math.Round(baseY - perpY*markerHalfWidth))
+		drawStyledLine(img, tipX, tipY, leftX, leftY, c, lineWidth, "", "flat")
+		drawStyledLine(img, tipX, tipY, rightX, rightY, c, lineWidth, "", "flat")
+	default:
+		return false
+	}
+	return true
+}
+
+func drawMarkerOval(img *image.RGBA, centerX int, centerY int, radiusX int, radiusY int, c color.RGBA) {
+	if c.A == 0 || radiusX <= 0 || radiusY <= 0 {
+		return
+	}
+	bounds := image.Rect(centerX-radiusX-1, centerY-radiusY-1, centerX+radiusX+2, centerY+radiusY+2).Intersect(img.Bounds())
+	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
+		for x := bounds.Min.X; x < bounds.Max.X; x++ {
+			nx := float64(x-centerX) / float64(radiusX)
+			ny := float64(y-centerY) / float64(radiusY)
+			if nx*nx+ny*ny <= 1 {
+				blendPixel(img, x, y, c)
+			}
+		}
+	}
+}
+
+func drawLegacyTriangleMarkerPolygon(img *image.RGBA, tipX int, tipY int, baseX float64, baseY float64, perpX float64, perpY float64, markerHalfWidth float64, c color.RGBA) {
 	drawFilledPolygon(img, []image.Point{
 		{X: tipX, Y: tipY},
 		{X: int(math.Round(baseX + perpX*markerHalfWidth)), Y: int(math.Round(baseY + perpY*markerHalfWidth))},

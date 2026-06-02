@@ -68,6 +68,16 @@ func parseIntAttr(attrs []xml.Attr, name string) int64 {
 	return 0
 }
 
+func parseIntAttrDefault(attrs []xml.Attr, name string, fallback int64) int64 {
+	for _, attr := range attrs {
+		if attr.Name.Local == name {
+			value, _ := strconv.ParseInt(attr.Value, 10, 64)
+			return value
+		}
+	}
+	return fallback
+}
+
 func parsePercentAttr(attrs []xml.Attr, name string) int64 {
 	for _, attr := range attrs {
 		if attr.Name.Local == name {
@@ -75,6 +85,15 @@ func parsePercentAttr(attrs []xml.Attr, name string) int64 {
 		}
 	}
 	return 0
+}
+
+func parsePercentAttrDefault(attrs []xml.Attr, name string, fallback int64) int64 {
+	for _, attr := range attrs {
+		if attr.Name.Local == name {
+			return parsePercentValue(attr.Value)
+		}
+	}
+	return fallback
 }
 
 func parsePercentValue(value string) int64 {

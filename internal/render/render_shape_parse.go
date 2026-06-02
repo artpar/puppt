@@ -20,24 +20,16 @@ func parseShapeProperties(spPr *xmlNode, transform renderTransform, element *sli
 		element.PrstGeomAdjustments = parsePresetGeometryAdjustments(prstGeom)
 	}
 	if custGeom := firstChild(spPr, "custGeom"); custGeom != nil {
-		element.CustomPath, element.CustomPathCommands, element.CustomPathUnsupported = parseCustomGeometryPathCommandsWithDiagnostics(custGeom)
+		element.CustomPaths, element.CustomPathFills, element.CustomPathStrokes, element.CustomPathCommands, element.CustomPathUnsupported = parseCustomGeometryPathsCommandsWithDiagnostics(custGeom)
+		if len(element.CustomPaths) > 0 {
+			element.CustomPath = element.CustomPaths[0]
+		}
 	}
 	if firstChild(spPr, "noFill") != nil {
 		element.NoFill = true
 	}
-	if solidFill := firstChild(spPr, "solidFill"); solidFill != nil {
-		if fill, ok := colorFromSolidFillWithTheme(solidFill, theme); ok {
-			element.HasFill = true
-			element.FillColor = fill
-		}
-	}
-	if gradFill := firstChild(spPr, "gradFill"); gradFill != nil {
-		if gradient, ok := parseGradientFill(gradFill, theme); ok {
-			element.HasFill = true
-			element.FillColor = gradient.Stops[0].Color
-			element.HasFillGradient = true
-			element.FillGradient = gradient
-		}
+	if paint, ok := fillPaintFromContainer(spPr, theme, transform.GroupFill); ok {
+		applyFillPaintToElement(element, paint)
 	}
 	if ln := firstChild(spPr, "ln"); ln != nil {
 		if attrValue(ln.Attrs, "w") != "" {
@@ -51,6 +43,10 @@ func parseShapeProperties(spPr *xmlNode, transform renderTransform, element *sli
 		if align := attrValue(ln.Attrs, "algn"); align != "" {
 			element.HasLineAlign = true
 			element.LineAlign = align
+		}
+		if compound := attrValue(ln.Attrs, "cmpd"); compound != "" {
+			element.HasLineCompound = true
+			element.LineCompound = compound
 		}
 		if element.LineWidth == 0 {
 			element.LineWidth = 9525
@@ -68,6 +64,13 @@ func parseShapeProperties(spPr *xmlNode, transform renderTransform, element *sli
 			if value := attrValue(dash.Attrs, "val"); value != "" && value != "solid" {
 				element.LineDash = value
 			}
+		} else if dash := firstChild(ln, "custDash"); dash != nil {
+			element.HasLineDash = true
+			element.LineDash = customDashPatternValue(dash)
+		}
+		if join := lineJoinValue(ln); join != "" {
+			element.HasLineJoin = true
+			element.LineJoin = join
 		}
 		element.HeadLineMarker, element.HeadLineMarkerWidth, element.HeadLineMarkerLength = lineEndMarkerProperties(ln, "headEnd")
 		element.TailLineMarker, element.TailLineMarkerWidth, element.TailLineMarkerLength = lineEndMarkerProperties(ln, "tailEnd")
@@ -76,12 +79,131 @@ func parseShapeProperties(spPr *xmlNode, transform renderTransform, element *sli
 	if effectList := firstChild(spPr, "effectLst"); effectList != nil {
 		element.HasEffectProperties = true
 		parseShapeEffects(effectList, element, theme)
-	} else if firstChild(spPr, "effectDag") != nil {
+	} else if effectDag := firstChild(spPr, "effectDag"); effectDag != nil {
 		element.HasEffectProperties = true
+		parseShapeEffectDag(effectDag, element, theme)
+	}
+	if scene3d := firstChild(spPr, "scene3d"); scene3d != nil {
+		parseScene3DProperties(scene3d, element)
 	}
 	if sp3d := firstChild(spPr, "sp3d"); sp3d != nil {
 		parseShape3DProperties(sp3d, element)
 	}
+}
+
+func parseShapeEffectDag(effectDag *xmlNode, element *slideElement, theme themeColors) {
+	if effectDag == nil {
+		return
+	}
+	flattened := &xmlNode{Name: "effectLst"}
+	unsupported := flattenSupportedEffectDagNodes(effectDag, flattened)
+	if len(flattened.Children) > 0 {
+		parseShapeEffects(flattened, element, theme)
+		element.EffectUnsupported = appendDistinctStrings(element.EffectUnsupported, "effectDag effect graph was rendered as a flattened supported effect subset")
+	}
+	if unsupported || len(flattened.Children) == 0 {
+		element.EffectUnsupported = appendDistinctStrings(element.EffectUnsupported, "effectDag effect graph has unsupported ordering or effect nodes")
+	}
+}
+
+func flattenSupportedEffectDagNodes(node *xmlNode, flattened *xmlNode) bool {
+	if node == nil {
+		return false
+	}
+	unsupported := false
+	for _, child := range node.Children {
+		switch child.Name {
+		case "cont":
+			if attrValue(child.Attrs, "type") == "tree" {
+				unsupported = true
+			}
+			if flattenSupportedEffectDagNodes(child, flattened) {
+				unsupported = true
+			}
+		case "blend":
+			unsupported = true
+			if blendContainer := firstChild(child, "cont"); blendContainer != nil {
+				if flattenSupportedEffectDagNodes(blendContainer, flattened) {
+					unsupported = true
+				}
+			}
+		case "alphaOutset", "blur", "fillOverlay", "glow", "innerShdw", "outerShdw", "prstShdw", "reflection", "relOff", "softEdge", "xfrm":
+			flattened.Children = append(flattened.Children, child)
+		case "":
+			continue
+		default:
+			if visibleEffectDagNode(child) {
+				unsupported = true
+			}
+		}
+	}
+	return unsupported
+}
+
+func visibleEffectDagNode(node *xmlNode) bool {
+	if node == nil {
+		return false
+	}
+	switch node.Name {
+	case "effect":
+		return attrValue(node.Attrs, "ref") != ""
+	case "alphaBiLevel", "alphaCeiling", "alphaFloor", "alphaInv", "alphaMod", "alphaModFix", "alphaOutset", "alphaRepl", "biLevel", "blend", "clrChange", "clrRepl", "duotone", "fill", "grayscl", "hsl", "lum", "relOff", "tint", "xfrm":
+		return true
+	default:
+		return len(node.Children) > 0
+	}
+}
+
+func parseScene3DProperties(scene3d *xmlNode, element *slideElement) {
+	features := visibleScene3DFeatures(scene3d)
+	if len(features) == 0 {
+		return
+	}
+	element.HasShape3D = true
+	element.Shape3DFeatures = appendDistinctStrings(element.Shape3DFeatures, features...)
+	element.HasEffectProperties = true
+}
+
+func visibleScene3DFeatures(scene3d *xmlNode) []string {
+	if scene3d == nil {
+		return nil
+	}
+	var features []string
+	if camera := firstChild(scene3d, "camera"); camera != nil {
+		if prst := attrValue(camera.Attrs, "prst"); prst != "" {
+			features = append(features, "3-D scene camera "+prst)
+		} else {
+			features = append(features, "3-D scene camera")
+		}
+		if attrValue(camera.Attrs, "fov") != "" {
+			features = append(features, "3-D scene camera field of view")
+		}
+		if zoom := attrValue(camera.Attrs, "zoom"); zoom != "" && zoom != "100%" && zoom != "100000" {
+			features = append(features, "3-D scene camera zoom")
+		}
+		if firstChild(camera, "rot") != nil {
+			features = append(features, "3-D scene camera rotation")
+		}
+	}
+	if lightRig := firstChild(scene3d, "lightRig"); lightRig != nil {
+		rig := attrValue(lightRig.Attrs, "rig")
+		dir := attrValue(lightRig.Attrs, "dir")
+		switch {
+		case rig != "" && dir != "":
+			features = append(features, "3-D scene light rig "+rig+"/"+dir)
+		case rig != "":
+			features = append(features, "3-D scene light rig "+rig)
+		default:
+			features = append(features, "3-D scene light rig")
+		}
+		if firstChild(lightRig, "rot") != nil {
+			features = append(features, "3-D scene light rig rotation")
+		}
+	}
+	if firstChild(scene3d, "backdrop") != nil {
+		features = append(features, "3-D scene backdrop")
+	}
+	return features
 }
 
 func parseShape3DProperties(sp3d *xmlNode, element *slideElement) {
@@ -105,6 +227,9 @@ func visibleShape3DFeatures(sp3d *xmlNode) []string {
 	if parseIntAttr(sp3d.Attrs, "contourW") > 0 {
 		features = append(features, "3-D contour")
 	}
+	if attrValue(sp3d.Attrs, "z") != "" && parseIntAttr(sp3d.Attrs, "z") != 0 {
+		features = append(features, "3-D z offset")
+	}
 	if bevelHasVisibleSize(firstChild(sp3d, "bevelT")) {
 		features = append(features, "3-D top bevel")
 	}
@@ -118,7 +243,15 @@ func bevelHasVisibleSize(bevel *xmlNode) bool {
 	if bevel == nil {
 		return false
 	}
-	return parseIntAttr(bevel.Attrs, "w") > 0 || parseIntAttr(bevel.Attrs, "h") > 0
+	width := int64(76200)
+	height := int64(76200)
+	if value := attrValue(bevel.Attrs, "w"); value != "" {
+		width = parseIntAttr(bevel.Attrs, "w")
+	}
+	if value := attrValue(bevel.Attrs, "h"); value != "" {
+		height = parseIntAttr(bevel.Attrs, "h")
+	}
+	return width > 0 && height > 0
 }
 
 func appendDistinctStrings(base []string, values ...string) []string {
@@ -137,13 +270,131 @@ func appendDistinctStrings(base []string, values ...string) []string {
 }
 
 func parseShapeEffects(effectList *xmlNode, element *slideElement, theme themeColors) {
+	for _, child := range effectList.Children {
+		switch child.Name {
+		case "alphaOutset", "blur", "fillOverlay", "glow", "innerShdw", "outerShdw", "prstShdw", "reflection", "relOff", "softEdge", "xfrm":
+			continue
+		}
+	}
+	if effectTransform := firstChild(effectList, "xfrm"); effectTransform != nil {
+		sx := parsePercentAttrDefault(effectTransform.Attrs, "sx", 100000)
+		sy := parsePercentAttrDefault(effectTransform.Attrs, "sy", 100000)
+		kx := parseIntAttr(effectTransform.Attrs, "kx")
+		ky := parseIntAttr(effectTransform.Attrs, "ky")
+		tx := parseIntAttr(effectTransform.Attrs, "tx")
+		ty := parseIntAttr(effectTransform.Attrs, "ty")
+		if tx != 0 || ty != 0 {
+			element.HasEffectTransform = true
+			element.EffectTransformScaleX = sx
+			element.EffectTransformScaleY = sy
+			element.EffectTransformSkewX = kx
+			element.EffectTransformSkewY = ky
+			element.EffectTransformOffsetX = tx
+			element.EffectTransformOffsetY = ty
+		}
+		if sx != 100000 || sy != 100000 || kx != 0 || ky != 0 {
+			element.EffectUnsupported = appendDistinctStrings(element.EffectUnsupported, "effect xfrm scale/skew transform was not rendered")
+		}
+	}
+	if relOff := firstChild(effectList, "relOff"); relOff != nil {
+		tx := parsePercentAttr(relOff.Attrs, "tx")
+		ty := parsePercentAttr(relOff.Attrs, "ty")
+		if tx != 0 || ty != 0 {
+			element.HasRelativeOffset = true
+			element.RelativeOffsetX = tx
+			element.RelativeOffsetY = ty
+		}
+	}
+	if alphaOutset := firstChild(effectList, "alphaOutset"); alphaOutset != nil {
+		if radius := parseIntAttr(alphaOutset.Attrs, "rad"); radius > 0 {
+			element.HasAlphaOutset = true
+			element.AlphaOutsetRadius = radius
+		}
+	}
+	if blur := firstChild(effectList, "blur"); blur != nil {
+		if radius := parseIntAttr(blur.Attrs, "rad"); radius > 0 {
+			element.HasBlur = true
+			element.BlurRadius = radius
+			element.BlurGrow = true
+			if grow := attrValue(blur.Attrs, "grow"); grow != "" {
+				element.BlurGrow = boolAttrOn(grow)
+			}
+		}
+	}
+	if overlay := firstChild(effectList, "fillOverlay"); overlay != nil {
+		if paint, ok := fillPaintFromContainer(overlay, theme, nil); ok {
+			element.HasFillOverlay = true
+			element.FillOverlay = paint
+			element.FillOverlayBlend = attrValue(overlay.Attrs, "blend")
+			if element.FillOverlayBlend == "" {
+				element.FillOverlayBlend = "over"
+			}
+		} else if visibleShapeEffectNode(overlay) {
+			element.EffectUnsupported = appendDistinctStrings(element.EffectUnsupported, "effect fillOverlay fill was not resolved")
+		}
+	}
+	if innerShadow := firstChild(effectList, "innerShdw"); innerShadow != nil {
+		if innerShadowColor, ok := colorFromColorNodeWithTheme(innerShadow, theme); ok {
+			element.HasInnerShadow = true
+			element.InnerShadowColor = innerShadowColor
+			element.InnerShadowBlur = parseIntAttr(innerShadow.Attrs, "blurRad")
+			element.InnerShadowDistance = parseIntAttr(innerShadow.Attrs, "dist")
+			element.InnerShadowDirection = parseIntAttr(innerShadow.Attrs, "dir")
+		} else if visibleShapeEffectNode(innerShadow) {
+			element.EffectUnsupported = appendDistinctStrings(element.EffectUnsupported, "effect innerShdw color was not resolved")
+		}
+	}
+	if reflection := firstChild(effectList, "reflection"); reflection != nil {
+		element.HasReflection = true
+		element.ReflectionBlur = parseIntAttr(reflection.Attrs, "blurRad")
+		element.ReflectionStartAlpha = parsePercentAttrDefault(reflection.Attrs, "stA", 100000)
+		element.ReflectionStartPosition = parsePercentAttrDefault(reflection.Attrs, "stPos", 0)
+		element.ReflectionEndAlpha = parsePercentAttrDefault(reflection.Attrs, "endA", 0)
+		element.ReflectionEndPosition = parsePercentAttrDefault(reflection.Attrs, "endPos", 100000)
+		element.ReflectionDistance = parseIntAttr(reflection.Attrs, "dist")
+		element.ReflectionDirection = parseIntAttr(reflection.Attrs, "dir")
+		element.ReflectionFadeDirection = parseIntAttrDefault(reflection.Attrs, "fadeDir", 5400000)
+		element.ReflectionScaleX = parsePercentAttrDefault(reflection.Attrs, "sx", 100000)
+		element.ReflectionScaleY = parsePercentAttrDefault(reflection.Attrs, "sy", 100000)
+		element.ReflectionSkewX = parseIntAttr(reflection.Attrs, "kx")
+		element.ReflectionSkewY = parseIntAttr(reflection.Attrs, "ky")
+		element.ReflectionAlignment = attrValue(reflection.Attrs, "algn")
+		if element.ReflectionAlignment == "" {
+			element.ReflectionAlignment = "b"
+		}
+		if value := attrValue(reflection.Attrs, "rotWithShape"); value != "" {
+			element.HasReflectionRotate = true
+			element.ReflectionRotateWithShape = boolAttrOn(value)
+		} else {
+			element.ReflectionRotateWithShape = true
+		}
+		if element.ReflectionScaleX != 100000 || element.ReflectionScaleY != 100000 || element.ReflectionSkewX != 0 || element.ReflectionSkewY != 0 || element.ReflectionAlignment != "b" || (element.HasReflectionRotate && !element.ReflectionRotateWithShape) {
+			element.EffectUnsupported = appendDistinctStrings(element.EffectUnsupported, "effect reflection transform was rendered with simplified bottom mirror geometry")
+		}
+	}
 	if softEdge := firstChild(effectList, "softEdge"); softEdge != nil {
 		if radius := parseIntAttr(softEdge.Attrs, "rad"); radius > 0 {
 			element.HasSoftEdge = true
 			element.SoftEdgeRadius = radius
 		}
 	}
+	if glow := firstChild(effectList, "glow"); glow != nil {
+		if radius := parseIntAttr(glow.Attrs, "rad"); radius > 0 {
+			if glowColor, ok := colorFromColorNodeWithTheme(glow, theme); ok {
+				element.HasGlow = true
+				element.GlowColor = glowColor
+				element.GlowRadius = radius
+			} else {
+				element.EffectUnsupported = appendDistinctStrings(element.EffectUnsupported, "effect glow color was not resolved")
+			}
+		}
+	}
 	shadow := firstChild(effectList, "outerShdw")
+	presetShadow := false
+	if shadow == nil {
+		shadow = firstChild(effectList, "prstShdw")
+		presetShadow = shadow != nil
+	}
 	if shadow == nil {
 		return
 	}
@@ -176,6 +427,31 @@ func parseShapeEffects(effectList *xmlNode, element *slideElement, theme themeCo
 		element.ShadowColor = shadowColor
 	} else {
 		element.ShadowColor = color.RGBA{A: 96}
+	}
+	if presetShadow {
+		element.EffectUnsupported = appendDistinctStrings(element.EffectUnsupported, "effect prstShdw preset style was rendered as a simplified offset shadow")
+	}
+}
+
+func visibleShapeEffectNode(node *xmlNode) bool {
+	if node == nil {
+		return false
+	}
+	switch node.Name {
+	case "blur":
+		return parseIntAttr(node.Attrs, "rad") > 0
+	case "fillOverlay":
+		return len(node.Children) > 0
+	case "glow":
+		return parseIntAttr(node.Attrs, "rad") > 0
+	case "innerShdw":
+		return parseIntAttr(node.Attrs, "blurRad") > 0 || parseIntAttr(node.Attrs, "dist") > 0 || len(node.Children) > 0
+	case "prstShdw":
+		return attrValue(node.Attrs, "prst") != "" || parseIntAttr(node.Attrs, "dist") > 0 || len(node.Children) > 0
+	case "reflection":
+		return parseIntAttr(node.Attrs, "blurRad") > 0 || parseIntAttr(node.Attrs, "dist") > 0 || parsePercentAttr(node.Attrs, "stA") > 0 || parsePercentAttr(node.Attrs, "endA") > 0
+	default:
+		return false
 	}
 }
 
@@ -290,18 +566,21 @@ func applyTableBorderToShapeLine(element *slideElement, border tableCellBorder) 
 	if !element.HasLineAlign {
 		element.LineAlign = border.Align
 	}
+	if !element.HasLineJoin && border.Join != "" {
+		element.HasLineJoin = true
+		element.LineJoin = border.Join
+	}
+	if !element.HasLineCompound && border.Compound != "" {
+		element.HasLineCompound = true
+		element.LineCompound = border.Compound
+	}
 	if element.LineWidth == 0 {
 		element.LineWidth = 9525
 	}
 }
 
 func applyStyleFillPaint(element *slideElement, paint backgroundPaint) {
-	element.HasFill = true
-	element.FillColor = paint.Color
-	if paint.HasGradient {
-		element.HasFillGradient = true
-		element.FillGradient = paint.Gradient
-	}
+	applyFillPaintToElement(element, paint)
 }
 
 func applyThemeEffectStyle(element *slideElement, effects themeEffectStyle) {
@@ -326,6 +605,76 @@ func applyThemeEffectStyle(element *slideElement, effects themeEffectStyle) {
 	if effects.HasShape3D && !element.HasShape3D {
 		element.HasShape3D = true
 		element.Shape3DFeatures = append([]string{}, effects.Shape3DFeatures...)
+		element.HasEffectProperties = true
+	}
+	if effects.HasGlow && !element.HasGlow {
+		element.HasGlow = true
+		element.GlowColor = effects.GlowColor
+		element.GlowRadius = effects.GlowRadius
+		element.HasEffectProperties = true
+	}
+	if effects.HasBlur && !element.HasBlur {
+		element.HasBlur = true
+		element.BlurRadius = effects.BlurRadius
+		element.BlurGrow = effects.BlurGrow
+		element.HasEffectProperties = true
+	}
+	if effects.HasAlphaOutset && !element.HasAlphaOutset {
+		element.HasAlphaOutset = true
+		element.AlphaOutsetRadius = effects.AlphaOutsetRadius
+		element.HasEffectProperties = true
+	}
+	if effects.HasRelativeOffset && !element.HasRelativeOffset {
+		element.HasRelativeOffset = true
+		element.RelativeOffsetX = effects.RelativeOffsetX
+		element.RelativeOffsetY = effects.RelativeOffsetY
+		element.HasEffectProperties = true
+	}
+	if effects.HasEffectTransform && !element.HasEffectTransform {
+		element.HasEffectTransform = true
+		element.EffectTransformScaleX = effects.EffectTransformScaleX
+		element.EffectTransformScaleY = effects.EffectTransformScaleY
+		element.EffectTransformSkewX = effects.EffectTransformSkewX
+		element.EffectTransformSkewY = effects.EffectTransformSkewY
+		element.EffectTransformOffsetX = effects.EffectTransformOffsetX
+		element.EffectTransformOffsetY = effects.EffectTransformOffsetY
+		element.HasEffectProperties = true
+	}
+	if effects.HasFillOverlay && !element.HasFillOverlay {
+		element.HasFillOverlay = true
+		element.FillOverlay = effects.FillOverlay
+		element.FillOverlayBlend = effects.FillOverlayBlend
+		element.HasEffectProperties = true
+	}
+	if effects.HasInnerShadow && !element.HasInnerShadow {
+		element.HasInnerShadow = true
+		element.InnerShadowColor = effects.InnerShadowColor
+		element.InnerShadowBlur = effects.InnerShadowBlur
+		element.InnerShadowDistance = effects.InnerShadowDistance
+		element.InnerShadowDirection = effects.InnerShadowDirection
+		element.HasEffectProperties = true
+	}
+	if effects.HasReflection && !element.HasReflection {
+		element.HasReflection = true
+		element.ReflectionBlur = effects.ReflectionBlur
+		element.ReflectionStartAlpha = effects.ReflectionStartAlpha
+		element.ReflectionStartPosition = effects.ReflectionStartPosition
+		element.ReflectionEndAlpha = effects.ReflectionEndAlpha
+		element.ReflectionEndPosition = effects.ReflectionEndPosition
+		element.ReflectionDistance = effects.ReflectionDistance
+		element.ReflectionDirection = effects.ReflectionDirection
+		element.ReflectionFadeDirection = effects.ReflectionFadeDirection
+		element.ReflectionScaleX = effects.ReflectionScaleX
+		element.ReflectionScaleY = effects.ReflectionScaleY
+		element.ReflectionSkewX = effects.ReflectionSkewX
+		element.ReflectionSkewY = effects.ReflectionSkewY
+		element.ReflectionAlignment = effects.ReflectionAlignment
+		element.HasReflectionRotate = effects.HasReflectionRotate
+		element.ReflectionRotateWithShape = effects.ReflectionRotateWithShape
+		element.HasEffectProperties = true
+	}
+	if len(effects.EffectUnsupported) > 0 {
+		element.EffectUnsupported = appendDistinctStrings(element.EffectUnsupported, effects.EffectUnsupported...)
 		element.HasEffectProperties = true
 	}
 }
@@ -353,24 +702,51 @@ func parseCustomGeometryPathWithDiagnostics(custGeom *xmlNode) ([]pathPoint, []s
 }
 
 func parseCustomGeometryPathCommandsWithDiagnostics(custGeom *xmlNode) ([]pathPoint, []pathCommand, []string) {
+	paths, _, _, commands, unsupported := parseCustomGeometryPathsCommandsWithDiagnostics(custGeom)
+	if len(paths) == 0 {
+		return nil, commands, unsupported
+	}
+	return paths[0], commands, unsupported
+}
+
+func parseCustomGeometryPathsCommandsWithDiagnostics(custGeom *xmlNode) ([][]pathPoint, []bool, []bool, []pathCommand, []string) {
 	pathList := firstChild(custGeom, "pathLst")
 	if pathList == nil {
-		return nil, nil, []string{"custom geometry has no path list"}
+		return nil, nil, nil, nil, []string{"custom geometry has no path list"}
 	}
 	pathNodes := childrenByName(pathList, "path")
 	if len(pathNodes) == 0 {
-		return nil, nil, []string{"custom geometry has no path"}
+		return nil, nil, nil, nil, []string{"custom geometry has no path"}
 	}
 	var unsupported []string
-	if len(pathNodes) > 1 {
-		unsupported = append(unsupported, "custom geometry uses multiple paths")
+	var paths [][]pathPoint
+	var fills []bool
+	var strokes []bool
+	var commands []pathCommand
+	for _, pathNode := range pathNodes {
+		points, pathCommands, pathUnsupported := parseCustomGeometryPathNode(pathNode)
+		unsupported = append(unsupported, pathUnsupported...)
+		if len(points) < 3 {
+			continue
+		}
+		paths = append(paths, points)
+		fills = append(fills, customPathHasFill(pathNode))
+		strokes = append(strokes, customPathHasStroke(pathNode))
+		commands = append(commands, pathCommands...)
 	}
-	pathNode := pathNodes[0]
+	if len(paths) == 0 {
+		return nil, nil, nil, commands, sortedUniqueStrings(unsupported)
+	}
+	return paths, fills, strokes, commands, sortedUniqueStrings(unsupported)
+}
+
+func parseCustomGeometryPathNode(pathNode *xmlNode) ([]pathPoint, []pathCommand, []string) {
 	width := parseIntAttr(pathNode.Attrs, "w")
 	height := parseIntAttr(pathNode.Attrs, "h")
 	if width <= 0 || height <= 0 {
-		return nil, nil, append(unsupported, "custom geometry path has no coordinate bounds")
+		return nil, nil, []string{"custom geometry path has no coordinate bounds"}
 	}
+	var unsupported []string
 	var points []pathPoint
 	var commands []pathCommand
 	var current pathPoint
@@ -408,6 +784,31 @@ func parseCustomGeometryPathCommandsWithDiagnostics(custGeom *xmlNode) ([]pathPo
 				points = append(points, cubicBezierPoint(current, c1, c2, end, t))
 			}
 			current = end
+		case "quadBezTo":
+			curvePoints := childrenByName(command, "pt")
+			if len(curvePoints) != 2 || !hasCurrent {
+				continue
+			}
+			c1 := normalizedPathPoint(curvePoints[0], width, height)
+			end := normalizedPathPoint(curvePoints[1], width, height)
+			commands = append(commands, pathCommand{Kind: "quadBezTo", Points: []pathPoint{c1, end}})
+			for step := 1; step <= customBezierSegments; step++ {
+				t := float64(step) / customBezierSegments
+				points = append(points, quadraticBezierPoint(current, c1, end, t))
+			}
+			current = end
+		case "arcTo":
+			if !hasCurrent {
+				continue
+			}
+			arcPoints := appendCustomGeometryArcPoints(current, command, width, height)
+			if len(arcPoints) == 0 {
+				unsupported = append(unsupported, "custom geometry arcTo command has invalid radius")
+				continue
+			}
+			commands = append(commands, pathCommand{Kind: "arcTo", Points: append([]pathPoint{}, arcPoints...)})
+			points = append(points, arcPoints...)
+			current = arcPoints[len(arcPoints)-1]
 		case "close":
 			if len(points) > 0 {
 				current = points[0]
@@ -419,9 +820,54 @@ func parseCustomGeometryPathCommandsWithDiagnostics(custGeom *xmlNode) ([]pathPo
 		}
 	}
 	if len(points) < 3 {
-		return nil, nil, append(unsupported, "custom geometry path has fewer than three points")
+		return nil, commands, append(unsupported, "custom geometry path has fewer than three points")
 	}
 	return points, commands, sortedUniqueStrings(unsupported)
+}
+
+func customPathHasFill(pathNode *xmlNode) bool {
+	switch attrValue(pathNode.Attrs, "fill") {
+	case "", "norm":
+		return true
+	case "none":
+		return false
+	default:
+		return true
+	}
+}
+
+func customPathHasStroke(pathNode *xmlNode) bool {
+	value := attrValue(pathNode.Attrs, "stroke")
+	return value == "" || boolAttrOn(value)
+}
+
+func customDashPatternValue(dash *xmlNode) string {
+	var parts []string
+	for _, stop := range childrenByName(dash, "ds") {
+		d := parsePercentAttr(stop.Attrs, "d")
+		sp := parsePercentAttr(stop.Attrs, "sp")
+		if d <= 0 && sp <= 0 {
+			continue
+		}
+		parts = append(parts, fmt.Sprintf("%d/%d", d, sp))
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return "cust:" + strings.Join(parts, ",")
+}
+
+func lineJoinValue(ln *xmlNode) string {
+	switch {
+	case firstChild(ln, "round") != nil:
+		return "round"
+	case firstChild(ln, "bevel") != nil:
+		return "bevel"
+	case firstChild(ln, "miter") != nil:
+		return "miter"
+	default:
+		return ""
+	}
 }
 
 func sortedUniqueStrings(values []string) []string {
@@ -450,6 +896,34 @@ func cubicBezierPoint(p0 pathPoint, p1 pathPoint, p2 pathPoint, p3 pathPoint, t 
 		X: mt*mt*mt*p0.X + 3*mt*mt*t*p1.X + 3*mt*t*t*p2.X + t*t*t*p3.X,
 		Y: mt*mt*mt*p0.Y + 3*mt*mt*t*p1.Y + 3*mt*t*t*p2.Y + t*t*t*p3.Y,
 	}
+}
+
+func quadraticBezierPoint(p0 pathPoint, p1 pathPoint, p2 pathPoint, t float64) pathPoint {
+	mt := 1 - t
+	return pathPoint{
+		X: mt*mt*p0.X + 2*mt*t*p1.X + t*t*p2.X,
+		Y: mt*mt*p0.Y + 2*mt*t*p1.Y + t*t*p2.Y,
+	}
+}
+
+func appendCustomGeometryArcPoints(current pathPoint, command *xmlNode, width int64, height int64) []pathPoint {
+	radiusX := float64(parseIntAttr(command.Attrs, "wR"))
+	radiusY := float64(parseIntAttr(command.Attrs, "hR"))
+	if radiusX <= 0 || radiusY <= 0 {
+		return nil
+	}
+	start := parseIntAttr(command.Attrs, "stAng")
+	sweep := parseIntAttr(command.Attrs, "swAng")
+	absolute := []pathPoint{{X: current.X * float64(width), Y: current.Y * float64(height)}}
+	absolute = appendOoxmlArcPoints(absolute, radiusX, radiusY, float64(start), float64(sweep))
+	if len(absolute) <= 1 {
+		return nil
+	}
+	normalized := make([]pathPoint, 0, len(absolute)-1)
+	for _, point := range absolute[1:] {
+		normalized = append(normalized, pathPoint{X: point.X / float64(width), Y: point.Y / float64(height)})
+	}
+	return normalized
 }
 
 func parseTransform(xfrm *xmlNode, transform renderTransform, element *slideElement) {
@@ -541,6 +1015,10 @@ func parseBodyProperties(node *xmlNode, element *slideElement) {
 			element.TextColumnCount = columns
 		}
 	}
+	if value := attrValue(node.Attrs, "rtlCol"); value != "" {
+		element.HasTextRightToLeftColumns = true
+		element.TextRightToLeftColumns = boolAttrOn(value)
+	}
 	if value := attrValue(node.Attrs, "anchorCtr"); value != "" {
 		element.HasTextAnchorCenter = true
 		element.TextAnchorCenter = boolAttrOn(value)
@@ -549,6 +1027,7 @@ func parseBodyProperties(node *xmlNode, element *slideElement) {
 		element.HasFirstLastSpacing = true
 		element.IncludeFirstLastSpacing = boolAttrOn(value)
 	}
+	parseTextBody3DProperties(node, element)
 	if firstChild(node, "noAutofit") != nil {
 		element.HasNoAutofit = true
 		element.HasShapeAutofit = false
@@ -594,6 +1073,36 @@ func parseBodyProperties(node *xmlNode, element *slideElement) {
 		element.HasLineSpacingReductionPct = false
 		element.LineSpacingReductionPct = 0
 	}
+}
+
+func parseTextBody3DProperties(node *xmlNode, element *slideElement) {
+	if scene3d := firstChild(node, "scene3d"); scene3d != nil {
+		element.Text3DFeatures = appendDistinctStrings(element.Text3DFeatures, prefix3DTextFeatures(visibleScene3DFeatures(scene3d))...)
+	}
+	if sp3d := firstChild(node, "sp3d"); sp3d != nil {
+		element.Text3DFeatures = appendDistinctStrings(element.Text3DFeatures, prefix3DTextFeatures(visibleShape3DFeatures(sp3d))...)
+	}
+	if flatTx := firstChild(node, "flatTx"); flatTx != nil {
+		if attrValue(flatTx.Attrs, "z") != "" && parseIntAttr(flatTx.Attrs, "z") != 0 {
+			element.Text3DFeatures = appendDistinctStrings(element.Text3DFeatures, "text 3-D flat text z offset")
+		} else {
+			element.Text3DFeatures = appendDistinctStrings(element.Text3DFeatures, "text 3-D flat text")
+		}
+	}
+}
+
+func prefix3DTextFeatures(features []string) []string {
+	if len(features) == 0 {
+		return nil
+	}
+	prefixed := make([]string, 0, len(features))
+	for _, feature := range features {
+		if feature == "" {
+			continue
+		}
+		prefixed = append(prefixed, "text "+feature)
+	}
+	return prefixed
 }
 
 func parseTextBodyInsets(attrs []xml.Attr) (textInsets, bool) {

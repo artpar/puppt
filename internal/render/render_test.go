@@ -21,9 +21,6 @@ import (
 	"github.com/artpar/puppt/internal/model"
 	"github.com/artpar/puppt/internal/pptx"
 	xdraw "golang.org/x/image/draw"
-	"golang.org/x/image/font"
-	"golang.org/x/image/font/basicfont"
-	"golang.org/x/image/math/fixed"
 )
 
 func TestRenderShapePaintsSolidRectangleFill(t *testing.T) {
@@ -351,6 +348,9 @@ func TestRenderShapePaintsDashedRectOutline(t *testing.T) {
 	if a != 0 {
 		t.Fatalf("expected dashed outline gap to stay transparent, got alpha=%04x", a)
 	}
+	if _, _, _, a := img.At(0, 1).RGBA(); a != 0xffff {
+		t.Fatalf("default square-cap dashed outline should antialias through the stroke width, got alpha=%04x", a)
+	}
 }
 
 func TestRenderShapeUsesStrokeWidthForSystemDotRectOutline(t *testing.T) {
@@ -519,7 +519,7 @@ func TestLineEndpointsForElementHonorsFlip(t *testing.T) {
 	}
 }
 
-func TestRenderShapeReportsUnsupportedLineMarkerType(t *testing.T) {
+func TestRenderShapePaintsOvalLineMarkerType(t *testing.T) {
 	size := slideSize{CX: emuPerInch, CY: emuPerInch}
 	img := image.NewRGBA(image.Rect(0, 0, 96, 96))
 	element := slideElement{
@@ -536,8 +536,11 @@ func TestRenderShapeReportsUnsupportedLineMarkerType(t *testing.T) {
 	}
 
 	unsupported := renderShape("ppt/slides/slide1.xml", size, img, &element)
-	if len(unsupported) != 1 || unsupported[0].Code != partialUnsupportedCode || !strings.Contains(unsupported[0].Message, "line markers") || !element.Rendered {
-		t.Fatalf("expected partial unsupported line marker, got unsupported=%+v rendered=%v", unsupported, element.Rendered)
+	if len(unsupported) != 0 || !element.Rendered {
+		t.Fatalf("unexpected oval line marker render result: unsupported=%+v rendered=%v", unsupported, element.Rendered)
+	}
+	if countOpaquePixelsWithRed(img) == 0 {
+		t.Fatal("expected oval line marker to paint red pixels")
 	}
 }
 
@@ -765,108 +768,6 @@ func nearlyEqual(a float64, b float64) bool {
 	return math.Abs(a-b) < 0.000001
 }
 
-func TestRenderShapePaintsOuterShadow(t *testing.T) {
-	size := slideSize{CX: emuPerInch, CY: emuPerInch}
-	img := image.NewRGBA(image.Rect(0, 0, 96, 96))
-	draw.Draw(img, img.Bounds(), &image.Uniform{C: color.White}, image.Point{}, draw.Src)
-	element := slideElement{
-		Kind:            "sp",
-		Name:            "Shadowed Rectangle 1",
-		PrstGeom:        "rect",
-		HasTransform:    true,
-		ExtCX:           emuPerInch / 2,
-		ExtCY:           emuPerInch / 2,
-		HasFill:         true,
-		FillColor:       color.RGBA{R: 255, A: 255},
-		HasShadow:       true,
-		ShadowColor:     color.RGBA{A: 128},
-		ShadowDistance:  91440,
-		ShadowDirection: 0,
-	}
-
-	unsupported := renderShape("ppt/slides/slide1.xml", size, img, &element)
-	if len(unsupported) != 0 || !element.Rendered {
-		t.Fatalf("expected supported outer shadow render, got unsupported=%+v rendered=%v", unsupported, element.Rendered)
-	}
-	r, g, b, a := img.At(55, 20).RGBA()
-	if !(r < 0xffff && g < 0xffff && b < 0xffff && a == 0xffff) {
-		t.Fatalf("expected gray blended shadow pixel, got rgba=%04x,%04x,%04x,%04x", r, g, b, a)
-	}
-}
-
-func TestDrawShapeShadowKeepsSourceGeometryWhenClipped(t *testing.T) {
-	img := image.NewRGBA(image.Rect(0, 0, 20, 20))
-	draw.Draw(img, img.Bounds(), &image.Uniform{C: color.White}, image.Point{}, draw.Src)
-	element := slideElement{
-		PrstGeom:    "triangle",
-		ShadowColor: color.RGBA{A: 255},
-	}
-
-	if !drawShapeShadow(img, image.Rect(-10, 0, 10, 20), element, slideSize{CX: emuPerInch, CY: emuPerInch}) {
-		t.Fatal("expected clipped shadow to intersect the canvas")
-	}
-	if got := img.RGBAAt(0, 5); got != (color.RGBA{A: 255}) {
-		t.Fatalf("expected original off-canvas triangle geometry to paint visible center edge, got %+v", got)
-	}
-	if got := img.RGBAAt(5, 1); got != (color.RGBA{R: 255, G: 255, B: 255, A: 255}) {
-		t.Fatalf("expected clipped bounds not to rescale triangle geometry, got %+v", got)
-	}
-}
-
-func TestShadowBlurPixelsScalesDrawingMLBlurRadius(t *testing.T) {
-	element := slideElement{ShadowBlur: emuPerInch}
-	got := shadowBlurPixels(element, slideSize{CX: emuPerInch, CY: emuPerInch}, 96)
-	if got != 96 {
-		t.Fatalf("expected DrawingML shadow blur radius to scale to output pixels, got %d", got)
-	}
-}
-
-func TestRenderShapeReportsUnsupportedShadowGeometry(t *testing.T) {
-	size := slideSize{CX: emuPerInch, CY: emuPerInch}
-	img := image.NewRGBA(image.Rect(0, 0, 96, 96))
-	element := slideElement{
-		Kind:            "sp",
-		Name:            "Unsupported Shadow",
-		PrstGeom:        "rightBrace",
-		HasTransform:    true,
-		ExtCX:           emuPerInch / 2,
-		ExtCY:           emuPerInch / 2,
-		HasShadow:       true,
-		ShadowColor:     color.RGBA{A: 128},
-		ShadowDistance:  91440,
-		ShadowDirection: 0,
-	}
-
-	unsupported := renderShape("ppt/slides/slide1.xml", size, img, &element)
-	if len(unsupported) != 1 || unsupported[0].Code != partialUnsupportedCode || !strings.Contains(unsupported[0].Message, "outer shadow geometry") {
-		t.Fatalf("expected unsupported shadow geometry report, got unsupported=%+v", unsupported)
-	}
-}
-
-func TestRenderShapeReportsUnsupportedOuterShadowTransforms(t *testing.T) {
-	size := slideSize{CX: emuPerInch, CY: emuPerInch}
-	img := image.NewRGBA(image.Rect(0, 0, 96, 96))
-	element := slideElement{
-		Kind:            "sp",
-		Name:            "Scaled Shadow",
-		PrstGeom:        "rect",
-		HasTransform:    true,
-		ExtCX:           emuPerInch / 2,
-		ExtCY:           emuPerInch / 2,
-		HasShadow:       true,
-		ShadowColor:     color.RGBA{A: 128},
-		ShadowDistance:  91440,
-		ShadowDirection: 0,
-		HasShadowScaleX: true,
-		ShadowScaleX:    120000,
-	}
-
-	unsupported := renderShape("ppt/slides/slide1.xml", size, img, &element)
-	if len(unsupported) != 1 || unsupported[0].Code != partialUnsupportedCode || !strings.Contains(unsupported[0].Message, "outer shadow scale/skew transform") {
-		t.Fatalf("expected unsupported shadow transform report, got unsupported=%+v", unsupported)
-	}
-}
-
 func TestRenderShapeReportsUnsupportedVisibleShape3DProperties(t *testing.T) {
 	size := slideSize{CX: emuPerInch, CY: emuPerInch}
 	img := image.NewRGBA(image.Rect(0, 0, 96, 96))
@@ -880,16 +781,16 @@ func TestRenderShapeReportsUnsupportedVisibleShape3DProperties(t *testing.T) {
 		HasFill:         true,
 		FillColor:       color.RGBA{R: 255, A: 255},
 		HasShape3D:      true,
-		Shape3DFeatures: []string{"3-D top bevel"},
+		Shape3DFeatures: []string{"3-D top bevel", "3-D scene camera orthographicFront"},
 	}
 
 	unsupported := renderShape("ppt/slides/slide1.xml", size, img, &element)
-	if len(unsupported) != 1 || unsupported[0].Code != partialUnsupportedCode || !strings.Contains(unsupported[0].Message, "3-D top bevel") || !element.Rendered {
+	if len(unsupported) != 1 || unsupported[0].Code != partialUnsupportedCode || !strings.Contains(unsupported[0].Message, "3-D top bevel") || !strings.Contains(unsupported[0].Message, "3-D scene camera orthographicFront") || !element.Rendered {
 		t.Fatalf("expected unsupported 3-D shape report with flat render, got unsupported=%+v rendered=%v", unsupported, element.Rendered)
 	}
 }
 
-func TestRenderShapeReportsUnsupportedSoftEdgeEffect(t *testing.T) {
+func TestRenderShapePaintsSoftEdgeEffect(t *testing.T) {
 	size := slideSize{CX: emuPerInch, CY: emuPerInch}
 	img := image.NewRGBA(image.Rect(0, 0, 96, 96))
 	element := slideElement{
@@ -906,8 +807,38 @@ func TestRenderShapeReportsUnsupportedSoftEdgeEffect(t *testing.T) {
 	}
 
 	unsupported := renderShape("ppt/slides/slide1.xml", size, img, &element)
-	if len(unsupported) != 1 || unsupported[0].Code != partialUnsupportedCode || !strings.Contains(unsupported[0].Message, "soft edge effect") || !element.Rendered {
-		t.Fatalf("expected unsupported soft edge report with flat render, got unsupported=%+v rendered=%v", unsupported, element.Rendered)
+	if len(unsupported) != 0 || !element.Rendered {
+		t.Fatalf("expected supported soft edge render, got unsupported=%+v rendered=%v", unsupported, element.Rendered)
+	}
+	_, _, _, edgeAlpha := img.At(0, 0).RGBA()
+	if edgeAlpha == 0 || edgeAlpha == 0xffff {
+		t.Fatalf("expected soft edge to blur shape edge alpha, got alpha=%04x", edgeAlpha)
+	}
+	r, g, b, a := img.At(24, 24).RGBA()
+	if r != 0xffff || g != 0 || b != 0 || a != 0xffff {
+		t.Fatalf("expected soft edge center to remain red, got rgba=%04x,%04x,%04x,%04x", r, g, b, a)
+	}
+}
+
+func TestRenderShapeReportsSoftEdgeOnlyWhenShapeLayerCannotRender(t *testing.T) {
+	size := slideSize{CX: emuPerInch, CY: emuPerInch}
+	img := image.NewRGBA(image.Rect(0, 0, 96, 96))
+	element := slideElement{
+		Kind:           "sp",
+		Name:           "Unsupported Soft Shape",
+		PrstGeom:       "unsupportedShape",
+		HasTransform:   true,
+		ExtCX:          emuPerInch / 2,
+		ExtCY:          emuPerInch / 2,
+		HasFill:        true,
+		FillColor:      color.RGBA{R: 255, A: 255},
+		HasSoftEdge:    true,
+		SoftEdgeRadius: 203200,
+	}
+
+	unsupported := renderShape("ppt/slides/slide1.xml", size, img, &element)
+	if len(unsupported) != 1 || unsupported[0].Code != partialUnsupportedCode || !strings.Contains(unsupported[0].Message, "soft edge effect") || element.Rendered {
+		t.Fatalf("expected unsupported soft edge report only when layer cannot render, got unsupported=%+v rendered=%v", unsupported, element.Rendered)
 	}
 }
 
@@ -1100,6 +1031,42 @@ func TestRenderShapePaintsCustomGeometryFill(t *testing.T) {
 	r, g, b, a := img.At(48, 48).RGBA()
 	if r != 0 || g != 0 || b != 0xffff || a != 0xffff {
 		t.Fatalf("expected blue custom geometry pixel, got rgba=%04x,%04x,%04x,%04x", r, g, b, a)
+	}
+}
+
+func TestRenderShapePaintsCustomGeometryFillWithFractionalBounds(t *testing.T) {
+	size := slideSize{CX: 100, CY: 100}
+	img := image.NewRGBA(image.Rect(0, 0, 10, 10))
+	draw.Draw(img, img.Bounds(), &image.Uniform{C: color.White}, image.Point{}, draw.Src)
+	element := slideElement{
+		Kind:         "sp",
+		Name:         "Fractional Freeform 1",
+		HasTransform: true,
+		ExtCX:        100,
+		ExtCY:        25,
+		HasFill:      true,
+		FillColor:    color.RGBA{B: 255, A: 255},
+		CustomPath: []pathPoint{
+			{X: 0, Y: 0},
+			{X: 1, Y: 0},
+			{X: 1, Y: 1},
+			{X: 0, Y: 1},
+		},
+	}
+
+	unsupported := renderShape("ppt/slides/slide1.xml", size, img, &element)
+	if len(unsupported) != 0 || !element.Rendered {
+		t.Fatalf("unexpected custom geometry render result: unsupported=%+v rendered=%v", unsupported, element.Rendered)
+	}
+	if got := img.RGBAAt(5, 1); got != (color.RGBA{B: 255, A: 255}) {
+		t.Fatalf("expected fully covered custom geometry interior, got %#v", got)
+	}
+	edge := img.RGBAAt(5, 2)
+	if edge.R < 126 || edge.R > 128 || edge.G < 126 || edge.G > 128 || edge.B != 255 {
+		t.Fatalf("expected fractional custom geometry edge coverage, got %#v", edge)
+	}
+	if got := img.RGBAAt(5, 3); got != (color.RGBA{R: 255, G: 255, B: 255, A: 255}) {
+		t.Fatalf("expected pixels beyond fractional custom geometry to remain untouched, got %#v", got)
 	}
 }
 
@@ -1321,7 +1288,12 @@ func TestCollectSlideElementsParsesVisibleShape3DProperties(t *testing.T) {
         <p:spPr>
           <a:xfrm><a:off x="0" y="0"/><a:ext cx="914400" cy="914400"/></a:xfrm>
           <a:prstGeom prst="rect"/>
-          <a:sp3d extrusionH="165100" contourW="50800"><a:bevelT w="63500" h="25400"/></a:sp3d>
+          <a:scene3d>
+            <a:camera prst="orthographicFront" fov="5400000" zoom="120000"><a:rot lat="1" lon="2" rev="3"/></a:camera>
+            <a:lightRig rig="threePt" dir="t"><a:rot lat="4" lon="5" rev="6"/></a:lightRig>
+            <a:backdrop><a:anchor x="0" y="0" z="0"/><a:norm dx="0" dy="0" dz="1"/><a:up dx="0" dy="1" dz="0"/></a:backdrop>
+          </a:scene3d>
+          <a:sp3d z="63500" extrusionH="165100" contourW="50800"><a:bevelT/></a:sp3d>
         </p:spPr>
       </p:sp>
     </p:spTree>
@@ -1332,8 +1304,114 @@ func TestCollectSlideElementsParsesVisibleShape3DProperties(t *testing.T) {
 	if len(elements) != 1 {
 		t.Fatalf("expected one shape element, got %+v", elements)
 	}
-	if !elements[0].HasShape3D || !slices.Contains(elements[0].Shape3DFeatures, "3-D top bevel") || !slices.Contains(elements[0].Shape3DFeatures, "3-D extrusion") || !slices.Contains(elements[0].Shape3DFeatures, "3-D contour") {
-		t.Fatalf("expected visible 3-D properties to be parsed, got %+v", elements[0])
+	for _, feature := range []string{
+		"3-D top bevel",
+		"3-D extrusion",
+		"3-D contour",
+		"3-D z offset",
+		"3-D scene camera orthographicFront",
+		"3-D scene camera field of view",
+		"3-D scene camera zoom",
+		"3-D scene camera rotation",
+		"3-D scene light rig threePt/t",
+		"3-D scene light rig rotation",
+		"3-D scene backdrop",
+	} {
+		if !elements[0].HasShape3D || !slices.Contains(elements[0].Shape3DFeatures, feature) {
+			t.Fatalf("expected visible 3-D feature %q to be parsed, got %+v", feature, elements[0])
+		}
+	}
+}
+
+func TestCollectSlideElementsParsesDefaultShape3DBevel(t *testing.T) {
+	root, err := parseXMLNode([]byte(`<p:sp xmlns:p="p" xmlns:a="a">
+	  <p:nvSpPr><p:cNvPr id="12" name="Default Bevel"/></p:nvSpPr>
+	  <p:spPr><a:sp3d><a:bevelT/></a:sp3d></p:spPr>
+	</p:sp>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got := parseSlideElementNode(root, renderTransform{ScaleX: 1, ScaleY: 1})
+	if !got.HasShape3D || !slices.Contains(got.Shape3DFeatures, "3-D top bevel") {
+		t.Fatalf("schema-default 3-D bevel dimensions should be reported as visible content: %+v", got)
+	}
+}
+
+func TestCollectSlideElementsParsesNonVisualTextBoxFlag(t *testing.T) {
+	root, err := parseXMLNode([]byte(`<p:sp xmlns:p="p" xmlns:a="a">
+	  <p:nvSpPr><p:cNvPr id="8" name="TextBox 7"/><p:cNvSpPr txBox="1"><a:spLocks noGrp="1" noRot="0" noTextEdit="1"/></p:cNvSpPr><p:nvPr/></p:nvSpPr>
+	  <p:spPr><a:prstGeom prst="rect"/></p:spPr>
+	  <p:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:t>Text</a:t></a:r></a:p></p:txBody>
+	</p:sp>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got := parseSlideElementNode(root, renderTransform{ScaleX: 1, ScaleY: 1})
+	if !got.IsTextBox {
+		t.Fatalf("expected cNvSpPr txBox metadata to be preserved: %+v", got)
+	}
+	if len(got.NonVisualLocks) != 2 || got.NonVisualLocks[0] != "spLocks.noGrp" || got.NonVisualLocks[1] != "spLocks.noTextEdit" {
+		t.Fatalf("expected true non-visual shape lock flags to be preserved deterministically: %+v", got.NonVisualLocks)
+	}
+}
+
+func TestCollectSlideElementsParsesPictureLockFlags(t *testing.T) {
+	root, err := parseXMLNode([]byte(`<p:pic xmlns:p="p" xmlns:a="a" xmlns:r="r" xmlns:adec="http://schemas.microsoft.com/office/drawing/2017/decorative" xmlns:a16="http://schemas.microsoft.com/office/drawing/2014/main">
+	  <p:nvPicPr><p:cNvPr id="3" name="Picture 2" descr="Diagram description" title="Lifecycle chart" hidden="0"><a:extLst><a:ext uri="{FF2B5EF4-FFF2-40B4-BE49-F238E27FC236}"><a16:creationId id="{D370CED6-CFF9-4448-B657-3980B0E8E342}"/></a:ext><a:ext uri="{C183D7F6-B498-43B3-948B-1728B52AA6E4}"><adec:decorative val="1"/></a:ext></a:extLst></p:cNvPr><p:cNvPicPr><a:picLocks noChangeAspect="1" noCrop="0"/></p:cNvPicPr><p:nvPr/></p:nvPicPr>
+	  <p:blipFill><a:blip r:embed="rId4"/><a:stretch><a:fillRect/></a:stretch></p:blipFill>
+	  <p:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="914400" cy="914400"/></a:xfrm><a:prstGeom prst="rect"/></p:spPr>
+	</p:pic>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got := parseSlideElementNode(root, renderTransform{ScaleX: 1, ScaleY: 1})
+	if got.Description != "Diagram description" || got.Title != "Lifecycle chart" {
+		t.Fatalf("expected cNvPr description/title metadata to be preserved: %+v", got)
+	}
+	if got.CreationID != "{D370CED6-CFF9-4448-B657-3980B0E8E342}" {
+		t.Fatalf("expected cNvPr creationId metadata to be preserved: %+v", got)
+	}
+	if !got.HasHidden || got.Hidden || !got.HasDecorative || !got.Decorative {
+		t.Fatalf("expected cNvPr hidden/decorative flags to be preserved: %+v", got)
+	}
+	if len(got.NonVisualProperties) != 2 || got.NonVisualProperties[0] != "decorative=true" || got.NonVisualProperties[1] != "hidden=false" {
+		t.Fatalf("expected deterministic cNvPr boolean properties: %+v", got.NonVisualProperties)
+	}
+	if len(got.NonVisualLocks) != 1 || got.NonVisualLocks[0] != "picLocks.noChangeAspect" {
+		t.Fatalf("expected true picture lock flag to be preserved: %+v", got.NonVisualLocks)
+	}
+}
+
+func TestCollectSlideElementsIgnoresOneDimensionalShape3DBevel(t *testing.T) {
+	root, err := parseXMLNode([]byte(`<p:sp xmlns:p="p" xmlns:a="a">
+	  <p:nvSpPr><p:cNvPr id="12" name="Flat Bevel"/></p:nvSpPr>
+	  <p:spPr><a:sp3d><a:bevelT w="63500" h="0"/></a:sp3d></p:spPr>
+	</p:sp>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got := parseSlideElementNode(root, renderTransform{ScaleX: 1, ScaleY: 1})
+	if got.HasShape3D {
+		t.Fatalf("one-dimensional 3-D bevel should not be reported as visible content: %+v", got)
+	}
+}
+
+func TestCollectSlideElementsParsesScene3DWithoutShape3D(t *testing.T) {
+	root, err := parseXMLNode([]byte(`<p:sp xmlns:p="p" xmlns:a="a">
+	  <p:nvSpPr><p:cNvPr id="12" name="Scene Only"/></p:nvSpPr>
+	  <p:spPr><a:scene3d><a:camera prst="perspectiveFront"/><a:lightRig rig="soft" dir="br"/></a:scene3d></p:spPr>
+	</p:sp>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got := parseSlideElementNode(root, renderTransform{ScaleX: 1, ScaleY: 1})
+	if !got.HasShape3D || !slices.Contains(got.Shape3DFeatures, "3-D scene camera perspectiveFront") || !slices.Contains(got.Shape3DFeatures, "3-D scene light rig soft/br") {
+		t.Fatalf("expected visible 3-D scene properties to be parsed, got %+v", got)
 	}
 }
 
@@ -1420,7 +1498,7 @@ func TestParseCustomGeometryPathPreservesCubicCommands(t *testing.T) {
 	}
 }
 
-func TestParseCustomGeometryPathReportsUnsupportedCommands(t *testing.T) {
+func TestParseCustomGeometryPathSupportsArcCommands(t *testing.T) {
 	root, err := parseXMLNode([]byte(`<a:custGeom xmlns:a="a"><a:pathLst><a:path w="100" h="100"><a:moveTo><a:pt x="0" y="0"/></a:moveTo><a:lnTo><a:pt x="100" y="0"/></a:lnTo><a:arcTo wR="10" hR="10" stAng="0" swAng="5400000"/><a:lnTo><a:pt x="0" y="100"/></a:lnTo><a:close/></a:path></a:pathLst></a:custGeom>`))
 	if err != nil {
 		t.Fatal(err)
@@ -1430,8 +1508,8 @@ func TestParseCustomGeometryPathReportsUnsupportedCommands(t *testing.T) {
 	if len(points) < 3 {
 		t.Fatalf("expected supported path segments to be retained, got %+v", points)
 	}
-	if !slices.Contains(unsupported, "custom geometry uses unsupported arcTo command") {
-		t.Fatalf("expected unsupported arcTo diagnostic, got %+v", unsupported)
+	if len(unsupported) != 0 {
+		t.Fatalf("expected arcTo to be supported, got %+v", unsupported)
 	}
 }
 
@@ -1458,13 +1536,16 @@ func TestRenderGraphicFramePaintsTextAsPartial(t *testing.T) {
 }
 
 func TestParseGraphicFrameReadsTableGrid(t *testing.T) {
-	root, err := parseXMLNode([]byte(`<p:graphicFrame xmlns:p="p" xmlns:a="a">
+	root, err := parseXMLNode([]byte(`<p:graphicFrame xmlns:p="p" xmlns:a="a" xmlns:a16="http://schemas.microsoft.com/office/drawing/2014/main">
 		<p:nvGraphicFramePr><p:cNvPr id="4" name="Table 1"/></p:nvGraphicFramePr>
 		<p:xfrm><a:off x="0" y="0"/><a:ext cx="914400" cy="914400"/></p:xfrm>
 		<a:graphic><a:graphicData><a:tbl>
 			<a:tblPr firstRow="1" firstCol="1"><a:tableStyleId>{STYLE-READ}</a:tableStyleId></a:tblPr>
-			<a:tblGrid><a:gridCol w="300000"/><a:gridCol w="600000"/></a:tblGrid>
-			<a:tr h="200000">
+			<a:tblGrid>
+				<a:gridCol w="300000"><a:extLst><a:ext uri="{9D8B030D-6E8A-4147-A177-3AD203B41FA5}"><a16:colId val="111"/></a:ext></a:extLst></a:gridCol>
+				<a:gridCol w="600000"><a:extLst><a:ext uri="{9D8B030D-6E8A-4147-A177-3AD203B41FA5}"><a16:colId val="222"/></a:ext></a:extLst></a:gridCol>
+			</a:tblGrid>
+			<a:tr h="200000"><a:extLst><a:ext uri="{0D108BD9-81ED-4DB2-BD59-A6C34878D82A}"><a16:rowId val="333"/></a:ext></a:extLst>
 				<a:tc gridSpan="2"><a:txBody><a:bodyPr/><a:p><a:pPr algn="ctr"/><a:r><a:rPr sz="1800"><a:solidFill><a:srgbClr val="FF0000"/></a:solidFill></a:rPr><a:t>Header</a:t></a:r></a:p></a:txBody><a:tcPr marL="91440" marR="182880" marT="45720" marB="91440"><a:solidFill><a:srgbClr val="DDEEFF"/></a:solidFill><a:lnR w="12700"><a:noFill/><a:prstDash val="solid"/></a:lnR><a:lnB w="12700"><a:solidFill><a:srgbClr val="00FF00"/></a:solidFill><a:prstDash val="dash"/></a:lnB></a:tcPr></a:tc>
 				<a:tc hMerge="1"><a:txBody><a:bodyPr/><a:p><a:r><a:t>Value</a:t></a:r></a:p></a:txBody><a:tcPr/></a:tc>
 			</a:tr>
@@ -1481,11 +1562,17 @@ func TestParseGraphicFrameReadsTableGrid(t *testing.T) {
 	if len(element.Table.Columns) != 2 || element.Table.Columns[0] != 300000 || element.Table.Columns[1] != 600000 {
 		t.Fatalf("unexpected table columns: %+v", element.Table.Columns)
 	}
+	if !slices.Equal(element.Table.ColumnIDs, []string{"111", "222"}) {
+		t.Fatalf("unexpected table column ids: %+v", element.Table.ColumnIDs)
+	}
 	if !element.Table.FirstRow || !element.Table.FirstCol || element.Table.StyleID != "{STYLE-READ}" {
 		t.Fatalf("unexpected table properties: %+v", element.Table)
 	}
 	if len(element.Table.Rows) != 1 || len(element.Table.Rows[0].Cells) != 2 {
 		t.Fatalf("unexpected table rows: %+v", element.Table.Rows)
+	}
+	if element.Table.Rows[0].ID != "333" {
+		t.Fatalf("unexpected table row id: %+v", element.Table.Rows[0])
 	}
 	cell := element.Table.Rows[0].Cells[0]
 	if cell.Text != "Header" || cell.FontSize != 1800 || cell.TextAlign != "ctr" {
@@ -1508,6 +1595,38 @@ func TestParseGraphicFrameReadsTableGrid(t *testing.T) {
 	}
 	if !cell.BorderBottom.Specified || !cell.BorderBottom.HasLine || cell.BorderBottom.Color != (color.RGBA{G: 0xff, A: 0xff}) || cell.BorderBottom.Dash != "dash" {
 		t.Fatalf("unexpected bottom cell border: %+v", cell.BorderBottom)
+	}
+}
+
+func TestParseTableModelReadsTablePropertiesFill(t *testing.T) {
+	root, err := parseXMLNode([]byte(`<a:tbl xmlns:a="a">
+		<a:tblPr><a:solidFill><a:srgbClr val="123456"/></a:solidFill></a:tblPr>
+		<a:tblGrid><a:gridCol w="914400"/></a:tblGrid>
+		<a:tr h="914400"><a:tc><a:txBody><a:bodyPr/><a:p/></a:txBody><a:tcPr/></a:tc></a:tr>
+	</a:tbl>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got := parseTableModel(root, defaultThemeColors())
+	if !got.HasBackground || got.NoBackground || got.Background.Color != (color.RGBA{R: 0x12, G: 0x34, B: 0x56, A: 0xff}) {
+		t.Fatalf("expected direct table background fill, got %+v", got)
+	}
+}
+
+func TestParseTableModelReadsTablePropertiesNoFill(t *testing.T) {
+	root, err := parseXMLNode([]byte(`<a:tbl xmlns:a="a">
+		<a:tblPr><a:noFill/></a:tblPr>
+		<a:tblGrid><a:gridCol w="914400"/></a:tblGrid>
+		<a:tr h="914400"><a:tc><a:txBody><a:bodyPr/><a:p/></a:txBody><a:tcPr/></a:tc></a:tr>
+	</a:tbl>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got := parseTableModel(root, defaultThemeColors())
+	if !got.NoBackground || got.HasBackground {
+		t.Fatalf("expected direct table background noFill, got %+v", got)
 	}
 }
 
@@ -1546,6 +1665,31 @@ func TestParseTableCellMarginsKeepsDefaultsForOmittedSides(t *testing.T) {
 	}
 	if got.MarginLeft != 0 || got.MarginRight != defaultTableCellHorizontalMarginEMU || got.MarginTop != defaultTableCellVerticalMarginEMU || got.MarginBottom != defaultTableCellVerticalMarginEMU {
 		t.Fatalf("omitted table-cell margins should keep DrawingML defaults, got %+v", got)
+	}
+}
+
+func TestParseTableCellAnchorCenterLowersToTextElement(t *testing.T) {
+	root, err := parseXMLNode([]byte(`<a:tc xmlns:a="a">
+		<a:txBody><a:bodyPr/><a:p><a:r><a:t>Cell</a:t></a:r></a:p></a:txBody>
+		<a:tcPr anchor="ctr" anchorCtr="1" horzOverflow="clip" vertOverflow="overflow" vert="vert270"/>
+	</a:tc>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cell := parseTableCell(root, defaultThemeColors())
+	if cell.TextAnchor != "ctr" || !cell.HasTextAnchorCenter || !cell.TextAnchorCenter {
+		t.Fatalf("expected table-cell anchor and anchorCtr to parse, got %+v", cell)
+	}
+	if !cell.HasTextHorizontalOverflow || cell.TextHorizontalOverflow != "clip" || !cell.HasTextVerticalOverflow || cell.TextVerticalOverflow != "overflow" || !cell.HasTextVertical || cell.TextVertical != "vert270" {
+		t.Fatalf("expected table-cell overflow and vertical text properties to parse, got %+v", cell)
+	}
+	element := tableCellTextElement(tableStyleRegion{}, cell, cell.HasTextColor, cell.TextColor)
+	if element.TextAnchor != "ctr" || !element.HasTextAnchorCenter || !element.TextAnchorCenter {
+		t.Fatalf("expected table-cell anchorCtr to lower to text element, got %+v", element)
+	}
+	if !element.HasTextHorizontalOverflow || element.TextHorizontalOverflow != "clip" || !element.HasTextVerticalOverflow || element.TextVerticalOverflow != "overflow" || !element.HasTextVertical || element.TextVertical != "vert270" {
+		t.Fatalf("expected table-cell overflow and vertical text properties to lower, got %+v", element)
 	}
 }
 
@@ -1643,6 +1787,75 @@ func TestRenderGraphicFramePaintsTableStyleBackground(t *testing.T) {
 	}
 	if got := img.RGBAAt(48, 48); got != (color.RGBA{R: 0x12, G: 0x34, B: 0x56, A: 0xff}) {
 		t.Fatalf("expected table background to paint behind no-fill cells, got %#v", got)
+	}
+}
+
+func TestRenderGraphicFrameUsesDirectTablePropertiesBackgroundBeforeStyle(t *testing.T) {
+	size := slideSize{CX: emuPerInch, CY: emuPerInch}
+	img := image.NewRGBA(image.Rect(0, 0, 96, 96))
+	element := slideElement{
+		Kind:         "graphicFrame",
+		Name:         "Table 1",
+		HasTransform: true,
+		ExtCX:        emuPerInch,
+		ExtCY:        emuPerInch,
+		HasTable:     true,
+		Table: tableModel{
+			StyleID:       "{STYLE-BG}",
+			HasBackground: true,
+			Background:    backgroundPaint{Color: color.RGBA{R: 0xaa, G: 0xbb, B: 0xcc, A: 0xff}},
+			Columns:       []int64{1},
+			Rows:          []tableRow{{Height: 1, Cells: []tableCell{{}}}},
+		},
+	}
+	styles := tableStyleSet{Styles: map[string]tableStyle{
+		normalizedTableStyleID("{STYLE-BG}"): {
+			ID:            "{STYLE-BG}",
+			HasBackground: true,
+			Background:    backgroundPaint{Color: color.RGBA{R: 0x12, G: 0x34, B: 0x56, A: 0xff}},
+		},
+	}}
+
+	unsupported := renderGraphicFrame(&pptx.Package{}, "ppt/slides/slide1.xml", size, img, &element, nil, styles)
+	if len(unsupported) != 0 || !element.Rendered {
+		t.Fatalf("unexpected table render result: unsupported=%+v rendered=%v", unsupported, element.Rendered)
+	}
+	if got := img.RGBAAt(48, 48); got != (color.RGBA{R: 0xaa, G: 0xbb, B: 0xcc, A: 0xff}) {
+		t.Fatalf("expected direct table background to override style background, got %#v", got)
+	}
+}
+
+func TestRenderGraphicFrameTablePropertiesNoFillSuppressesStyleBackground(t *testing.T) {
+	size := slideSize{CX: emuPerInch, CY: emuPerInch}
+	img := image.NewRGBA(image.Rect(0, 0, 96, 96))
+	element := slideElement{
+		Kind:         "graphicFrame",
+		Name:         "Table 1",
+		HasTransform: true,
+		ExtCX:        emuPerInch,
+		ExtCY:        emuPerInch,
+		HasTable:     true,
+		Table: tableModel{
+			StyleID:      "{STYLE-BG}",
+			NoBackground: true,
+			Columns:      []int64{1},
+			Rows:         []tableRow{{Height: 1, Cells: []tableCell{{}}}},
+		},
+	}
+	styles := tableStyleSet{Styles: map[string]tableStyle{
+		normalizedTableStyleID("{STYLE-BG}"): {
+			ID:            "{STYLE-BG}",
+			HasBackground: true,
+			Background:    backgroundPaint{Color: color.RGBA{R: 0x12, G: 0x34, B: 0x56, A: 0xff}},
+		},
+	}}
+
+	unsupported := renderGraphicFrame(&pptx.Package{}, "ppt/slides/slide1.xml", size, img, &element, nil, styles)
+	if len(unsupported) != 0 || !element.Rendered {
+		t.Fatalf("unexpected table render result: unsupported=%+v rendered=%v", unsupported, element.Rendered)
+	}
+	if got := img.RGBAAt(48, 48); got.A != 0 {
+		t.Fatalf("expected direct table noFill to suppress style background, got %#v", got)
 	}
 }
 
@@ -1843,6 +2056,308 @@ func TestTableRowOffsetsScaleOrdinaryFirstRowWithTableFrame(t *testing.T) {
 	}
 }
 
+func TestAdjustTableRowOffsetsForMinimumHeightsGrowsTextRowsInsideFrame(t *testing.T) {
+	got := adjustTableRowOffsetsForMinimumHeights([]int{10, 30, 50, 70}, []int{32, 8, 8})
+	want := []int{10, 42, 56, 70}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("expected text minimum row height to grow and shrink flexible rows inside frame, got %v want %v", got, want)
+	}
+}
+
+func TestAdjustTableRowOffsetsForMinimumHeightsKeepsRowsWhenMinimumsCannotFit(t *testing.T) {
+	input := []int{10, 30, 50, 70}
+	got := adjustTableRowOffsetsForMinimumHeights(input, []int{50, 30, 30})
+	if !reflect.DeepEqual(got, input) {
+		t.Fatalf("expected impossible text minimums to keep existing row offsets, got %v want %v", got, input)
+	}
+}
+
+func TestTableRowOffsetsWithZeroAuthoredHeightsGrowMultiParagraphHeader(t *testing.T) {
+	table := tableModel{
+		FirstRow: true,
+		BandRow:  true,
+		Columns:  []int64{1000000, 1000000},
+		Rows: []tableRow{
+			{
+				HasHeight: true,
+				Height:    0,
+				Cells: []tableCell{
+					{
+						Text:         "Assay\n1",
+						FontSize:     1600,
+						TextAnchor:   "ctr",
+						HasMargins:   true,
+						MarginTop:    0,
+						MarginBottom: 0,
+						TextParagraphs: []textParagraph{
+							{Text: "Assay", TextAlign: "ctr", Runs: []textRun{{Text: "Assay", FontSize: 1600}}},
+							{Text: "1", TextAlign: "ctr", Runs: []textRun{{Text: "1", FontSize: 1600}}},
+						},
+					},
+					{Text: "Population", FontSize: 1600, TextAnchor: "ctr"},
+				},
+			},
+			{HasHeight: true, Height: 0, Cells: []tableCell{{Text: "1", FontSize: 1600, HasMargins: true}, {Text: "General", FontSize: 1600, HasMargins: true}}},
+			{HasHeight: true, Height: 0, Cells: []tableCell{{Text: "2", FontSize: 1600, HasMargins: true}, {Text: "Alternate", FontSize: 1600, HasMargins: true}}},
+		},
+	}
+	base := tableRowOffsets(table, 0, 60, 0, emuPerInch, emuPerInch, 60)
+	minimums := tableTextMinimumRowHeights(table, tableStyleSet{}, []int{0, 30, 90}, image.Rect(0, 0, 90, 60), slideSize{CX: emuPerInch, CY: emuPerInch}, image.Rect(0, 0, 90, 60), defaultOutputDPI)
+	got := tableRowOffsetsWithTextMinimums(table, tableStyleSet{}, []int{0, 30, 90}, base, image.Rect(0, 0, 90, 60), slideSize{CX: emuPerInch, CY: emuPerInch}, image.Rect(0, 0, 90, 60), defaultOutputDPI)
+	if got[1]-got[0] <= base[1]-base[0] {
+		t.Fatalf("expected zero-height multi-paragraph header row to grow beyond equal distribution, minimums=%v base=%v got=%v", minimums, base, got)
+	}
+	if got[len(got)-1] != base[len(base)-1] {
+		t.Fatalf("expected row growth to stay within table frame, base=%v got=%v", base, got)
+	}
+}
+
+func TestTableTextMinimumRowHeightsMeasuresSpanningHeaderWidth(t *testing.T) {
+	table := tableModel{
+		FirstRow: true,
+		BandRow:  true,
+		Columns:  []int64{1000000, 1000000, 1000000},
+		Rows: []tableRow{
+			{
+				HasHeight: true,
+				Height:    370840,
+				Cells: []tableCell{
+					{
+						Text:       "Number of quality-assured products eligible for\nprocurement through WHO and Global Fund",
+						FontSize:   1600,
+						TextAnchor: "ctr",
+						ColSpan:    3,
+						TextParagraphs: []textParagraph{
+							{Text: "Number of quality-assured products eligible for", TextAlign: "ctr", Runs: []textRun{{Text: "Number of quality-assured products eligible for", FontSize: 1600}}},
+							{Text: "procurement through WHO and Global Fund", TextAlign: "ctr", Runs: []textRun{{Text: "procurement through WHO and Global Fund", FontSize: 1600}}},
+						},
+					},
+					{HMerge: true},
+					{HMerge: true},
+				},
+			},
+			{HasHeight: true, Height: 370840, Cells: []tableCell{{}, {Text: "WHO", FontSize: 1600}, {Text: "Global Fund", FontSize: 1600}}},
+			{HasHeight: true, Height: 370840, Cells: []tableCell{{Text: "Dual HIV/Syphilis RDTs", FontSize: 1600}, {Text: "3", FontSize: 1600}, {Text: "3", FontSize: 1600}}},
+			{HasHeight: true, Height: 370840, Cells: []tableCell{{Text: "HIV RDTs", FontSize: 1600}, {Text: "19", FontSize: 1600}, {Text: "27", FontSize: 1600}}},
+			{HasHeight: true, Height: 370840, Cells: []tableCell{{Text: "HIV EIAs", FontSize: 1600}, {Text: "4", FontSize: 1600}, {Text: "17", FontSize: 1600}}},
+		},
+	}
+	narrow := tableTextMinimumRowHeights(table, tableStyleSet{}, []int{0, 80, 80, 80}, image.Rect(0, 0, 240, 100), slideSize{CX: 5 * 370840, CY: 5 * 370840}, image.Rect(0, 0, 240, 100), defaultOutputDPI)
+	spanned := tableTextMinimumRowHeights(table, tableStyleSet{}, []int{0, 80, 160, 240}, image.Rect(0, 0, 240, 100), slideSize{CX: 5 * 370840, CY: 5 * 370840}, image.Rect(0, 0, 240, 100), defaultOutputDPI)
+	if spanned[0] >= narrow[0] {
+		t.Fatalf("expected spanning header minimum to use full spanned width, narrow=%v spanned=%v", narrow, spanned)
+	}
+	if spanned[0] <= 0 {
+		t.Fatalf("expected measured spanning header minimum, got %v", spanned)
+	}
+}
+
+func TestTableTextMinimumRowHeightsMeasuresAuthoredBlankParagraphs(t *testing.T) {
+	table := tableModel{
+		Columns: []int64{1000000},
+		Rows: []tableRow{
+			{
+				HasHeight: true,
+				Height:    0,
+				Cells: []tableCell{{
+					TextParagraphs: []textParagraph{
+						{Text: "", FontSize: 1600},
+						{Text: "", FontSize: 1600},
+						{Text: "", FontSize: 1600},
+					},
+					HasMargins: true,
+				}},
+			},
+			{
+				HasHeight: true,
+				Height:    0,
+				Cells:     []tableCell{{Text: "Visible", FontSize: 1600, HasMargins: true}},
+			},
+		},
+	}
+	size := slideSize{CX: emuPerInch, CY: emuPerInch}
+	canvas := image.Rect(0, 0, 100, 80)
+	columns := []int{0, 100}
+
+	minimums := tableTextMinimumRowHeights(table, tableStyleSet{}, columns, canvas, size, canvas, defaultOutputDPI)
+	if minimums[0] <= minimums[1] {
+		t.Fatalf("expected authored blank paragraph line boxes to size row, got %v", minimums)
+	}
+
+	rowOffsets := tableRowOffsets(table, 0, 80, 0, emuPerInch, emuPerInch, 80)
+	got := tableRowOffsetsWithTextMinimums(table, tableStyleSet{}, columns, rowOffsets, canvas, size, canvas, defaultOutputDPI)
+	if got[1]-got[0] <= rowOffsets[1]-rowOffsets[0] {
+		t.Fatalf("expected authored blank paragraph row to grow, base=%v got=%v minimums=%v", rowOffsets, got, minimums)
+	}
+}
+
+func TestTableTextMinimumRowHeightsDistributesRowSpanText(t *testing.T) {
+	spannedCell := tableCell{
+		Text:      "Verification\n\n\n\nComplete",
+		FontSize:  1600,
+		TextAlign: "ctr",
+		RowSpan:   3,
+		TextParagraphs: []textParagraph{
+			{Text: "Verification", TextAlign: "ctr", Runs: []textRun{{Text: "Verification", FontSize: 1600}}},
+			{Text: "", TextAlign: "ctr"},
+			{Text: "", TextAlign: "ctr"},
+			{Text: "", TextAlign: "ctr"},
+			{Text: "Complete", TextAlign: "ctr", Runs: []textRun{{Text: "Complete", FontSize: 1600}}},
+		},
+	}
+	table := tableModel{
+		Columns: []int64{1000000, 1000000},
+		Rows: []tableRow{
+			{HasHeight: true, Height: 370840, Cells: []tableCell{spannedCell, {Text: "A", FontSize: 1600}}},
+			{HasHeight: true, Height: 370840, Cells: []tableCell{{VMerge: true}, {Text: "B", FontSize: 1600}}},
+			{HasHeight: true, Height: 370840, Cells: []tableCell{{VMerge: true}, {Text: "C", FontSize: 1600}}},
+		},
+	}
+	size := slideSize{CX: emuPerInch, CY: emuPerInch}
+	canvas := image.Rect(0, 0, 120, 90)
+	columnOffsets := []int{0, 60, 120}
+	spannedMinimums := tableTextMinimumRowHeights(table, tableStyleSet{}, columnOffsets, canvas, size, canvas, defaultOutputDPI)
+	unspanned := tableModel{
+		Columns: table.Columns,
+		Rows: []tableRow{
+			{HasHeight: true, Height: 370840, Cells: []tableCell{spannedCell, {Text: "A", FontSize: 1600}}},
+			{HasHeight: true, Height: 370840, Cells: []tableCell{{VMerge: true}, {Text: "B", FontSize: 1600}}},
+			{HasHeight: true, Height: 370840, Cells: []tableCell{{VMerge: true}, {Text: "C", FontSize: 1600}}},
+		},
+	}
+	unspanned.Rows[0].Cells[0].RowSpan = 1
+	unspannedMinimums := tableTextMinimumRowHeights(unspanned, tableStyleSet{}, columnOffsets, canvas, size, canvas, defaultOutputDPI)
+
+	if spannedMinimums[0] <= 0 || spannedMinimums[0] >= unspannedMinimums[0] {
+		t.Fatalf("expected row-spanned text minimum to be distributed, spanned=%v unspanned=%v", spannedMinimums, unspannedMinimums)
+	}
+	if spannedMinimums[1] != spannedMinimums[0] || spannedMinimums[2] != spannedMinimums[0] {
+		t.Fatalf("expected row-spanned text minimum to apply across covered rows, got %v", spannedMinimums)
+	}
+
+	rowOffsets := []int{0, 30, 60, 90}
+	got := tableRowOffsetsWithTextMinimums(table, tableStyleSet{}, columnOffsets, rowOffsets, canvas, size, canvas, defaultOutputDPI)
+	if !reflect.DeepEqual(got, rowOffsets) {
+		t.Fatalf("row-spanned text that fits the spanned rectangle should not inflate only the origin row, base=%v got=%v minimums=%v", rowOffsets, got, spannedMinimums)
+	}
+}
+
+func TestTableRowOffsetsWithTextMinimumsUsesMinimumProportionsWhenFrameIsOverCapacity(t *testing.T) {
+	table := tableModel{
+		FirstRow: true,
+		BandRow:  true,
+		Columns:  []int64{1000000, 1000000, 1000000},
+		Rows: []tableRow{
+			{
+				HasHeight: true,
+				Height:    370840,
+				Cells: []tableCell{
+					{
+						Text:      "Number of quality-assured products eligible for\nprocurement through WHO and Global Fund",
+						FontSize:  1800,
+						TextAlign: "ctr",
+						ColSpan:   3,
+						TextParagraphs: []textParagraph{
+							{Text: "Number of quality-assured products eligible for", TextAlign: "ctr", FontSize: 1800, Runs: []textRun{{Text: "Number of quality-assured products eligible for", FontSize: 1800}}},
+							{Text: "procurement through WHO and Global Fund", TextAlign: "ctr", FontSize: 1800, Runs: []textRun{{Text: "procurement through WHO and Global Fund", FontSize: 1800}}},
+						},
+					},
+					{HMerge: true},
+					{HMerge: true},
+				},
+			},
+			{HasHeight: true, Height: 370840, Cells: []tableCell{{Text: "WHO", FontSize: 1800, TextAlign: "ctr"}, {Text: "Global Fund", FontSize: 1800, TextAlign: "ctr"}}},
+			{HasHeight: true, Height: 370840, Cells: []tableCell{{Text: "Dual HIV/Syphilis RDTs", FontSize: 1800, TextAlign: "ctr"}, {Text: "3", FontSize: 1800, TextAlign: "ctr"}, {Text: "3", FontSize: 1800, TextAlign: "ctr"}}},
+			{HasHeight: true, Height: 370840, Cells: []tableCell{{Text: "HIV RDTs", FontSize: 1800, TextAlign: "ctr"}, {Text: "19", FontSize: 1800, TextAlign: "ctr"}, {Text: "27", FontSize: 1800, TextAlign: "ctr"}}},
+			{HasHeight: true, Height: 370840, Cells: []tableCell{{Text: "HIV EIAs", FontSize: 1800, TextAlign: "ctr"}, {Text: "4", FontSize: 1800, TextAlign: "ctr"}, {Text: "17", FontSize: 1800, TextAlign: "ctr"}}},
+		},
+	}
+	rowOffsets := []int{0, 29, 64, 98, 133, 167}
+	got := tableRowOffsetsWithTextMinimums(table, tableStyleSet{}, []int{0, 223, 365, 555}, rowOffsets, image.Rect(0, 0, 555, 167), slideSize{CX: 12192000, CY: 6858000}, image.Rect(0, 0, 960, 540), defaultOutputDPI)
+	if got[1]-got[0] <= rowOffsets[1]-rowOffsets[0] {
+		t.Fatalf("expected over-capacity text minimums to grow the multi-paragraph header row, base=%v got=%v", rowOffsets, got)
+	}
+	if got[len(got)-1] != rowOffsets[len(rowOffsets)-1] {
+		t.Fatalf("expected over-capacity row reflow to stay inside frame, base=%v got=%v", rowOffsets, got)
+	}
+	if got[2]-got[1] >= rowOffsets[2]-rowOffsets[1] {
+		t.Fatalf("expected body rows to compact under source text-minimum proportions, base=%v got=%v", rowOffsets, got)
+	}
+}
+
+func TestTableRowOffsetsWithTextMinimumsReflowsNonSpanningFirstRowWhenFrameIsOverCapacity(t *testing.T) {
+	table := tableModel{
+		FirstRow: true,
+		BandRow:  true,
+		Columns:  []int64{1000000, 1000000, 1000000},
+		Rows: []tableRow{
+			{HasHeight: true, Height: 696525, Cells: []tableCell{
+				{Text: "Emission\nRate\nPM2.5\n(g/hr)", FontSize: 1600, TextParagraphs: []textParagraph{
+					{Text: "Emission", FontSize: 1600, Runs: []textRun{{Text: "Emission", FontSize: 1600}}},
+					{Text: "Rate", FontSize: 1600, Runs: []textRun{{Text: "Rate", FontSize: 1600}}},
+					{Text: "PM2.5", FontSize: 1600, Runs: []textRun{{Text: "PM2.5", FontSize: 1600}}},
+					{Text: "(g/hr)", FontSize: 1600, Runs: []textRun{{Text: "(g/hr)", FontSize: 1600}}},
+				}},
+				{Text: "Emission Factor PM2.5 (g/kg)", FontSize: 1600, TextParagraphs: []textParagraph{{Text: "Emission Factor PM2.5 (g/kg)", FontSize: 1600, Runs: []textRun{{Text: "Emission Factor PM2.5 (g/kg)", FontSize: 1600}}}}},
+				{Text: "Firepower(W)", FontSize: 1600, TextParagraphs: []textParagraph{{Text: "Firepower(W)", FontSize: 1600, Runs: []textRun{{Text: "Firepower(W)", FontSize: 1600}}}}},
+			}},
+			{HasHeight: true, Height: 487575, Cells: []tableCell{{}, {}, {}}},
+			{HasHeight: true, Height: 487575, Cells: []tableCell{{}, {}, {}}},
+		},
+	}
+	rowOffsets := []int{0, 20, 35, 50}
+	got := tableRowOffsetsWithTextMinimums(table, tableStyleSet{}, []int{0, 58, 116, 174}, rowOffsets, image.Rect(0, 0, 174, 50), slideSize{CX: emuPerInch, CY: emuPerInch}, image.Rect(0, 0, 174, 50), defaultOutputDPI)
+	if got[1]-got[0] <= rowOffsets[1]-rowOffsets[0] {
+		t.Fatalf("expected non-spanning source first row to grow when it is the only row over text minimum, base=%v got=%v", rowOffsets, got)
+	}
+	if got[len(got)-1] != rowOffsets[len(rowOffsets)-1] {
+		t.Fatalf("expected non-spanning first-row reflow to stay inside frame, base=%v got=%v", rowOffsets, got)
+	}
+	if got[2]-got[1] >= rowOffsets[2]-rowOffsets[1] {
+		t.Fatalf("expected body rows to compact under source text-minimum proportions, base=%v got=%v", rowOffsets, got)
+	}
+}
+
+func TestTableRowOffsetsWithTextMinimumsDoesNotReproportionWhenSpanningHeaderAlreadyFits(t *testing.T) {
+	table := tableModel{
+		FirstRow: true,
+		Columns:  []int64{1000000, 1000000},
+		Rows: []tableRow{
+			{HasHeight: true, Height: 370840, Cells: []tableCell{
+				{Text: "Header", FontSize: 1200, ColSpan: 2, TextParagraphs: []textParagraph{{Text: "Header", FontSize: 1200, Runs: []textRun{{Text: "Header", FontSize: 1200}}}}},
+				{HMerge: true},
+			}},
+			{HasHeight: true, Height: 370840, Cells: []tableCell{{Text: "Body row one wraps", FontSize: 1800, TextParagraphs: []textParagraph{{Text: "Body row one wraps", FontSize: 1800, Runs: []textRun{{Text: "Body row one wraps", FontSize: 1800}}}}}}},
+			{HasHeight: true, Height: 370840, Cells: []tableCell{{Text: "Body row two wraps", FontSize: 1800, TextParagraphs: []textParagraph{{Text: "Body row two wraps", FontSize: 1800, Runs: []textRun{{Text: "Body row two wraps", FontSize: 1800}}}}}}},
+		},
+	}
+	rowOffsets := []int{0, 30, 42, 54}
+	got := tableRowOffsetsWithTextMinimums(table, tableStyleSet{}, []int{0, 40, 80}, rowOffsets, image.Rect(0, 0, 80, 54), slideSize{CX: emuPerInch, CY: emuPerInch}, image.Rect(0, 0, 80, 54), defaultOutputDPI)
+	if !reflect.DeepEqual(got, rowOffsets) {
+		t.Fatalf("spanning first row that already satisfies its text minimum should not trigger proportional fallback, base=%v got=%v", rowOffsets, got)
+	}
+}
+
+func TestTableRowOffsetsWithTextMinimumsDoesNotReproportionWhenBodyRowsAlsoExceedCapacity(t *testing.T) {
+	table := tableModel{
+		FirstRow: true,
+		Columns:  []int64{1000000, 1000000},
+		Rows: []tableRow{
+			{HasHeight: true, Height: 370840, Cells: []tableCell{
+				{Text: "Long spanning header wraps", FontSize: 1800, ColSpan: 2, TextParagraphs: []textParagraph{{Text: "Long spanning header wraps", FontSize: 1800, Runs: []textRun{{Text: "Long spanning header wraps", FontSize: 1800}}}}},
+				{HMerge: true},
+			}},
+			{HasHeight: true, Height: 370840, Cells: []tableCell{{Text: "Long body row wraps too", FontSize: 1800, TextParagraphs: []textParagraph{{Text: "Long body row wraps too", FontSize: 1800, Runs: []textRun{{Text: "Long body row wraps too", FontSize: 1800}}}}}}},
+			{HasHeight: true, Height: 370840, Cells: []tableCell{{Text: "Second body row wraps too", FontSize: 1800, TextParagraphs: []textParagraph{{Text: "Second body row wraps too", FontSize: 1800, Runs: []textRun{{Text: "Second body row wraps too", FontSize: 1800}}}}}}},
+		},
+	}
+	rowOffsets := []int{0, 18, 36, 54}
+	got := tableRowOffsetsWithTextMinimums(table, tableStyleSet{}, []int{0, 30, 60}, rowOffsets, image.Rect(0, 0, 60, 54), slideSize{CX: emuPerInch, CY: emuPerInch}, image.Rect(0, 0, 60, 54), defaultOutputDPI)
+	if !reflect.DeepEqual(got, rowOffsets) {
+		t.Fatalf("multi-row over-capacity table should not use first-row header proportional fallback, base=%v got=%v", rowOffsets, got)
+	}
+}
+
 func TestTableTextParagraphsWithColorOverridesParagraphDefaultsButPreservesRuns(t *testing.T) {
 	styleColor := color.RGBA{R: 0xee, G: 0xee, B: 0xee, A: 0xff}
 	paragraphs := []textParagraph{{
@@ -1972,6 +2487,30 @@ func TestParseTableStylesReadsTableBackgroundFillReference(t *testing.T) {
 	}
 	if !style.HasBackgroundEffect || !style.BackgroundEffect.HasShadow || style.BackgroundEffect.ShadowColor.A == 0 {
 		t.Fatalf("unexpected table background effect: %+v", style.BackgroundEffect)
+	}
+}
+
+func TestParseTableStylesResolvesCellStyleFillReference(t *testing.T) {
+	fillStyles := parseThemeFillStyles([]byte(`<a:theme xmlns:a="a">
+		<a:themeElements><a:fmtScheme name="Office"><a:fillStyleLst>
+			<a:solidFill><a:schemeClr val="phClr"/></a:solidFill>
+		</a:fillStyleLst></a:fmtScheme></a:themeElements>
+	</a:theme>`))
+	styles := parseTableStyles([]byte(`<a:tblStyleLst xmlns:a="a">
+		<a:tblStyle styleId="{STYLE-FILLREF}" styleName="Cell FillRef Style">
+			<a:wholeTbl>
+				<a:tcStyle><a:fillRef idx="1"><a:schemeClr val="accent2"/></a:fillRef></a:tcStyle>
+			</a:wholeTbl>
+		</a:tblStyle>
+	</a:tblStyleLst>`), themeColors{"accent2": {R: 0x44, G: 0x55, B: 0x66, A: 0xff}}, themeFonts{}, fillStyles, themeLineStyles{}, themeEffectStyles{})
+
+	style, ok := styles.Styles[normalizedTableStyleID("{STYLE-FILLREF}")]
+	if !ok {
+		t.Fatalf("expected parsed fillRef table style, got %+v", styles)
+	}
+	whole := style.Regions["wholeTbl"]
+	if !whole.HasFill || whole.FillColor != (color.RGBA{R: 0x44, G: 0x55, B: 0x66, A: 0xff}) {
+		t.Fatalf("expected table cell fillRef to resolve through theme fill style, got %+v", whole)
 	}
 }
 
@@ -2249,6 +2788,55 @@ func TestRenderTableCellBorderPaintsDoubleCompoundLine(t *testing.T) {
 	}
 }
 
+func TestRenderTableCellBorderPaintsKnownLineEndMarkers(t *testing.T) {
+	size := slideSize{CX: emuPerInch, CY: emuPerInch}
+	img := image.NewRGBA(image.Rect(0, 0, 64, 32))
+	border := tableCellBorder{
+		Specified:        true,
+		HasLine:          true,
+		Color:            color.RGBA{R: 0xff, A: 0xff},
+		Width:            38100,
+		Cap:              "flat",
+		HeadMarker:       "triangle",
+		HeadMarkerWidth:  "sm",
+		HeadMarkerLength: "sm",
+		TailMarker:       "diamond",
+		TailMarkerWidth:  "sm",
+		TailMarkerLength: "sm",
+	}
+
+	drawTableCellBorder(img, size, image.Rect(0, 0, 64, 32), image.Rect(16, 16, 49, 24), border, tableEdgeTop)
+
+	if got := img.RGBAAt(24, 16); got.R == 0 || got.A == 0 {
+		t.Fatalf("expected head marker to paint near start of table border, got %#v", got)
+	}
+	if got := img.RGBAAt(40, 16); got.R == 0 || got.A == 0 {
+		t.Fatalf("expected tail marker to paint near end of table border, got %#v", got)
+	}
+}
+
+func TestRenderTableCellDiagonalBorderPaintsKnownLineEndMarkers(t *testing.T) {
+	size := slideSize{CX: emuPerInch, CY: emuPerInch}
+	img := image.NewRGBA(image.Rect(0, 0, 64, 64))
+	border := tableCellBorder{
+		Specified:  true,
+		HasLine:    true,
+		Color:      color.RGBA{B: 0xff, A: 0xff},
+		Width:      38100,
+		HeadMarker: "triangle",
+		TailMarker: "oval",
+	}
+
+	drawTableCellDiagonalBorder(img, size, image.Rect(12, 12, 52, 52), border, true)
+
+	if got := img.RGBAAt(20, 20); got.B == 0 || got.A == 0 {
+		t.Fatalf("expected diagonal head marker to paint near start, got %#v", got)
+	}
+	if got := img.RGBAAt(44, 44); got.B == 0 || got.A == 0 {
+		t.Fatalf("expected diagonal tail marker to paint near end, got %#v", got)
+	}
+}
+
 func TestRenderTableCellBorderHonorsFlatLineCap(t *testing.T) {
 	size := slideSize{CX: emuPerInch, CY: emuPerInch}
 	img := image.NewRGBA(image.Rect(0, 0, 32, 32))
@@ -2277,13 +2865,57 @@ func TestTableCellFillDirectNoFillSuppressesStyleFill(t *testing.T) {
 	}
 }
 
+func TestRenderGraphicFramePaintsGradientTableCellFill(t *testing.T) {
+	size := slideSize{CX: emuPerInch, CY: emuPerInch}
+	img := image.NewRGBA(image.Rect(0, 0, 96, 96))
+	element := slideElement{
+		Kind:         "graphicFrame",
+		Name:         "Gradient Table",
+		HasTransform: true,
+		ExtCX:        emuPerInch,
+		ExtCY:        emuPerInch,
+		HasTable:     true,
+		Table: tableModel{
+			Columns: []int64{emuPerInch},
+			Rows: []tableRow{{
+				Height: emuPerInch,
+				Cells: []tableCell{{
+					RowSpan: 1,
+					HasFill: true,
+					FillPaint: backgroundPaint{
+						Color:       color.RGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff},
+						HasGradient: true,
+						Gradient: gradientPaint{Stops: []gradientStop{
+							{Position: 0, Color: color.RGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff}},
+							{Position: 100000, Color: color.RGBA{A: 0xff}},
+						}},
+					},
+				}},
+			}},
+		},
+	}
+
+	unsupported := renderGraphicFrame(&pptx.Package{}, "ppt/slides/slide1.xml", size, img, &element, nil, tableStyleSet{})
+	if len(unsupported) != 0 || !element.Rendered {
+		t.Fatalf("expected supported gradient table cell render, got unsupported=%+v rendered=%v", unsupported, element.Rendered)
+	}
+	top := img.RGBAAt(48, 4)
+	bottom := img.RGBAAt(48, 91)
+	if !(top.R > bottom.R && top.G > bottom.G && top.B > bottom.B) {
+		t.Fatalf("expected vertical gradient table cell fill, top=%#v bottom=%#v", top, bottom)
+	}
+}
+
 func TestParseTableModelRecordsUnsupportedVisibleFeatures(t *testing.T) {
 	root, err := parseXMLNode([]byte(`<a:tbl xmlns:a="a">
 		<a:tblGrid><a:gridCol w="914400"/></a:tblGrid>
 			<a:tr h="914400"><a:tc gridSpan="2"><a:txBody><a:bodyPr/><a:p><a:r><a:t>Cell</a:t></a:r></a:p></a:txBody>
 				<a:tcPr>
 					<a:gradFill><a:gsLst><a:gs pos="0"><a:srgbClr val="FFFFFF"/></a:gs><a:gs pos="100000"><a:srgbClr val="000000"/></a:gs></a:gsLst></a:gradFill>
+					<a:pattFill prst="pct50"><a:fgClr><a:srgbClr val="FF0000"/></a:fgClr><a:bgClr><a:srgbClr val="FFFFFF"/></a:bgClr></a:pattFill>
+					<a:blipFill/>
 					<a:effectLst><a:outerShdw blurRad="12700" dist="12700" dir="5400000"><a:srgbClr val="000000"/></a:outerShdw></a:effectLst>
+					<a:cell3D prstMaterial="metal"><a:bevel w="12700" h="12700"/></a:cell3D>
 					<a:lnB cmpd="thickThin" cap="unsupportedCap"><a:solidFill><a:srgbClr val="FF0000"/></a:solidFill><a:bevel/><a:tailEnd type="triangle"/></a:lnB>
 			</a:tcPr>
 		</a:tc></a:tr>
@@ -2294,15 +2926,22 @@ func TestParseTableModelRecordsUnsupportedVisibleFeatures(t *testing.T) {
 
 	table := parseTableModel(root, defaultThemeColors())
 	for _, want := range []string{
-		"uses a non-solid cell fill that was not rendered",
+		"uses image/group cell fills that were not rendered",
 		"uses effects that were not rendered",
+		"uses cell 3-D properties that were not rendered",
 		"uses border line caps that were not rendered",
-		"uses compound border lines that were not rendered",
 		"uses border line joins that were not rendered",
-		"uses border line end decorations that were not rendered",
 	} {
 		if !slices.Contains(table.UnsupportedFeatures, want) {
 			t.Fatalf("expected unsupported table feature %q in %+v", want, table.UnsupportedFeatures)
+		}
+	}
+	for _, notWant := range []string{
+		"uses compound border lines that were not rendered",
+		"uses border line end decorations that were not rendered",
+	} {
+		if slices.Contains(table.UnsupportedFeatures, notWant) {
+			t.Fatalf("supported table feature should not be reported unsupported %q in %+v", notWant, table.UnsupportedFeatures)
 		}
 	}
 	if slices.Contains(table.UnsupportedFeatures, "uses merged cells rendered with simplified layout") {
@@ -2557,6 +3196,72 @@ func TestTableTextParagraphsWithBoldCopiesParagraphs(t *testing.T) {
 	}
 	if paragraphs[0].Bold || paragraphs[0].Runs[0].Bold {
 		t.Fatalf("source paragraphs were mutated: %+v", paragraphs)
+	}
+}
+
+func TestTableTextParagraphsWithItalicCopiesParagraphs(t *testing.T) {
+	paragraphs := []textParagraph{{
+		Text: "Header",
+		Runs: []textRun{{Text: "Header"}},
+	}}
+
+	got := tableTextParagraphsWithItalic(paragraphs, "")
+	if len(got) != 1 || !got[0].Italic || len(got[0].Runs) != 1 || !got[0].Runs[0].Italic {
+		t.Fatalf("expected italic paragraph copy, got %+v", got)
+	}
+	if paragraphs[0].Italic || paragraphs[0].Runs[0].Italic {
+		t.Fatalf("source paragraphs were mutated: %+v", paragraphs)
+	}
+}
+
+func TestTableTextParagraphsWithFontFamilySuppliesParagraphDefault(t *testing.T) {
+	paragraphs := []textParagraph{{
+		Text: "Header",
+		Runs: []textRun{
+			{Text: "Default"},
+			{Text: "Direct", FontFamily: "Aptos"},
+		},
+	}}
+
+	got := tableTextParagraphsWithFontFamily(paragraphs, "", "Calibri")
+	if len(got) != 1 || got[0].FontFamily != "Calibri" {
+		t.Fatalf("expected table style font family on paragraph, got %+v", got)
+	}
+	defaultSegment := runToSegment(got[0].Runs[0], got[0])
+	if defaultSegment.FontFamily != "Calibri" {
+		t.Fatalf("expected run without direct font to inherit table style font, got %+v", defaultSegment)
+	}
+	directSegment := runToSegment(got[0].Runs[1], got[0])
+	if directSegment.FontFamily != "Aptos" {
+		t.Fatalf("expected direct run font to win over table style font, got %+v", directSegment)
+	}
+	if paragraphs[0].FontFamily != "" {
+		t.Fatalf("source paragraphs were mutated: %+v", paragraphs)
+	}
+}
+
+func TestTableCellTextElementAppliesStyleTextDefaultsToSegments(t *testing.T) {
+	style := tableStyleRegion{
+		FontFamily:   "Calibri",
+		HasItalic:    true,
+		Italic:       true,
+		HasTextColor: true,
+		TextColor:    color.RGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff},
+	}
+	cell := tableCell{
+		Text: "Header",
+		TextParagraphs: []textParagraph{{
+			Runs: []textRun{{Text: "Header"}},
+		}},
+	}
+
+	element := tableCellTextElement(style, cell, false, color.RGBA{})
+	if len(element.TextParagraphs) != 1 || len(element.TextParagraphs[0].Runs) != 1 {
+		t.Fatalf("expected styled cell paragraph, got %+v", element.TextParagraphs)
+	}
+	segment := runToSegment(element.TextParagraphs[0].Runs[0], element.TextParagraphs[0])
+	if segment.FontFamily != "Calibri" || !segment.Italic || !segment.HasTextColor || segment.TextColor != style.TextColor {
+		t.Fatalf("expected table style text defaults in render segment, got %+v", segment)
 	}
 }
 
@@ -2850,875 +3555,6 @@ func TestTextBoundsUsesDiagramTextTransform(t *testing.T) {
 	}
 }
 
-func TestTextFromNodePreservesParagraphBreaks(t *testing.T) {
-	root, err := parseXMLNode([]byte(`<p:txBody xmlns:p="p" xmlns:a="a"><a:p><a:r><a:t>First</a:t></a:r></a:p><a:p><a:r><a:t>Second</a:t></a:r></a:p></p:txBody>`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := strings.TrimSpace(textFromNode(root)); got != "First\nSecond" {
-		t.Fatalf("unexpected paragraph text: %q", got)
-	}
-}
-
-func TestTextFromNodePreservesTabs(t *testing.T) {
-	root, err := parseXMLNode([]byte(`<p:txBody xmlns:p="p" xmlns:a="a"><a:p><a:r><a:t>Cost</a:t><a:tab/><a:t>Total</a:t></a:r></a:p></p:txBody>`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := strings.TrimSpace(textFromNode(root)); got != "Cost\tTotal" {
-		t.Fatalf("unexpected tabbed text: %q", got)
-	}
-	paragraphs := textParagraphsFromNode(root)
-	if len(paragraphs) != 1 || len(paragraphs[0].Runs) != 1 || paragraphs[0].Runs[0].Text != "Cost\tTotal" {
-		t.Fatalf("expected tab in text run, got %+v", paragraphs)
-	}
-}
-
-func TestResolveTextFieldsUpdatesSlideNumberFieldRuns(t *testing.T) {
-	root, err := parseXMLNode([]byte(`<p:sp xmlns:p="p" xmlns:a="a">
-	  <p:txBody><a:bodyPr/><a:lstStyle/><a:p>
-	    <a:fld id="{424CEEAC-8F67-4238-9622-1B74DC6E8318}" type="slidenum"><a:rPr sz="1200"/><a:t>‹#›</a:t></a:fld>
-	  </a:p></p:txBody>
-	</p:sp>`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	element := parseSlideElementNode(root, renderTransform{ScaleX: 1, ScaleY: 1})
-	if len(element.TextParagraphs) != 1 || len(element.TextParagraphs[0].Runs) != 1 || element.TextParagraphs[0].Runs[0].FieldType != "slidenum" {
-		t.Fatalf("expected slide-number field metadata to be preserved, got %+v", element.TextParagraphs)
-	}
-
-	got := resolveTextFields([]slideElement{element}, 12)
-	if got[0].Text != "12" || got[0].TextParagraphs[0].Text != "12" || got[0].TextParagraphs[0].Runs[0].Text != "12" {
-		t.Fatalf("expected slide-number field to resolve from render options, got %+v", got[0])
-	}
-}
-
-func TestResolveTextFieldsLeavesCachedDateFieldsStable(t *testing.T) {
-	paragraphs := []textParagraph{{
-		Text: "8/18/2021",
-		Runs: []textRun{{
-			Text:      "8/18/2021",
-			FieldType: "datetimeFigureOut",
-		}},
-	}}
-
-	got := resolveTextFields([]slideElement{{Text: "8/18/2021", TextParagraphs: paragraphs}}, 7)
-	if got[0].Text != "8/18/2021" || got[0].TextParagraphs[0].Runs[0].Text != "8/18/2021" {
-		t.Fatalf("non-slide-number fields should keep cached package text, got %+v", got[0])
-	}
-}
-
-func TestTextParagraphsFromNodeParsesTabStops(t *testing.T) {
-	root, err := parseXMLNode([]byte(`<p:txBody xmlns:p="p" xmlns:a="a">
-  <a:p><a:pPr><a:tabLst><a:tab pos="1074738" algn="l"/></a:tabLst></a:pPr><a:r><a:t>Cost</a:t><a:tab/><a:t>Total</a:t></a:r></a:p>
-</p:txBody>`))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	paragraphs := textParagraphsFromNode(root)
-	if len(paragraphs) != 1 || len(paragraphs[0].TabStops) != 1 || paragraphs[0].TabStops[0] != 1074738 {
-		t.Fatalf("expected explicit paragraph tab stop, got %+v", paragraphs)
-	}
-	if stops := tabStopsAtDPI(paragraphs[0].TabStops, 96); len(stops) != 1 || stops[0] != 113 {
-		t.Fatalf("expected tab stop to scale to 96 DPI pixels, got %+v", stops)
-	}
-}
-
-func TestTextParagraphsFromNodeParsesDefaultTabSize(t *testing.T) {
-	root, err := parseXMLNode([]byte(`<p:txBody xmlns:p="p" xmlns:a="a">
-	  <a:lstStyle><a:lvl1pPr defTabSz="457200"/></a:lstStyle>
-	  <a:p><a:pPr lvl="0"/><a:r><a:t>Cost</a:t><a:tab/><a:t>Total</a:t></a:r></a:p>
-	</p:txBody>`))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	paragraphs := textParagraphsFromNode(root)
-	if len(paragraphs) != 1 || !paragraphs[0].HasDefaultTab || paragraphs[0].DefaultTabSize != 457200 {
-		t.Fatalf("expected default tab size inherited from list style, got %+v", paragraphs)
-	}
-	stops := paragraphTabStopsAtDPI(paragraphs[0], 72, 160)
-	if len(stops) < 3 || stops[0] != 36 || stops[1] != 72 || stops[2] != 108 {
-		t.Fatalf("expected repeating half-inch default tab stops, got %+v", stops)
-	}
-}
-
-func TestTextParagraphsFromNodeParsesRightMargin(t *testing.T) {
-	root, err := parseXMLNode([]byte(`<p:txBody xmlns:p="p" xmlns:a="a">
-	  <a:p><a:pPr marR="914400"/><a:r><a:t>Right margin</a:t></a:r></a:p>
-	</p:txBody>`))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	paragraphs := textParagraphsFromNode(root)
-	if len(paragraphs) != 1 || !paragraphs[0].HasMarginRight || paragraphs[0].MarginRight != 914400 {
-		t.Fatalf("expected paragraph right margin, got %+v", paragraphs)
-	}
-	if got := paragraphRightOffsetAtDPI(paragraphs[0], 96); got != 96 {
-		t.Fatalf("expected right margin to scale to 96 DPI pixels, got %d", got)
-	}
-}
-
-func TestTextParagraphsFromNodeDetectsBulletsAndLevels(t *testing.T) {
-	root, err := parseXMLNode([]byte(`<p:txBody xmlns:p="p" xmlns:a="a">
-  <a:p><a:r><a:rPr b="1"/><a:t>Primary energy resources</a:t></a:r></a:p>
-  <a:p><a:pPr lvl="1"/><a:r><a:t>Fossil</a:t></a:r></a:p>
-  <a:p><a:pPr lvl="2"><a:buSzPts val="1400"/><a:buChar char="-"/></a:pPr><a:r><a:t>Coal</a:t></a:r></a:p>
-  <a:p><a:pPr lvl="1"><a:buFont typeface="Wingdings"/><a:buChar char="§"/></a:pPr><a:r><a:t>Wingdings square</a:t></a:r></a:p>
-  <a:p><a:pPr><a:buNone/></a:pPr><a:r><a:t>No bullet</a:t></a:r></a:p>
-  <a:p><a:pPr><a:buClrTx/><a:buFontTx/><a:buChar char="•"/></a:pPr><a:r><a:t>Follow text</a:t></a:r></a:p>
-</p:txBody>`))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	got := textParagraphsFromNode(root)
-	if len(got) != 6 {
-		t.Fatalf("unexpected paragraph count: %+v", got)
-	}
-	if got[0].Text != "Primary energy resources" || !got[0].Bold || len(got[0].Runs) != 1 || !got[0].Runs[0].Bold {
-		t.Fatalf("unexpected first paragraph: %+v", got[0])
-	}
-	if got[1].Text != "Fossil" || got[1].Bullet != "•" || got[1].Level != 1 {
-		t.Fatalf("unexpected default bullet paragraph: %+v", got[1])
-	}
-	if got[2].Text != "Coal" || got[2].Bullet != "-" || got[2].Level != 2 {
-		t.Fatalf("unexpected explicit bullet paragraph: %+v", got[2])
-	}
-	if got[2].BulletFontSize != 1400 {
-		t.Fatalf("expected explicit bullet font size, got %+v", got[2])
-	}
-	expectedWingdingsSquare := "▪"
-	if exactFontFamilyAvailable("Wingdings") {
-		expectedWingdingsSquare = "\uf0a7"
-	}
-	if got[3].Text != "Wingdings square" || got[3].Bullet != expectedWingdingsSquare || got[3].Level != 1 {
-		t.Fatalf("unexpected Wingdings bullet paragraph: %+v", got[3])
-	}
-	if got[3].BulletFontFamily != "Wingdings" {
-		t.Fatalf("expected Wingdings bullet font family to be preserved, got %+v", got[3])
-	}
-	if got[4].Text != "No bullet" || !got[4].NoBullet {
-		t.Fatalf("unexpected no-bullet paragraph: %+v", got[4])
-	}
-	if !got[5].BulletColorTx || !got[5].BulletFontTx {
-		t.Fatalf("expected bullet color/font to follow text, got %+v", got[5])
-	}
-}
-
-func TestTextParagraphsFromNodeMapsWingdingsNotSignBullet(t *testing.T) {
-	root, err := parseXMLNode([]byte(`<p:txBody xmlns:p="p" xmlns:a="a">
-  <a:p><a:pPr><a:buFont typeface="Wingdings"/><a:buChar char="Ø"/></a:pPr><a:r><a:t>Mapped</a:t></a:r></a:p>
-  <a:p><a:pPr><a:buFont typeface="Arial"/><a:buChar char="Ø"/></a:pPr><a:r><a:t>Literal</a:t></a:r></a:p>
-</p:txBody>`))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	got := textParagraphsFromNode(root)
-	if len(got) != 2 {
-		t.Fatalf("unexpected paragraph count: %+v", got)
-	}
-	expectedWingdingsNotSign := "¬"
-	if exactFontFamilyAvailable("Wingdings") {
-		expectedWingdingsNotSign = "\uf0d8"
-	}
-	if got[0].Bullet != expectedWingdingsNotSign || got[0].BulletFontFamily != "Wingdings" {
-		t.Fatalf("expected Wingdings Ø bullet to map to Unicode not sign, got %+v", got[0])
-	}
-	if got[1].Bullet != "Ø" || got[1].BulletFontFamily != "Arial" {
-		t.Fatalf("non-Wingdings Ø bullet should stay literal, got %+v", got[1])
-	}
-}
-
-func TestTextParagraphsFromNodeNumbersAutoBullets(t *testing.T) {
-	root, err := parseXMLNode([]byte(`<p:txBody xmlns:p="p" xmlns:a="a">
-  <a:p><a:pPr><a:buAutoNum type="alphaLcPeriod"/></a:pPr><a:r><a:t>First</a:t></a:r></a:p>
-  <a:p><a:pPr><a:buAutoNum type="alphaLcPeriod"/></a:pPr><a:r><a:t>Second</a:t></a:r></a:p>
-  <a:p><a:pPr><a:buAutoNum type="alphaLcPeriod" startAt="4"/></a:pPr><a:r><a:t>Restarted</a:t></a:r></a:p>
-  <a:p><a:pPr lvl="1"><a:buAutoNum type="arabicParenR" startAt="2"/></a:pPr><a:r><a:t>Nested</a:t></a:r></a:p>
-  <a:p><a:pPr><a:buAutoNum type="alphaLcPeriod"/></a:pPr><a:r><a:t>Continued</a:t></a:r></a:p>
-</p:txBody>`))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	got := textParagraphsFromNode(root)
-	if len(got) != 5 {
-		t.Fatalf("unexpected paragraph count: %+v", got)
-	}
-	if got[0].Bullet != "a." || got[1].Bullet != "b." || got[2].Bullet != "d." || got[3].Bullet != "2)" || got[4].Bullet != "e." {
-		t.Fatalf("unexpected auto-number bullets: %+v", got)
-	}
-}
-
-func TestTextParagraphsFromNodeInheritsStyledAutoNumberBullets(t *testing.T) {
-	root, err := parseXMLNode([]byte(`<p:txBody xmlns:p="p" xmlns:a="a">
-  <a:lstStyle>
-    <a:lvl1pPr>
-      <a:buAutoNum type="alphaLcPeriod" startAt="3"/>
-      <a:defRPr sz="1800"/>
-    </a:lvl1pPr>
-    <a:lvl2pPr>
-      <a:buAutoNum type="arabicParenR" startAt="2"/>
-      <a:defRPr sz="1600"/>
-    </a:lvl2pPr>
-  </a:lstStyle>
-  <a:p><a:pPr/><a:r><a:t>Third</a:t></a:r></a:p>
-  <a:p><a:pPr/><a:r><a:t>Fourth</a:t></a:r></a:p>
-  <a:p><a:pPr lvl="1"/><a:r><a:t>Nested</a:t></a:r></a:p>
-  <a:p><a:pPr/><a:r><a:t>Fifth</a:t></a:r></a:p>
-</p:txBody>`))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	got := textParagraphsFromNode(root)
-	if len(got) != 4 {
-		t.Fatalf("unexpected paragraph count: %+v", got)
-	}
-	if got[0].Bullet != "c." || got[1].Bullet != "d." || got[2].Bullet != "2)" || got[3].Bullet != "e." {
-		t.Fatalf("unexpected inherited auto-number bullets: %+v", got)
-	}
-}
-
-func TestTextParagraphsFromNodeLocalBulletChoiceBlocksStyledAutoNumber(t *testing.T) {
-	root, err := parseXMLNode([]byte(`<p:txBody xmlns:p="p" xmlns:a="a">
-  <a:lstStyle>
-    <a:lvl1pPr>
-      <a:buAutoNum type="arabicParenR"/>
-      <a:defRPr sz="1800"/>
-    </a:lvl1pPr>
-  </a:lstStyle>
-  <a:p><a:pPr><a:buChar char="•"/></a:pPr><a:r><a:t>Symbol</a:t></a:r></a:p>
-  <a:p><a:pPr><a:buNone/></a:pPr><a:r><a:t>No bullet</a:t></a:r></a:p>
-  <a:p><a:pPr/><a:r><a:t>Numbered</a:t></a:r></a:p>
-</p:txBody>`))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	got := textParagraphsFromNode(root)
-	if len(got) != 3 {
-		t.Fatalf("unexpected paragraph count: %+v", got)
-	}
-	if got[0].Bullet != "•" || got[0].NoBullet {
-		t.Fatalf("local buChar should block styled auto-numbering, got %+v", got[0])
-	}
-	if got[1].Bullet != "" || !got[1].NoBullet {
-		t.Fatalf("local buNone should block styled auto-numbering, got %+v", got[1])
-	}
-	if got[2].Bullet != "1)" {
-		t.Fatalf("styled auto-numbering should still apply to later paragraphs, got %+v", got[2])
-	}
-}
-
-func TestTextParagraphsFromNodeCapturesBulletSizeFollowText(t *testing.T) {
-	root, err := parseXMLNode([]byte(`<p:txBody xmlns:p="p" xmlns:a="a">
-  <a:p><a:pPr><a:buSzTx/><a:buChar char="•"/></a:pPr><a:r><a:rPr sz="2400"/><a:t>Follow text</a:t></a:r></a:p>
-</p:txBody>`))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	got := textParagraphsFromNode(root)
-	if len(got) != 1 || !got[0].BulletSizeTx || got[0].BulletFontSize != 0 || got[0].BulletSizePct != 0 {
-		t.Fatalf("expected paragraph buSzTx bullet size, got %+v", got)
-	}
-	if size := bulletSegmentFontSize(got[0]); size != 2400 {
-		t.Fatalf("buSzTx bullet should follow text size, got %d", size)
-	}
-}
-
-func TestTextParagraphsPreservesSingleLeadingRunSpace(t *testing.T) {
-	root, err := parseXMLNode([]byte(`<p:txBody xmlns:p="p" xmlns:a="a">
-  <a:p><a:r><a:t> Welcome</a:t></a:r></a:p>
-</p:txBody>`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	got := textParagraphsFromNode(root)
-	if len(got) != 1 || len(got[0].Runs) != 1 || got[0].Runs[0].Text != " Welcome" {
-		t.Fatalf("expected single leading space to be preserved, got %+v", got)
-	}
-}
-
-func TestTextParagraphsPreservesManualLeadingPadding(t *testing.T) {
-	root, err := parseXMLNode([]byte(`<p:txBody xmlns:p="p" xmlns:a="a">
-  <a:p><a:r><a:t>          Centered title</a:t></a:r></a:p>
-</p:txBody>`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	got := textParagraphsFromNode(root)
-	if len(got) != 1 || len(got[0].Runs) != 1 || got[0].Runs[0].Text != "          Centered title" {
-		t.Fatalf("expected manual leading padding to be preserved, got %+v", got)
-	}
-}
-
-func TestTextParagraphsFromNodeUsesNoBulletSizeAsFallbackFontSize(t *testing.T) {
-	root, err := parseXMLNode([]byte(`<p:txBody xmlns:p="p" xmlns:a="a">
-  <a:p><a:pPr><a:buSzPts val="4400"/><a:buNone/><a:spcAft><a:spcPts val="1200"/></a:spcAft></a:pPr><a:r><a:rPr/><a:t>Title</a:t></a:r></a:p>
-  <a:p><a:pPr><a:buSzPts val="2200"/><a:buNone/></a:pPr><a:r><a:rPr sz="1800"/><a:t>Explicit</a:t></a:r></a:p>
-</p:txBody>`))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	got := textParagraphsFromNode(root)
-	if len(got) != 2 {
-		t.Fatalf("unexpected paragraph count: %+v", got)
-	}
-	if got[0].FontSize != 4400 {
-		t.Fatalf("expected no-bullet paragraph size fallback, got %+v", got[0])
-	}
-	if got[0].SpaceAfter != 12 {
-		t.Fatalf("expected paragraph after-spacing, got %+v", got[0])
-	}
-	if got[1].FontSize != 1800 {
-		t.Fatalf("explicit run size should win over no-bullet fallback, got %+v", got[1])
-	}
-}
-
-func TestTextParagraphsFromNodeParsesPercentParagraphSpacing(t *testing.T) {
-	root, err := parseXMLNode([]byte(`<p:txBody xmlns:p="p" xmlns:a="a">
-  <a:p><a:pPr><a:spcBef><a:spcPct val="90000"/></a:spcBef><a:spcAft><a:spcPct val="110000"/></a:spcAft></a:pPr><a:r><a:rPr sz="1800"/><a:t>Percent spacing</a:t></a:r></a:p>
-</p:txBody>`))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	got := textParagraphsFromNode(root)
-	if len(got) != 1 || !got[0].HasSpaceBefore || got[0].SpaceBeforePct != 90000 || got[0].SpaceAfterPct != 110000 {
-		t.Fatalf("expected percent paragraph spacing, got %+v", got)
-	}
-	if got[0].SpaceBefore != 0 || got[0].SpaceAfter != 0 {
-		t.Fatalf("percent spacing should not be stored as fixed pixels, got %+v", got[0])
-	}
-}
-
-func TestTextParagraphsFromNodeParsesRunCharacterSpacing(t *testing.T) {
-	root, err := parseXMLNode([]byte(`<p:txBody xmlns:p="p" xmlns:a="a">
-  <a:p><a:pPr><a:defRPr spc="150"/></a:pPr><a:r><a:rPr spc="250"/><a:t>Wide</a:t></a:r><a:r><a:rPr/><a:t>Default</a:t></a:r></a:p>
-</p:txBody>`))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	got := textParagraphsFromNode(root)
-	if len(got) != 1 || !got[0].HasCharSpacing || got[0].CharSpacing != 150 {
-		t.Fatalf("expected paragraph default character spacing, got %+v", got)
-	}
-	if len(got[0].Runs) != 2 || !got[0].Runs[0].HasCharSpacing || got[0].Runs[0].CharSpacing != 250 {
-		t.Fatalf("expected run character spacing, got %+v", got[0].Runs)
-	}
-	if segment := runToSegment(got[0].Runs[1], got[0]); segment.CharSpacing != 150 {
-		t.Fatalf("expected unstyled run to inherit paragraph character spacing, got %+v", segment)
-	}
-}
-
-func TestTextParagraphsFromNodePreservesEmptyParagraphs(t *testing.T) {
-	root, err := parseXMLNode([]byte(`<p:txBody xmlns:p="p" xmlns:a="a">
-  <a:p><a:r><a:rPr sz="2400"/><a:t>Before</a:t></a:r></a:p>
-  <a:p><a:endParaRPr sz="2400" b="1"/></a:p>
-  <a:p><a:r><a:rPr sz="2400"/><a:t>After</a:t></a:r></a:p>
-</p:txBody>`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	got := textParagraphsFromNode(root)
-	if len(got) != 3 {
-		t.Fatalf("expected empty paragraph to be preserved, got %+v", got)
-	}
-	if got[1].Text != "" || got[1].FontSize != 2400 || !got[1].Bold {
-		t.Fatalf("expected empty paragraph end properties, got %+v", got[1])
-	}
-	if !got[1].NoBullet {
-		t.Fatalf("expected empty paragraph to reserve space without a bullet, got %+v", got[1])
-	}
-}
-
-func TestTextParagraphsFromNodeDoesNotApplyEndParagraphPropertiesToExistingRuns(t *testing.T) {
-	root, err := parseXMLNode([]byte(`<p:txBody xmlns:p="p" xmlns:a="a">
-  <a:p><a:r><a:rPr sz="1700"/><a:t>Visible</a:t></a:r><a:endParaRPr sz="1700" b="1"/></a:p>
-</p:txBody>`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	got := textParagraphsFromNode(root)
-	if len(got) != 1 {
-		t.Fatalf("unexpected paragraph count: %+v", got)
-	}
-	if got[0].Bold || len(got[0].Runs) != 1 || got[0].Runs[0].Bold {
-		t.Fatalf("endParaRPr should not restyle existing text runs, got %+v", got[0])
-	}
-}
-
-func TestTextParagraphsFromNodeUsesEndParagraphPropertiesForUnstyledRuns(t *testing.T) {
-	root, err := parseXMLNode([]byte(`<p:txBody xmlns:p="p" xmlns:a="a">
-  <a:p><a:r><a:rPr/><a:t>Visible</a:t></a:r><a:endParaRPr sz="1700" b="1"/></a:p>
-</p:txBody>`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	got := textParagraphsFromNode(root)
-	if len(got) != 1 {
-		t.Fatalf("unexpected paragraph count: %+v", got)
-	}
-	if got[0].FontSize != 1700 || !got[0].Bold {
-		t.Fatalf("endParaRPr should seed paragraph defaults when runs are unstyled, got %+v", got[0])
-	}
-}
-
-func TestTextParagraphsFromNodeUsesEndParagraphPropertiesWhenRunsOnlySetColor(t *testing.T) {
-	root, err := parseXMLNode([]byte(`<p:txBody xmlns:p="p" xmlns:a="a">
-  <a:p>
-    <a:r><a:rPr><a:solidFill><a:srgbClr val="FF0000"/></a:solidFill></a:rPr><a:t>Visible</a:t></a:r>
-    <a:endParaRPr sz="1700" b="1"/>
-  </a:p>
-</p:txBody>`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	got := textParagraphsFromNode(root)
-	if len(got) != 1 {
-		t.Fatalf("unexpected paragraph count: %+v", got)
-	}
-	if got[0].FontSize != 1700 || !got[0].Bold {
-		t.Fatalf("color-only runs should still allow endParaRPr to seed missing defaults, got %+v", got[0])
-	}
-	segment := runToSegment(got[0].Runs[0], got[0])
-	if !segment.Bold || !segment.HasTextColor || segment.TextColor.R != 0xff {
-		t.Fatalf("endParaRPr defaults should not replace run color, got %+v", segment)
-	}
-}
-
-func TestTextParagraphsFromNodeCapturesMixedRunStyles(t *testing.T) {
-	root, err := parseXMLNode([]byte(`<p:txBody xmlns:p="p" xmlns:a="a">
-  <a:p><a:r><a:rPr sz="1800"/><a:t>Energy services - </a:t></a:r><a:r><a:rPr sz="1800" b="1"/><a:t>Mobility</a:t></a:r></a:p>
-</p:txBody>`))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	got := textParagraphsFromNode(root)
-	if len(got) != 1 || len(got[0].Runs) != 2 {
-		t.Fatalf("unexpected mixed run parse: %+v", got)
-	}
-	if got[0].Bold || got[0].Italic || got[0].FontSize != 1800 {
-		t.Fatalf("paragraph-level metadata should preserve only uniform values: %+v", got[0])
-	}
-	if got[0].Runs[0].Text != "Energy services - " || got[0].Runs[0].Bold || got[0].Runs[1].Text != "Mobility" || !got[0].Runs[1].Bold {
-		t.Fatalf("unexpected run styles: %+v", got[0].Runs)
-	}
-}
-
-func TestExplicitRunBoldFalseOverridesInheritedBold(t *testing.T) {
-	root, err := parseXMLNode([]byte(`<p:txBody xmlns:p="p" xmlns:a="a">
-	  <a:p><a:r><a:rPr b="0"/><a:t>Normal</a:t></a:r><a:r><a:rPr/><a:t>Inherited</a:t></a:r></a:p>
-	</p:txBody>`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	got := textParagraphsFromNode(root)
-	if len(got) != 1 || len(got[0].Runs) != 2 {
-		t.Fatalf("unexpected run parse: %+v", got)
-	}
-	got[0].Bold = true
-	normal := runToSegment(got[0].Runs[0], got[0])
-	inherited := runToSegment(got[0].Runs[1], got[0])
-	if normal.Bold {
-		t.Fatalf("explicit b=0 run should stay non-bold under inherited bold paragraph: %+v", normal)
-	}
-	if !inherited.Bold {
-		t.Fatalf("run without explicit bold should inherit paragraph bold: %+v", inherited)
-	}
-}
-
-func TestExplicitRunItalicFalseOverridesInheritedItalic(t *testing.T) {
-	root, err := parseXMLNode([]byte(`<p:txBody xmlns:p="p" xmlns:a="a">
-	  <a:p><a:r><a:rPr i="0"/><a:t>Normal</a:t></a:r><a:r><a:rPr/><a:t>Inherited</a:t></a:r></a:p>
-	</p:txBody>`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	got := textParagraphsFromNode(root)
-	if len(got) != 1 || len(got[0].Runs) != 2 {
-		t.Fatalf("unexpected run parse: %+v", got)
-	}
-	got[0].Italic = true
-	normal := runToSegment(got[0].Runs[0], got[0])
-	inherited := runToSegment(got[0].Runs[1], got[0])
-	if normal.Italic {
-		t.Fatalf("explicit i=0 run should stay non-italic under inherited italic paragraph: %+v", normal)
-	}
-	if !inherited.Italic {
-		t.Fatalf("run without explicit italic should inherit paragraph italic: %+v", inherited)
-	}
-}
-
-func TestTextParagraphsFromNodeCapturesMixedRunItalics(t *testing.T) {
-	root, err := parseXMLNode([]byte(`<p:txBody xmlns:p="p" xmlns:a="a">
-  <a:p><a:r><a:rPr sz="1800"/><a:t>Regular </a:t></a:r><a:r><a:rPr sz="1800" i="1"/><a:t>Italic</a:t></a:r></a:p>
-</p:txBody>`))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	got := textParagraphsFromNode(root)
-	if len(got) != 1 || len(got[0].Runs) != 2 {
-		t.Fatalf("unexpected mixed run parse: %+v", got)
-	}
-	if got[0].Italic {
-		t.Fatalf("mixed italic runs should not promote the whole paragraph: %+v", got[0])
-	}
-	if got[0].Runs[0].Italic || !got[0].Runs[1].Italic {
-		t.Fatalf("unexpected run italic styles: %+v", got[0].Runs)
-	}
-}
-
-func TestTextParagraphsFromNodeCapturesRunBaseline(t *testing.T) {
-	root, err := parseXMLNode([]byte(`<p:txBody xmlns:p="p" xmlns:a="a">
-  <a:p><a:r><a:rPr sz="3200" b="1"/><a:t>CO</a:t></a:r><a:r><a:rPr sz="3200" b="1" baseline="-25000"/><a:t>2</a:t></a:r></a:p>
-</p:txBody>`))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	got := textParagraphsFromNode(root)
-	if len(got) != 1 || len(got[0].Runs) != 2 {
-		t.Fatalf("unexpected run parse: %+v", got)
-	}
-	if got[0].Runs[1].Baseline != -25000 {
-		t.Fatalf("expected subscript baseline to be preserved, got %+v", got[0].Runs[1])
-	}
-	if shift := segmentBaselineShift(textLineSegment{FontSize: 3200, Baseline: -25000}, 3200); shift >= 0 {
-		t.Fatalf("expected negative baseline to produce downward drawing offset, got %d", shift)
-	}
-	if shift := segmentBaselineShiftAtDPI(textLineSegment{FontSize: 3200, Baseline: -25000}, 3200, 96); shift != -11 {
-		t.Fatalf("expected 96 DPI baseline shift to scale from point size, got %d", shift)
-	}
-	segment := runToSegment(got[0].Runs[1], got[0])
-	if segment.FontSize >= got[0].Runs[1].FontSize || segment.BaselineFontSize != got[0].Runs[1].FontSize {
-		t.Fatalf("expected baseline run to render smaller while preserving shift font size, got %+v", segment)
-	}
-}
-
-func TestTextParagraphsFromNodeCapturesRunHighlight(t *testing.T) {
-	root, err := parseXMLNode([]byte(`<p:txBody xmlns:p="p" xmlns:a="a">
-  <a:p><a:r><a:rPr sz="1800"><a:highlight><a:srgbClr val="FFFF00"/></a:highlight></a:rPr><a:t>Marked</a:t></a:r></a:p>
-</p:txBody>`))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	got := textParagraphsFromNode(root)
-	if len(got) != 1 || len(got[0].Runs) != 1 {
-		t.Fatalf("unexpected run parse: %+v", got)
-	}
-	run := got[0].Runs[0]
-	if !run.HasHighlightColor || run.HighlightColor.R != 0xff || run.HighlightColor.G != 0xff || run.HighlightColor.B != 0x00 {
-		t.Fatalf("expected highlight color to be preserved, got %+v", run)
-	}
-	segment := runToSegment(run, got[0])
-	if !segment.HasHighlightColor || segment.HighlightColor != run.HighlightColor {
-		t.Fatalf("expected highlight color on render segment, got %+v", segment)
-	}
-}
-
-func TestTextParagraphsFromNodeCapturesRunUnderline(t *testing.T) {
-	root, err := parseXMLNode([]byte(`<p:txBody xmlns:p="p" xmlns:a="a">
-  <a:p><a:r><a:rPr sz="1800" u="sng"/><a:t>Underlined</a:t></a:r><a:r><a:rPr sz="1800" u="none"/><a:t>Plain</a:t></a:r></a:p>
-</p:txBody>`))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	got := textParagraphsFromNode(root)
-	if len(got) != 1 || len(got[0].Runs) != 2 {
-		t.Fatalf("unexpected run parse: %+v", got)
-	}
-	if !got[0].Runs[0].Underline || got[0].Runs[1].Underline {
-		t.Fatalf("expected only single underline run, got %+v", got[0].Runs)
-	}
-	segment := runToSegment(got[0].Runs[0], got[0])
-	if !segment.Underline {
-		t.Fatalf("expected underline on render segment, got %+v", segment)
-	}
-}
-
-func TestTextParagraphsFromNodeCapturesDrawingMLUnderlineStrokeAndFill(t *testing.T) {
-	root, err := parseXMLNode([]byte(`<p:txBody xmlns:p="p" xmlns:a="a">
-  <a:p>
-    <a:r><a:rPr sz="1800"><a:uLn/><a:uFill><a:solidFill><a:srgbClr val="00FF00"/></a:solidFill></a:uFill></a:rPr><a:t>Underlined</a:t></a:r>
-    <a:r><a:rPr sz="1800" u="none"><a:uLnTx/><a:uFillTx/></a:rPr><a:t>Plain</a:t></a:r>
-    <a:r><a:rPr sz="1800"><a:uLn><a:noFill/></a:uLn></a:rPr><a:t>No stroke</a:t></a:r>
-  </a:p>
-</p:txBody>`))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	got := textParagraphsFromNode(root)
-	if len(got) != 1 || len(got[0].Runs) != 3 {
-		t.Fatalf("unexpected run parse: %+v", got)
-	}
-	if !got[0].Runs[0].Underline || !got[0].Runs[0].HasUnderlineColor || got[0].Runs[0].UnderlineColor != (color.RGBA{G: 0xff, A: 0xff}) {
-		t.Fatalf("expected explicit underline stroke and fill, got %+v", got[0].Runs[0])
-	}
-	if got[0].Runs[1].Underline || got[0].Runs[2].Underline {
-		t.Fatalf("u=none and no-fill underline stroke should not underline text: %+v", got[0].Runs)
-	}
-	segment := runToSegment(got[0].Runs[0], got[0])
-	if !segment.Underline || !segment.HasUnderlineColor || segment.UnderlineColor != got[0].Runs[0].UnderlineColor {
-		t.Fatalf("expected underline stroke and fill on render segment, got %+v", segment)
-	}
-}
-
-func TestTextParagraphsFromNodeCapturesRunStrikethrough(t *testing.T) {
-	root, err := parseXMLNode([]byte(`<p:txBody xmlns:p="p" xmlns:a="a">
-  <a:p>
-    <a:r><a:rPr sz="1800" strike="sngStrike"/><a:t>Single</a:t></a:r>
-    <a:r><a:rPr sz="1800" strike="dblStrike"/><a:t>Double</a:t></a:r>
-    <a:r><a:rPr sz="1800" strike="noStrike"/><a:t>Plain</a:t></a:r>
-  </a:p>
-</p:txBody>`))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	got := textParagraphsFromNode(root)
-	if len(got) != 1 || len(got[0].Runs) != 3 {
-		t.Fatalf("unexpected run parse: %+v", got)
-	}
-	if got[0].Runs[0].Strike != "sngStrike" || got[0].Runs[1].Strike != "dblStrike" || got[0].Runs[2].Strike != "" {
-		t.Fatalf("expected DrawingML strike enum to be preserved, got %+v", got[0].Runs)
-	}
-	segment := runToSegment(got[0].Runs[1], got[0])
-	if segment.Strike != "dblStrike" {
-		t.Fatalf("expected strike on render segment, got %+v", segment)
-	}
-}
-
-func TestTextParagraphsFromNodeKeepsParagraphAlignmentScoped(t *testing.T) {
-	root, err := parseXMLNode([]byte(`<p:txBody xmlns:p="p" xmlns:a="a">
-  <a:p><a:pPr algn="ctr"/><a:r><a:t>Centered</a:t></a:r></a:p>
-  <a:p><a:r><a:t>Default</a:t></a:r></a:p>
-</p:txBody>`))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	got := textParagraphsFromNode(root)
-	if len(got) != 2 {
-		t.Fatalf("unexpected paragraph parse: %+v", got)
-	}
-	if got[0].TextAlign != "ctr" || got[1].TextAlign != "" {
-		t.Fatalf("paragraph alignment leaked across paragraphs: %+v", got)
-	}
-	element := parseSlideElementNode(&xmlNode{Name: "sp", Children: []*xmlNode{root}}, renderTransform{ScaleX: 1, ScaleY: 1})
-	if element.TextAlign != "" {
-		t.Fatalf("paragraph alignment should not promote to shape alignment, got %+v", element)
-	}
-}
-
-func TestTextParagraphsFromNodeInheritsListStyleParagraphAlignment(t *testing.T) {
-	root, err := parseXMLNode([]byte(`<p:txBody xmlns:p="p" xmlns:a="a">
-  <a:bodyPr/>
-  <a:lstStyle><a:lvl1pPr algn="ctr"/></a:lstStyle>
-  <a:p><a:pPr/><a:r><a:t>Centered by style</a:t></a:r></a:p>
-</p:txBody>`))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	got := textParagraphsFromNode(root)
-	if len(got) != 1 || got[0].TextAlign != "ctr" {
-		t.Fatalf("expected list style paragraph alignment, got %+v", got)
-	}
-}
-
-func TestTextParagraphsFromNodeCapturesRunFontFamily(t *testing.T) {
-	root, err := parseXMLNode([]byte(`<p:txBody xmlns:p="p" xmlns:a="a">
-  <a:p><a:r><a:rPr sz="1800"><a:latin typeface="Trebuchet MS"/></a:rPr><a:t>Label</a:t></a:r></a:p>
-</p:txBody>`))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	got := textParagraphsFromNode(root)
-	if len(got) != 1 || len(got[0].Runs) != 1 {
-		t.Fatalf("unexpected run parse: %+v", got)
-	}
-	run := got[0].Runs[0]
-	if run.FontFamily != "Trebuchet MS" {
-		t.Fatalf("expected run font family to be preserved, got %+v", run)
-	}
-	segment := runToSegment(run, got[0])
-	if segment.FontFamily != "Trebuchet MS" {
-		t.Fatalf("expected run font family on render segment, got %+v", segment)
-	}
-}
-
-func TestTextParagraphsFromNodeUsesExplicitAlternateTypefaceForNonLatinText(t *testing.T) {
-	root, err := parseXMLNode([]byte(`<p:txBody xmlns:p="p" xmlns:a="a">
-  <a:p><a:r><a:rPr sz="1800"><a:ea typeface="Arial"/><a:cs typeface="Calibri"/></a:rPr><a:t>标题</a:t></a:r></a:p>
-</p:txBody>`))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	got := textParagraphsFromNode(root)
-	if len(got) != 1 || len(got[0].Runs) != 1 {
-		t.Fatalf("unexpected run parse: %+v", got)
-	}
-	if got[0].Runs[0].FontFamily != "Arial" {
-		t.Fatalf("expected run fallback typeface to be preserved, got %+v", got[0].Runs[0])
-	}
-}
-
-func TestTextParagraphsFromNodeDoesNotUseAlternateTypefaceForLatinText(t *testing.T) {
-	root, err := parseXMLNode([]byte(`<p:txBody xmlns:p="p" xmlns:a="a">
-  <a:p><a:r><a:rPr sz="1800"><a:ea typeface="Arial"/><a:cs typeface="Calibri"/></a:rPr><a:t>Label</a:t></a:r></a:p>
-</p:txBody>`))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	got := textParagraphsFromNode(root)
-	if len(got) != 1 || len(got[0].Runs) != 1 {
-		t.Fatalf("unexpected run parse: %+v", got)
-	}
-	if got[0].Runs[0].FontFamily != "" {
-		t.Fatalf("latin text without a latin typeface should not use alternate font slots, got %+v", got[0].Runs[0])
-	}
-}
-
-func TestTextParagraphsFromNodeDoesNotUseAlternateTypefaceForLatinTextWithMathSymbol(t *testing.T) {
-	root, err := parseXMLNode([]byte(`<p:txBody xmlns:p="p" xmlns:a="a">
-  <a:p><a:r><a:rPr sz="1800"><a:ea typeface="Arial"/><a:cs typeface="Calibri"/></a:rPr><a:t>value ≥99%</a:t></a:r></a:p>
-</p:txBody>`))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	got := textParagraphsFromNode(root)
-	if len(got) != 1 || len(got[0].Runs) != 1 {
-		t.Fatalf("unexpected run parse: %+v", got)
-	}
-	if got[0].Runs[0].FontFamily != "" {
-		t.Fatalf("math symbols in Latin text should not switch the whole run to alternate font slots, got %+v", got[0].Runs[0])
-	}
-}
-
-func TestTextParagraphsFromNodeUsesSymbolTypefaceForPrivateUseRunText(t *testing.T) {
-	root, err := parseXMLNode([]byte(`<p:txBody xmlns:p="p" xmlns:a="a">
-  <a:p><a:r><a:rPr sz="1800"><a:latin typeface="Arial"/><a:sym typeface="Wingdings"/></a:rPr><a:t>&#xF0E0;</a:t></a:r></a:p>
-</p:txBody>`))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	got := textParagraphsFromNode(root)
-	if len(got) != 1 || len(got[0].Runs) != 1 {
-		t.Fatalf("unexpected run parse: %+v", got)
-	}
-	if got[0].Runs[0].FontFamily != "Wingdings" {
-		t.Fatalf("private-use symbol text should use a:sym typeface, got %+v", got[0].Runs[0])
-	}
-}
-
-func TestTextParagraphsFromNodeKeepsLatinTypefaceForMixedPrivateUseText(t *testing.T) {
-	root, err := parseXMLNode([]byte(`<p:txBody xmlns:p="p" xmlns:a="a">
-  <a:p><a:r><a:rPr sz="1800"><a:latin typeface="Arial"/><a:sym typeface="Wingdings"/></a:rPr><a:t>Go &#xF0E0; there</a:t></a:r></a:p>
-</p:txBody>`))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	got := textParagraphsFromNode(root)
-	if len(got) != 1 || len(got[0].Runs) != 1 {
-		t.Fatalf("unexpected run parse: %+v", got)
-	}
-	if got[0].Runs[0].FontFamily != "Arial" {
-		t.Fatalf("latin typeface should still win for mixed text runs, got %+v", got[0].Runs[0])
-	}
-}
-
-func TestDrawTextUnderlinePaintsBelowBaseline(t *testing.T) {
-	img := image.NewRGBA(image.Rect(0, 0, 120, 40))
-	draw.Draw(img, img.Bounds(), &image.Uniform{C: color.White}, image.Point{}, draw.Src)
-	face, err := openFontFace(1800, false, false, 0, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer face.Close()
-	drawTextUnderline(img, face, 10, 20, 60, color.RGBA{R: 255, A: 255})
-	if !hasColorPixel(img, color.RGBA{R: 255, A: 255}) {
-		t.Fatal("expected underline to paint red pixels")
-	}
-}
-
-func TestUnderlineColorForSegmentUsesExplicitUnderlineFill(t *testing.T) {
-	segment := textLineSegment{
-		HasTextColor:      true,
-		TextColor:         color.RGBA{R: 0xff, A: 0xff},
-		HasUnderlineColor: true,
-		UnderlineColor:    color.RGBA{G: 0xff, A: 0xff},
-	}
-	if got := underlineColorForSegment(segment, color.RGBA{B: 0xff, A: 0xff}); got != segment.UnderlineColor {
-		t.Fatalf("expected explicit underline color, got %#v", got)
-	}
-	segment.HasUnderlineColor = false
-	if got := underlineColorForSegment(segment, color.RGBA{B: 0xff, A: 0xff}); got != segment.TextColor {
-		t.Fatalf("expected underline color to follow text color, got %#v", got)
-	}
-}
-
-func TestDrawTextStrikethroughPaintsThroughTextMiddle(t *testing.T) {
-	img := image.NewRGBA(image.Rect(0, 0, 120, 40))
-	draw.Draw(img, img.Bounds(), &image.Uniform{C: color.White}, image.Point{}, draw.Src)
-	face, err := openFontFace(1800, false, false, 0, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer face.Close()
-
-	baseline := 24
-	metrics := face.Metrics()
-	center := baseline - metrics.Ascent.Ceil() + (metrics.Ascent.Ceil()+metrics.Descent.Ceil())/2
-	drawTextStrikethrough(img, face, 10, baseline, 60, "sngStrike", color.RGBA{R: 255, A: 255})
-	if got := img.RGBAAt(20, center); got != (color.RGBA{R: 255, A: 255}) {
-		t.Fatalf("expected single strikethrough at text middle y=%d, got %#v", center, got)
-	}
-}
-
-func TestDrawTextStrikethroughPaintsDoubleStrike(t *testing.T) {
-	img := image.NewRGBA(image.Rect(0, 0, 120, 40))
-	draw.Draw(img, img.Bounds(), &image.Uniform{C: color.White}, image.Point{}, draw.Src)
-	face, err := openFontFace(1800, false, false, 0, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer face.Close()
-
-	baseline := 24
-	metrics := face.Metrics()
-	center := baseline - metrics.Ascent.Ceil() + (metrics.Ascent.Ceil()+metrics.Descent.Ceil())/2
-	lineWidth := maxInt(1, metrics.Height.Ceil()/16)
-	gap := maxInt(2, lineWidth*2)
-	drawTextStrikethrough(img, face, 10, baseline, 60, "dblStrike", color.RGBA{R: 255, A: 255})
-	if got := img.RGBAAt(20, center-gap/2); got != (color.RGBA{R: 255, A: 255}) {
-		t.Fatalf("expected upper double strikethrough at y=%d, got %#v", center-gap/2, got)
-	}
-	if got := img.RGBAAt(20, center+gap/2); got != (color.RGBA{R: 255, A: 255}) {
-		t.Fatalf("expected lower double strikethrough at y=%d, got %#v", center+gap/2, got)
-	}
-}
-
 func TestResolveSlidePlaceholdersAppliesBodyDefaultBullets(t *testing.T) {
 	elements := []slideElement{{
 		Text:            "Primary",
@@ -3888,513 +3724,6 @@ func TestApplyInheritedTextStylesPreservesExplicitZeroParagraphSpacing(t *testin
 	}
 }
 
-func TestParseTextStylesNormalizesOfficeSymbolBullets(t *testing.T) {
-	styles := parseTextStyles([]byte(`<p:sldMaster xmlns:p="p" xmlns:a="a">
-  <p:txStyles>
-    <p:bodyStyle>
-      <a:lvl1pPr>
-        <a:buClr><a:srgbClr val="70AD47"/></a:buClr>
-        <a:buFont typeface="Wingdings 3"/>
-        <a:buSzPct val="80000"/>
-        <a:buChar char="&#xF075;"/>
-        <a:defRPr sz="1800" b="1"><a:solidFill><a:srgbClr val="112233"/></a:solidFill><a:latin typeface="Arial"/></a:defRPr>
-      </a:lvl1pPr>
-    </p:bodyStyle>
-  </p:txStyles>
-	</p:sldMaster>`), defaultThemeColors())
-	style := styles["body"].ParagraphStyles[0]
-	expectedBullet := "▶"
-	if exactFontFamilyAvailable("Wingdings 3") {
-		expectedBullet = "\uf075"
-	}
-	if style.Bullet != expectedBullet {
-		t.Fatalf("unexpected symbol bullet, got %+v", style)
-	}
-	if style.BulletFontFamily != "Wingdings 3" {
-		t.Fatalf("expected paragraph bullet font family, got %+v", style)
-	}
-	if style.FontSize != 1800 {
-		t.Fatalf("expected paragraph defRPr font size, got %+v", style)
-	}
-	if style.FontFamily != "Arial" {
-		t.Fatalf("expected paragraph defRPr font family, got %+v", style)
-	}
-	if style.BulletSizePct != 80000 {
-		t.Fatalf("expected paragraph bullet size percent, got %+v", style)
-	}
-	if !style.HasBold || !style.Bold || !style.HasTextColor || style.TextColor != (color.RGBA{R: 0x11, G: 0x22, B: 0x33, A: 0xff}) {
-		t.Fatalf("expected paragraph defRPr bold and text color, got %+v", style)
-	}
-	if !style.HasBulletColor || style.BulletColor != (color.RGBA{R: 0x70, G: 0xad, B: 0x47, A: 0xff}) {
-		t.Fatalf("expected parsed bullet color, got %+v", style)
-	}
-}
-
-func TestParseTextStylesCapturesBulletFollowTextProperties(t *testing.T) {
-	styles := parseTextStyles([]byte(`<p:sldMaster xmlns:p="p" xmlns:a="a">
-  <p:txStyles>
-    <p:bodyStyle>
-      <a:lvl1pPr>
-        <a:buClrTx/>
-        <a:buFontTx/>
-        <a:buChar char="•"/>
-        <a:defRPr sz="1800"><a:solidFill><a:srgbClr val="112233"/></a:solidFill><a:latin typeface="Arial"/></a:defRPr>
-      </a:lvl1pPr>
-    </p:bodyStyle>
-  </p:txStyles>
-</p:sldMaster>`), defaultThemeColors())
-	style := styles["body"].ParagraphStyles[0]
-	if !style.BulletColorTx || !style.BulletFontTx || style.HasBulletColor || style.BulletFontFamily != "" {
-		t.Fatalf("expected bullet follow-text properties, got %+v", style)
-	}
-}
-
-func TestParseTextStylesCapturesBulletSizeFollowText(t *testing.T) {
-	styles := parseTextStyles([]byte(`<p:sldMaster xmlns:p="p" xmlns:a="a">
-  <p:txStyles>
-    <p:bodyStyle>
-      <a:lvl1pPr>
-        <a:buSzTx/>
-        <a:buChar char="•"/>
-        <a:defRPr sz="2200"/>
-      </a:lvl1pPr>
-    </p:bodyStyle>
-  </p:txStyles>
-</p:sldMaster>`), defaultThemeColors())
-	style := styles["body"].ParagraphStyles[0]
-	if !style.BulletSizeTx || style.BulletFontSize != 0 || style.BulletSizePct != 0 {
-		t.Fatalf("expected buSzTx to make bullet size follow text, got %+v", style)
-	}
-}
-
-func TestParseTextStylesCapturesAutoNumberBulletProperties(t *testing.T) {
-	styles := parseTextStyles([]byte(`<p:sldMaster xmlns:p="p" xmlns:a="a">
-  <p:txStyles>
-    <p:bodyStyle>
-      <a:lvl1pPr>
-        <a:buAutoNum type="arabicParenR" startAt="2"/>
-        <a:defRPr sz="1800"/>
-      </a:lvl1pPr>
-    </p:bodyStyle>
-  </p:txStyles>
-</p:sldMaster>`), defaultThemeColors())
-
-	style := styles["body"].ParagraphStyles[0]
-	if !style.HasAutoNumber || style.AutoNumberType != "arabicParenR" || style.AutoNumberStart != 2 || style.Bullet != "" || style.NoBullet {
-		t.Fatalf("expected auto-number bullet properties, got %+v", style)
-	}
-}
-
-func TestMergeParagraphStyleRespectsAutoNumberPrecedence(t *testing.T) {
-	autoNumber := paragraphStyle{
-		HasAutoNumber:   true,
-		AutoNumberType:  "alphaLcPeriod",
-		AutoNumberStart: 3,
-	}
-
-	fromBase := mergeParagraphStyle(autoNumber, paragraphStyle{})
-	if !fromBase.HasAutoNumber || fromBase.AutoNumberType != "alphaLcPeriod" || fromBase.AutoNumberStart != 3 {
-		t.Fatalf("expected empty override to inherit auto-number style, got %+v", fromBase)
-	}
-
-	explicitBullet := mergeParagraphStyle(autoNumber, paragraphStyle{Bullet: "•"})
-	if explicitBullet.HasAutoNumber || explicitBullet.Bullet != "•" {
-		t.Fatalf("explicit bullet should block inherited auto-number style, got %+v", explicitBullet)
-	}
-
-	autoOverride := mergeParagraphStyle(paragraphStyle{Bullet: "•"}, autoNumber)
-	if !autoOverride.HasAutoNumber || autoOverride.Bullet != "" {
-		t.Fatalf("auto-number override should block inherited bullet style, got %+v", autoOverride)
-	}
-}
-
-func TestMergeParagraphStyleHonorsExplicitNonBoldOverride(t *testing.T) {
-	got := mergeParagraphStyle(
-		paragraphStyle{HasBold: true, Bold: true, HasItalic: true, Italic: true},
-		paragraphStyle{HasBold: true, Bold: false, HasItalic: true, Italic: false},
-	)
-	if !got.HasBold || got.Bold || !got.HasItalic || got.Italic {
-		t.Fatalf("explicit false text style should block inherited true style: %+v", got)
-	}
-}
-
-func TestApplyParagraphStyleHonorsExplicitNonBoldParagraph(t *testing.T) {
-	paragraph := textParagraph{HasBold: true, Bold: false, HasItalic: true, Italic: false}
-	applyParagraphStyle(&paragraph, paragraphStyle{HasBold: true, Bold: true, HasItalic: true, Italic: true})
-	if paragraph.Bold || paragraph.Italic {
-		t.Fatalf("explicit paragraph non-bold/non-italic should block inherited true style: %+v", paragraph)
-	}
-}
-
-func TestApplyParagraphStyleKeepsLocalExplicitBulletProperties(t *testing.T) {
-	paragraph := textParagraph{
-		BulletFontFamily: "Arial",
-		HasBulletColor:   true,
-		BulletColor:      color.RGBA{R: 1, G: 2, B: 3, A: 255},
-	}
-	applyParagraphStyle(&paragraph, paragraphStyle{
-		BulletFontTx:  true,
-		BulletColorTx: true,
-	})
-	if paragraph.BulletFontTx || paragraph.BulletFontFamily != "Arial" {
-		t.Fatalf("local explicit bullet font should win over inherited buFontTx: %+v", paragraph)
-	}
-	if paragraph.BulletColorTx || !paragraph.HasBulletColor || paragraph.BulletColor.R != 1 {
-		t.Fatalf("local explicit bullet color should win over inherited buClrTx: %+v", paragraph)
-	}
-}
-
-func TestApplyParagraphStyleKeepsLocalBulletSizeFollowText(t *testing.T) {
-	paragraph := textParagraph{
-		Bullet:       "•",
-		FontSize:     2200,
-		BulletSizeTx: true,
-	}
-
-	applyParagraphStyle(&paragraph, paragraphStyle{BulletSizePct: 80000})
-
-	if !paragraph.BulletSizeTx || paragraph.BulletSizePct != 0 || paragraph.BulletFontSize != 0 {
-		t.Fatalf("local buSzTx should block inherited bullet size, got %+v", paragraph)
-	}
-	if got := bulletSegmentFontSize(paragraph); got != 2200 {
-		t.Fatalf("buSzTx bullet should follow paragraph font size, got %d", got)
-	}
-}
-
-func TestApplyParagraphStyleInheritsBulletSizeFollowText(t *testing.T) {
-	paragraph := textParagraph{
-		Bullet:   "•",
-		FontSize: 1800,
-	}
-
-	applyParagraphStyle(&paragraph, paragraphStyle{BulletSizeTx: true})
-
-	if !paragraph.BulletSizeTx || paragraph.BulletSizePct != 0 || paragraph.BulletFontSize != 0 {
-		t.Fatalf("expected inherited buSzTx bullet size, got %+v", paragraph)
-	}
-	if got := bulletSegmentFontSize(paragraph); got != 1800 {
-		t.Fatalf("inherited buSzTx bullet should follow paragraph font size, got %d", got)
-	}
-}
-
-func TestTextParagraphsFromNodeUsesParagraphDefaultRunProperties(t *testing.T) {
-	root, err := parseXMLNode([]byte(`<p:txBody xmlns:p="p" xmlns:a="a">
-  <a:p>
-    <a:pPr><a:defRPr sz="1800" b="1"><a:solidFill><a:srgbClr val="336699"/></a:solidFill><a:latin typeface="Arial"/></a:defRPr></a:pPr>
-    <a:r><a:rPr/><a:t>Defaulted</a:t></a:r>
-    <a:r><a:rPr><a:solidFill><a:srgbClr val="FF0000"/></a:solidFill></a:rPr><a:t> Red</a:t></a:r>
-  </a:p>
-</p:txBody>`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	got := textParagraphsFromNode(root)
-	if len(got) != 1 || len(got[0].Runs) != 2 {
-		t.Fatalf("unexpected paragraphs: %+v", got)
-	}
-	if got[0].FontFamily != "Arial" || got[0].FontSize != 1800 || !got[0].Bold || !got[0].HasTextColor || got[0].TextColor != (color.RGBA{R: 0x33, G: 0x66, B: 0x99, A: 0xff}) {
-		t.Fatalf("paragraph default run properties were not applied: %+v", got[0])
-	}
-	defaultSegment := runToSegment(got[0].Runs[0], got[0])
-	if defaultSegment.FontFamily != "Arial" || !defaultSegment.Bold || !defaultSegment.HasTextColor || defaultSegment.TextColor != got[0].TextColor {
-		t.Fatalf("paragraph defaults were not carried to unstyled run: %+v", defaultSegment)
-	}
-	redSegment := runToSegment(got[0].Runs[1], got[0])
-	if !redSegment.HasTextColor || redSegment.TextColor.R != 0xff || redSegment.TextColor.G != 0 || redSegment.TextColor.B != 0 {
-		t.Fatalf("explicit run color should win over paragraph default: %+v", redSegment)
-	}
-}
-
-func TestTextParagraphsFromNodeHonorsExplicitParagraphDefaultNonBold(t *testing.T) {
-	root, err := parseXMLNode([]byte(`<p:txBody xmlns:p="p" xmlns:a="a">
-  <a:lstStyle>
-    <a:lvl1pPr><a:defRPr sz="1800" b="1" i="1"/></a:lvl1pPr>
-  </a:lstStyle>
-  <a:p>
-    <a:pPr><a:defRPr b="0" i="0"/></a:pPr>
-    <a:r><a:rPr/><a:t>Not bold</a:t></a:r>
-  </a:p>
-</p:txBody>`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	got := textParagraphsFromNode(root)
-	if len(got) != 1 {
-		t.Fatalf("unexpected paragraphs: %+v", got)
-	}
-	segment := runToSegment(got[0].Runs[0], got[0])
-	if segment.Bold || segment.Italic {
-		t.Fatalf("explicit paragraph default b=0/i=0 should block inherited true style: %+v", segment)
-	}
-}
-
-func TestTextParagraphsFromNodeDoesNotUseDefaultAlternateTypefaceWithoutRunText(t *testing.T) {
-	root, err := parseXMLNode([]byte(`<p:txBody xmlns:p="p" xmlns:a="a">
-  <a:p>
-    <a:pPr><a:defRPr sz="1800"><a:ea typeface="Arial"/><a:cs typeface="Calibri"/></a:defRPr></a:pPr>
-    <a:r><a:rPr/><a:t>Defaulted</a:t></a:r>
-  </a:p>
-</p:txBody>`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	got := textParagraphsFromNode(root)
-	if len(got) != 1 {
-		t.Fatalf("unexpected paragraphs: %+v", got)
-	}
-	if got[0].FontFamily != "" {
-		t.Fatalf("paragraph default alternate typeface should not apply without script-specific text: %+v", got[0])
-	}
-}
-
-func TestParagraphDefaultRunPropertiesPreserveThemeFontTokens(t *testing.T) {
-	root, err := parseXMLNode([]byte(`<p:txBody xmlns:p="p" xmlns:a="a">
-  <a:p>
-    <a:pPr><a:defRPr sz="1800"><a:latin typeface="+mn-lt"/></a:defRPr></a:pPr>
-    <a:r><a:rPr/><a:t>Defaulted</a:t></a:r>
-  </a:p>
-</p:txBody>`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	got := textParagraphsFromNode(root)
-	if len(got) != 1 {
-		t.Fatalf("unexpected paragraphs: %+v", got)
-	}
-	if got[0].FontFamily != "+mn-lt" {
-		t.Fatalf("theme font token should be preserved until theme resolution: %+v", got[0])
-	}
-}
-
-func TestApplyThemeFontFamiliesResolvesParagraphDefaults(t *testing.T) {
-	got := applyThemeFontFamilies([]slideElement{{
-		Text: "Defaulted",
-		TextParagraphs: []textParagraph{{
-			FontFamily: "Arial",
-			Runs: []textRun{
-				{Text: "Defaulted"},
-				{Text: " Explicit", FontFamily: "+mj-lt"},
-			},
-		}},
-	}}, themeFonts{MajorLatin: "Trebuchet MS", MinorLatin: "Arial"})
-	paragraph := got[0].TextParagraphs[0]
-	if paragraph.FontFamily != "Arial" || paragraph.Runs[1].FontFamily != "Trebuchet MS" {
-		t.Fatalf("theme font families were not resolved: %+v", paragraph)
-	}
-	if segment := runToSegment(paragraph.Runs[0], paragraph); segment.FontFamily != "Arial" {
-		t.Fatalf("paragraph font family was not used for unstyled run: %+v", segment)
-	}
-}
-
-func TestInheritedTextStylesResolveThemeFontFamiliesAfterApplication(t *testing.T) {
-	elements := []slideElement{{
-		Text:            "Title",
-		TextParagraphs:  []textParagraph{{Text: "Title"}},
-		IsPlaceholder:   true,
-		PlaceholderType: "ctrTitle",
-	}}
-	elements = applyInheritedTextStyles(elements, map[string]textStyle{
-		"ctrTitle": {
-			ParagraphStyles: map[int]paragraphStyle{
-				0: {FontFamily: "+mj-lt"},
-			},
-		},
-	})
-	got := applyThemeFontFamilies(elements, themeFonts{MajorLatin: "Calibri Light", MinorLatin: "Calibri"})
-	if got[0].TextParagraphs[0].FontFamily != "Calibri Light" {
-		t.Fatalf("inherited theme font token was not resolved after style application: %+v", got[0].TextParagraphs[0])
-	}
-}
-
-func TestApplyInheritedTextStylesPreservesExplicitParagraphFontSize(t *testing.T) {
-	elements := []slideElement{{
-		Text:            "Nested",
-		TextParagraphs:  []textParagraph{{Text: "Nested", Level: 1, FontSize: 1400}},
-		IsPlaceholder:   true,
-		PlaceholderType: "body",
-	}}
-	got := applyInheritedTextStyles(elements, map[string]textStyle{
-		"body": {
-			ParagraphStyles: map[int]paragraphStyle{
-				1: {FontSize: 1600},
-			},
-		},
-	})
-	if got[0].TextParagraphs[0].FontSize != 1400 {
-		t.Fatalf("inherited paragraph style overrode explicit font size: %+v", got[0].TextParagraphs[0])
-	}
-}
-
-func TestTextRenderLinesCarryParagraphLineSpacing(t *testing.T) {
-	lines := textLayoutStyledParagraphLines(nil, nil, []textParagraph{{
-		Text:           "First",
-		LineSpacingPct: 90000,
-	}}, "", 200, "none")
-	if len(lines) != 1 || lines[0].LineSpacingPct != 90000 {
-		t.Fatalf("expected line spacing on rendered line, got %+v", lines)
-	}
-}
-
-func TestApplyLineSpacingScalesHeight(t *testing.T) {
-	if got := applyLineSpacing(50, 90000); got != 45 {
-		t.Fatalf("unexpected scaled line height: %d", got)
-	}
-	if got := applyLineSpacing(50, 0); got != 50 {
-		t.Fatalf("unexpected default line height: %d", got)
-	}
-}
-
-func TestApplyLineSpacingUsesDrawingMLFontSizeForPercentSpacing(t *testing.T) {
-	if got := applyLineSpacingAtDPI(32, 150000, 1700, 72); got != 26 {
-		t.Fatalf("expected 150%% line spacing from 17pt font size, got %d", got)
-	}
-	if got := applyLineSpacingAtDPI(32, 150000, 1700, 96); got != 35 {
-		t.Fatalf("expected 96-DPI line spacing from 17pt font size, got %d", got)
-	}
-	if got := applyLineSpacingAtDPI(32, 100000, 1700, 72); got != 17 {
-		t.Fatalf("100%% explicit line spacing should use DrawingML font-size spacing, got %d", got)
-	}
-}
-
-func TestVisibleLineAdvanceKeepsTightSpacingFromCollidingGlyphs(t *testing.T) {
-	line := measuredTextLine{Ascent: 22, Descent: 6}
-	if got := visibleLineAdvance(22, line); got != 28 {
-		t.Fatalf("line advance shorter than ink extents should grow to 28, got %d", got)
-	}
-	if got := visibleLineAdvance(32, line); got != 32 {
-		t.Fatalf("line advance taller than ink extents should be preserved, got %d", got)
-	}
-}
-
-func TestParseSpacingPercentAcceptsDrawingMLPercentString(t *testing.T) {
-	root, err := parseXMLNode([]byte(`<a:lnSpc xmlns:a="a"><a:spcPct val="92.5%"/></a:lnSpc>`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := parseSpacingPercent(root); got != 92500 {
-		t.Fatalf("expected DrawingML percent string to parse as thousandths, got %d", got)
-	}
-
-	root, err = parseXMLNode([]byte(`<a:spcBef xmlns:a="a"><a:spcPct val="110%"/></a:spcBef>`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, pct := parseSpacingValue(root)
-	if pct != 110000 {
-		t.Fatalf("expected paragraph spacing percent string to parse as thousandths, got %d", pct)
-	}
-}
-
-func TestParagraphSpacingPercentPixelsScalesFontSize(t *testing.T) {
-	if got := paragraphSpacingPercentPixels(90000, 2000); got != 18 {
-		t.Fatalf("expected 90%% paragraph spacing from 20pt text, got %d", got)
-	}
-	if got := paragraphSpacingPercentPixelsAtDPI(110000, 1800, 96); got != 26 {
-		t.Fatalf("expected 110%% paragraph spacing from 18pt text at 96 DPI, got %d", got)
-	}
-	if got := paragraphSpacingPercentPixels(0, 2000); got != 0 {
-		t.Fatalf("expected zero paragraph spacing, got %d", got)
-	}
-}
-
-func TestTextCharacterSpacingUsesDrawingMLTextPointUnits(t *testing.T) {
-	if got := textCharacterSpacingPixelsAtDPI(100, 72); got != 1 {
-		t.Fatalf("expected one point of character spacing to equal one pixel at 72 DPI, got %d", got)
-	}
-	if got := textCharacterSpacingPixelsAtDPI(150, 96); got != 2 {
-		t.Fatalf("expected 1.5 points of character spacing to round at 96 DPI, got %d", got)
-	}
-	if got := textCharacterSpacingAdvance("ABC", 2); got != 4 {
-		t.Fatalf("expected spacing between characters only, got %d", got)
-	}
-}
-
-type testKerningFace struct {
-	font.Face
-}
-
-func (face testKerningFace) Kern(r0 rune, r1 rune) fixed.Int26_6 {
-	return fixed.I(4)
-}
-
-func TestFaceWithSegmentKerningHonorsDrawingMLKernThreshold(t *testing.T) {
-	base := basicfont.Face7x13
-	kerned := testKerningFace{Face: base}
-	unrestricted := textLineSegment{Text: "AV", FontSize: 1100}
-	disabled := textLineSegment{Text: "AV", FontSize: 1100, HasKern: true, KernMinFontSize: 1200}
-	enabled := textLineSegment{Text: "AV", FontSize: 1200, HasKern: true, KernMinFontSize: 1200}
-
-	baseWidth := measureString(base, "AV")
-	if got := measureString(faceWithSegmentKerning(kerned, unrestricted), "AV"); got == baseWidth {
-		t.Fatalf("expected default font kerning to remain active, got width %d", got)
-	}
-	if got := measureString(faceWithSegmentKerning(kerned, disabled), "AV"); got != baseWidth {
-		t.Fatalf("expected DrawingML kern threshold to disable kerning below 12pt, got width %d want %d", got, baseWidth)
-	}
-	if got := measureString(faceWithSegmentKerning(kerned, enabled), "AV"); got == baseWidth {
-		t.Fatalf("expected DrawingML kern threshold to allow kerning at 12pt, got width %d", got)
-	}
-}
-
-func TestTextRunFromNodeReadsDrawingMLKernThreshold(t *testing.T) {
-	root, err := parseXMLNode([]byte(`<a:r xmlns:a="a"><a:rPr kern="1200"/><a:t>AV</a:t></a:r>`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	got := textRunFromNode(root, "AV")
-	if !got.HasKern || got.KernMinFontSize != 1200 {
-		t.Fatalf("expected run kern threshold to be parsed, got %+v", got)
-	}
-}
-
-func TestMeasureStyledSegmentsIncludesCharacterSpacing(t *testing.T) {
-	faces := newFontFaceCache(false, "Carlito")
-	defer faces.Close()
-	face, err := faces.Get(1800, false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	base := measureString(face, "ABC")
-	got, err := measureStyledSegmentsAtDPI(faces, face, face, []textLineSegment{{Text: "ABC", FontSize: 1800, CharSpacing: 100}}, 72)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got != base+2 {
-		t.Fatalf("expected two character-spacing advances for three characters, got %d want %d", got, base+2)
-	}
-}
-
-func TestLineFontSizeUsesLargestSegmentFontSize(t *testing.T) {
-	got := lineFontSize(textRenderLine{FontSize: 1200, Segments: []textLineSegment{
-		{Text: "small", FontSize: 1000},
-		{Text: "large", FontSize: 2200},
-		{Text: "fallback"},
-	}}, 1800)
-	if got != 2200 {
-		t.Fatalf("expected largest explicit segment font size, got %d", got)
-	}
-}
-
-func TestMeasureTextRenderLinesUsesFontLineMetricHeight(t *testing.T) {
-	faces := newFontFaceCache(false, "")
-	defer faces.Close()
-
-	face, err := faces.Get(1800, false, false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	metrics := face.Metrics()
-	want := defaultLineMetricHeight(metrics)
-
-	got, err := measureTextRenderLines(faces, []textRenderLine{{Text: "A", FontSize: 1800}}, 1800)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(got) != 1 || got[0].Height != want {
-		t.Fatalf("expected font line metric height %d, got %+v", want, got)
-	}
-}
-
 func TestTextBoundsAppliesBodyInsets(t *testing.T) {
 	got := textBounds(
 		image.Rect(0, 0, 200, 100),
@@ -4509,6 +3838,34 @@ func TestWrapTextWithPrefixesPreservesAuthoredSpaces(t *testing.T) {
 	}
 }
 
+func TestWrapTextWithPrefixesBreaksAfterAuthoredHyphen(t *testing.T) {
+	face, err := openFontFace(1800, false, false, 0, "Arial")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer face.Close()
+
+	width := maxInt(measureString(face, "alpha treatment-"), measureString(face, "adjusted prevalence")) + 2
+	lines := wrapTextWithPrefixes(face, "alpha treatment-adjusted prevalence", width, "", "")
+	if len(lines) != 2 || lines[0] != "alpha treatment-" || lines[1] != "adjusted prevalence" {
+		t.Fatalf("expected authored hyphen to provide a wrap point, got %+v", lines)
+	}
+}
+
+func TestWrapTextWithPrefixesBreaksAfterAuthoredSlash(t *testing.T) {
+	face, err := openFontFace(1600, false, false, 0, "Arial")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer face.Close()
+
+	width := maxInt(measureString(face, "Emission Rate PM2.5 (g/"), measureString(face, "hr)")) + 2
+	lines := wrapTextWithPrefixes(face, "Emission Rate PM2.5 (g/hr)", width, "", "")
+	if len(lines) != 2 || lines[0] != "Emission Rate PM2.5 (g/" || lines[1] != "hr)" {
+		t.Fatalf("expected authored slash to provide a wrap point, got %+v", lines)
+	}
+}
+
 func TestTextRenderLinesForElementKeepsMixedRunSegments(t *testing.T) {
 	faces := newFontFaceCache(false, "")
 	defer faces.Close()
@@ -4566,6 +3923,45 @@ func TestTextRenderLinesForElementPreservesLeadingSpacesWhenLineFits(t *testing.
 	}
 	if len(lines) != 1 || len(lines[0].Segments) != 1 || lines[0].Segments[0].Text != "     Padded heading" {
 		t.Fatalf("expected leading spaces to stay in the rendered segment, got %+v", lines)
+	}
+}
+
+func TestTextRenderLinesForElementAppliesElementTextColorToStyledRuns(t *testing.T) {
+	faces := newFontFaceCache(false, "")
+	defer faces.Close()
+	face, err := faces.Get(3600, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	boldFace, err := faces.Get(3600, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines, err := textRenderLinesForElement(faces, face, boldFace, slideElement{
+		FontSize:     3600,
+		HasTextColor: true,
+		TextColor:    color.RGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff},
+		TextParagraphs: []textParagraph{{
+			FontSize: 3600,
+			Runs: []textRun{
+				{Text: "Defaulted", FontSize: 3600},
+				{Text: " Direct", FontSize: 3600, HasTextColor: true, TextColor: color.RGBA{R: 0xff, A: 0xff}},
+			},
+		}},
+	}, 1200)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(lines) != 1 || len(lines[0].Segments) != 2 {
+		t.Fatalf("expected two styled run segments, got %+v", lines)
+	}
+	defaultSegment := lines[0].Segments[0]
+	if !defaultSegment.HasTextColor || defaultSegment.TextColor != (color.RGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff}) {
+		t.Fatalf("expected uncolored run to inherit element text color, got %+v", defaultSegment)
+	}
+	directSegment := lines[0].Segments[1]
+	if !directSegment.HasTextColor || directSegment.TextColor != (color.RGBA{R: 0xff, A: 0xff}) {
+		t.Fatalf("expected explicit run color to win over element text color, got %+v", directSegment)
 	}
 }
 
@@ -4638,6 +4034,11 @@ func TestTextRenderLinesForElementAppliesBulletFontFamily(t *testing.T) {
 	wingdings := appendPrefixSegment("¬ ", textParagraph{Bullet: "¬", BulletFontFamily: "Wingdings", FontSize: 1800}, nil)
 	if len(wingdings) < 1 || wingdings[0].FontFamily != "" {
 		t.Fatalf("unexpected Wingdings bullet font family, got %+v", wingdings)
+	}
+
+	wingdingsSquare := appendPrefixSegment("▪ ", textParagraph{Bullet: "▪", BulletFontFamily: "Wingdings", FontSize: 1800}, nil)
+	if len(wingdingsSquare) < 1 || wingdingsSquare[0].FontFamily != "" {
+		t.Fatalf("unexpected Wingdings square bullet font family, got %+v", wingdingsSquare)
 	}
 }
 
@@ -4959,6 +4360,26 @@ func TestStyledWordTokensPreservesRunBoundaryWithoutInventedSpace(t *testing.T) 
 	}
 	if tokens[1].segmentWithPrefix(true).Text != "light" {
 		t.Fatalf("expected run boundary without whitespace to stay unspaced, got %+v", tokens)
+	}
+}
+
+func TestStyledWordTokensExposeHyphenWrapPoint(t *testing.T) {
+	tokens := styledWordTokens([]textRun{{Text: "treatment-adjusted prevalence"}}, textParagraph{FontSize: 1800})
+	if len(tokens) != 3 {
+		t.Fatalf("unexpected hyphen token count: %+v", tokens)
+	}
+	if tokens[0].segmentWithPrefix(false).Text != "treatment-" || tokens[1].segmentWithPrefix(true).Text != "adjusted" || tokens[2].segmentWithPrefix(true).Text != " prevalence" {
+		t.Fatalf("expected authored hyphen to become a wrap point without adding spaces, got %+v", tokens)
+	}
+}
+
+func TestStyledWordTokensExposeSlashWrapPoint(t *testing.T) {
+	tokens := styledWordTokens([]textRun{{Text: "PM2.5 (g/hr)"}}, textParagraph{FontSize: 1600})
+	if len(tokens) != 3 {
+		t.Fatalf("unexpected slash token count: %+v", tokens)
+	}
+	if tokens[0].segmentWithPrefix(false).Text != "PM2.5" || tokens[1].segmentWithPrefix(true).Text != " (g/" || tokens[2].segmentWithPrefix(true).Text != "hr)" {
+		t.Fatalf("expected authored slash to become a wrap point without adding spaces, got %+v", tokens)
 	}
 }
 
@@ -5482,7 +4903,7 @@ func TestDrawShapeTextWrapsAndCenters(t *testing.T) {
 	}
 }
 
-func TestAnchorCenteredTextBoundsCentersSmallestTextBox(t *testing.T) {
+func TestAnchorCenteredTextBoundsCentersNarrowTextBox(t *testing.T) {
 	got := anchorCenteredTextBounds(image.Rect(10, 20, 210, 80), 60)
 	want := image.Rect(80, 20, 140, 80)
 	if got != want {
@@ -6694,6 +6115,8 @@ func TestResolveSlidePlaceholdersInheritsUnspecifiedBodyTextProperties(t *testin
 			TextBodyRotation:          5400000,
 			HasTextColumns:            true,
 			TextColumnCount:           2,
+			HasTextRightToLeftColumns: true,
+			TextRightToLeftColumns:    true,
 			HasTextAnchorCenter:       true,
 			TextAnchorCenter:          true,
 			HasFirstLastSpacing:       true,
@@ -6708,7 +6131,7 @@ func TestResolveSlidePlaceholdersInheritsUnspecifiedBodyTextProperties(t *testin
 	if got[0].TextVerticalOverflow != "clip" || !got[0].HasTextHorizontalOverflow || got[0].TextHorizontalOverflow != "overflow" {
 		t.Fatalf("local vertical overflow should block inherited value while missing horizontal overflow inherits: %+v", got[0])
 	}
-	if got[0].TextVertical != "eaVert" || !got[0].HasTextBodyRotation || got[0].TextBodyRotation != 5400000 || !got[0].HasTextColumns || got[0].TextColumnCount != 2 || !got[0].TextAnchorCenter {
+	if got[0].TextVertical != "eaVert" || !got[0].HasTextBodyRotation || got[0].TextBodyRotation != 5400000 || !got[0].HasTextColumns || got[0].TextColumnCount != 2 || !got[0].HasTextRightToLeftColumns || !got[0].TextRightToLeftColumns || !got[0].TextAnchorCenter {
 		t.Fatalf("unspecified body text properties were not inherited: %+v", got[0])
 	}
 }
@@ -7132,206 +6555,6 @@ func TestParseSlideElementReadsOuterShadowEffect(t *testing.T) {
 	}
 }
 
-func TestParseTextStylesReadsMasterTitleDefaults(t *testing.T) {
-	styles := parseTextStyles([]byte(`<p:sldMaster xmlns:p="p" xmlns:a="a">
-	  <p:txStyles>
-    <p:titleStyle>
-      <a:lvl1pPr algn="ctr">
-        <a:defRPr sz="4400" b="1">
-          <a:solidFill><a:srgbClr val="0070C0"/></a:solidFill>
-        </a:defRPr>
-      </a:lvl1pPr>
-    </p:titleStyle>
-  </p:txStyles>
-</p:sldMaster>`), defaultThemeColors())
-	got, ok := styles["ctrTitle"]
-	if !ok {
-		t.Fatalf("expected ctrTitle style, got %+v", styles)
-	}
-	if got.FontSize != 4400 || !got.Bold || got.TextAlign != "ctr" || !got.HasTextColor || got.TextColor.R != 0x00 || got.TextColor.G != 0x70 || got.TextColor.B != 0xc0 {
-		t.Fatalf("unexpected parsed title style: %+v", got)
-	}
-}
-
-func TestApplyInheritedTextStylesDoesNotOverrideExplicitRunSize(t *testing.T) {
-	elements := []slideElement{{
-		Text:            "Title",
-		IsPlaceholder:   true,
-		PlaceholderType: "ctrTitle",
-		FontSize:        3200,
-	}}
-	got := applyInheritedTextStyles(elements, map[string]textStyle{
-		"ctrTitle": {
-			FontSize:     4400,
-			HasTextColor: true,
-			TextColor:    color.RGBA{B: 255, A: 255},
-			TextAlign:    "ctr",
-		},
-	})
-	if got[0].FontSize != 3200 {
-		t.Fatalf("inherited style overrode explicit font size: %+v", got[0])
-	}
-	if !got[0].HasTextColor || got[0].TextColor.B != 255 || got[0].TextAlign != "ctr" {
-		t.Fatalf("inherited missing properties were not applied: %+v", got[0])
-	}
-}
-
-func TestApplyInheritedTextStylesAppliesTitleButSkipsBodyPlaceholders(t *testing.T) {
-	elements := []slideElement{
-		{
-			Text:            "Title",
-			TextParagraphs:  []textParagraph{{Text: "Title"}},
-			IsPlaceholder:   true,
-			PlaceholderType: "title",
-		},
-		{
-			Text:            "Body",
-			IsPlaceholder:   true,
-			PlaceholderType: "body",
-		},
-	}
-	got := applyInheritedTextStyles(elements, map[string]textStyle{
-		"title": {
-			FontSize:     4400,
-			Bold:         true,
-			HasTextColor: true,
-			TextColor:    color.RGBA{B: 255, A: 255},
-			ParagraphStyles: map[int]paragraphStyle{
-				0: {HasLineSpacing: true, LineSpacingPct: 90000},
-			},
-		},
-		"body": {
-			FontSize:     2800,
-			HasTextColor: true,
-			TextColor:    color.RGBA{R: 255, A: 255},
-		},
-	})
-	if got[0].FontSize != 4400 || !got[0].HasTextColor || got[0].TextColor.B != 255 || !got[0].TextParagraphs[0].Bold || got[0].TextParagraphs[0].LineSpacingPct != 90000 {
-		t.Fatalf("title placeholder was not styled by inherited title fallback: %+v", got)
-	}
-	if got[1].FontSize != 0 || got[1].HasTextColor {
-		t.Fatalf("body placeholder was unexpectedly styled by title-only fallback: %+v", got)
-	}
-}
-
-func TestInheritedTextStylesUsePresentationDefaultAsBase(t *testing.T) {
-	pkg := &pptx.Package{
-		PresentationPath: "ppt/presentation.xml",
-		Parts: map[string][]byte{
-			"ppt/presentation.xml": []byte(`<p:presentation xmlns:p="p" xmlns:a="a">
-			  <p:defaultTextStyle>
-			    <a:lvl1pPr marR="914400"><a:defRPr sz="1400"><a:solidFill><a:srgbClr val="112233"/></a:solidFill><a:latin typeface="Arial"/></a:defRPr></a:lvl1pPr>
-			  </p:defaultTextStyle>
-			</p:presentation>`),
-			"ppt/slideMasters/slideMaster1.xml": []byte(`<p:sldMaster xmlns:p="p" xmlns:a="a">
-			  <p:txStyles><p:otherStyle><a:lvl1pPr algn="ctr"><a:defRPr sz="1800"/></a:lvl1pPr></p:otherStyle></p:txStyles>
-			</p:sldMaster>`),
-			"ppt/slides/slide1.xml": []byte(`<p:sld xmlns:p="p" xmlns:a="a"/>`),
-		},
-	}
-
-	styles := inheritedTextStylesWithThemeResolver(pkg, []string{"ppt/slideMasters/slideMaster1.xml", "ppt/slides/slide1.xml"}, "ppt/slides/slide1.xml", func(string) themeColors {
-		return defaultThemeColors()
-	})
-	style := styles["default"].ParagraphStyles[0]
-	if style.FontSize != 1800 || style.TextAlign != "ctr" {
-		t.Fatalf("master style should override presentation default font size and alignment, got %+v", style)
-	}
-	if !style.HasMarginRight || style.MarginRight != 914400 || style.FontFamily != "Arial" || !style.HasTextColor || style.TextColor != (color.RGBA{R: 0x11, G: 0x22, B: 0x33, A: 255}) {
-		t.Fatalf("presentation default properties should remain as base values, got %+v", style)
-	}
-}
-
-func TestParseBodyPropertiesReadsTextAnchor(t *testing.T) {
-	root, err := parseXMLNode([]byte(`<a:bodyPr xmlns:a="a" anchor="ctr" wrap="square" horzOverflow="clip" vertOverflow="overflow" vert="eaVert" rot="5400000" numCol="2" anchorCtr="1" spcFirstLastPara="1"><a:spAutoFit/><a:normAutofit fontScale="85000" lnSpcReduction="20000"/></a:bodyPr>`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var element slideElement
-	parseBodyProperties(root, &element)
-	if element.TextAnchor != "ctr" || !element.HasTextWrap || element.TextWrap != "square" {
-		t.Fatalf("unexpected body properties: %+v", element)
-	}
-	if !element.HasTextHorizontalOverflow || element.TextHorizontalOverflow != "clip" || !element.HasTextVerticalOverflow || element.TextVerticalOverflow != "overflow" {
-		t.Fatalf("expected text overflow properties: %+v", element)
-	}
-	if !element.HasTextVertical || element.TextVertical != "eaVert" || !element.HasTextBodyRotation || element.TextBodyRotation != 5400000 || !element.HasTextColumns || element.TextColumnCount != 2 || !element.HasTextAnchorCenter || !element.TextAnchorCenter {
-		t.Fatalf("expected text layout body properties: %+v", element)
-	}
-	if !element.HasFirstLastSpacing || !element.IncludeFirstLastSpacing {
-		t.Fatalf("expected first/last paragraph spacing flag: %+v", element)
-	}
-	if !element.HasNormAutofit {
-		t.Fatalf("expected normal autofit to be detected: %+v", element)
-	}
-	if !element.HasShapeAutofit {
-		t.Fatalf("expected shape autofit to be detected: %+v", element)
-	}
-	if !element.HasFontScalePct || element.FontScalePct != 85000 {
-		t.Fatalf("unexpected autofit font scale: %+v", element)
-	}
-	if !element.HasLineSpacingReductionPct || element.LineSpacingReductionPct != 20000 {
-		t.Fatalf("unexpected autofit line spacing reduction: %+v", element)
-	}
-}
-
-func TestParseBodyPropertiesReadsNormalAutofitPercentStrings(t *testing.T) {
-	root, err := parseXMLNode([]byte(`<a:bodyPr xmlns:a="a"><a:normAutofit fontScale="92.000%" lnSpcReduction="20%"/></a:bodyPr>`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var element slideElement
-	parseBodyProperties(root, &element)
-	if !element.HasNormAutofit || !element.HasFontScalePct || element.FontScalePct != 92000 {
-		t.Fatalf("expected normal-autofit fontScale percent string to parse, got %+v", element)
-	}
-	if !element.HasLineSpacingReductionPct || element.LineSpacingReductionPct != 20000 {
-		t.Fatalf("expected normal-autofit line-spacing reduction percent string to parse, got %+v", element)
-	}
-}
-
-func TestParseBodyPropertiesReadsExplicitFirstLastSpacingOff(t *testing.T) {
-	root, err := parseXMLNode([]byte(`<a:bodyPr xmlns:a="a" spcFirstLastPara="0"/>`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var element slideElement
-	parseBodyProperties(root, &element)
-	if !element.HasFirstLastSpacing || element.IncludeFirstLastSpacing {
-		t.Fatalf("expected explicit false first/last paragraph spacing flag: %+v", element)
-	}
-}
-
-func TestParseBodyPropertiesReadsNoAutofitChoice(t *testing.T) {
-	root, err := parseXMLNode([]byte(`<a:bodyPr xmlns:a="a"><a:noAutofit/></a:bodyPr>`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var element slideElement
-	parseBodyProperties(root, &element)
-	if !element.HasBodyProperties || !element.HasNoAutofit {
-		t.Fatalf("expected explicit DrawingML noAutofit state, got %+v", element)
-	}
-	if element.HasShapeAutofit || element.HasNormAutofit || element.HasFontScalePct || element.FontScalePct != 0 || element.HasLineSpacingReductionPct || element.LineSpacingReductionPct != 0 {
-		t.Fatalf("noAutofit should not leave active autofit properties, got %+v", element)
-	}
-}
-
-func TestParseBodyPropertiesNoAutofitSuppressesOtherAutofitChoices(t *testing.T) {
-	root, err := parseXMLNode([]byte(`<a:bodyPr xmlns:a="a"><a:spAutoFit/><a:normAutofit fontScale="85000" lnSpcReduction="20000"/><a:noAutofit/></a:bodyPr>`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var element slideElement
-	parseBodyProperties(root, &element)
-	if !element.HasNoAutofit {
-		t.Fatalf("expected explicit noAutofit state, got %+v", element)
-	}
-	if element.HasShapeAutofit || element.HasNormAutofit || element.HasFontScalePct || element.FontScalePct != 0 || element.HasLineSpacingReductionPct || element.LineSpacingReductionPct != 0 {
-		t.Fatalf("noAutofit should win over other malformed autofit choices, got %+v", element)
-	}
-}
-
 func TestRenderShapeDoesNotReportSimpleTextAsSimplifiedLayout(t *testing.T) {
 	size := slideSize{CX: emuPerInch, CY: emuPerInch}
 	img := image.NewRGBA(image.Rect(0, 0, 96, 96))
@@ -7452,6 +6675,7 @@ func TestRenderShapeReportsSpecificUnsupportedTextLayoutFeatures(t *testing.T) {
 		TextBodyRotation:    5400000,
 		TextColumnCount:     2,
 		TextAnchorCenter:    true,
+		Text3DFeatures:      []string{"text 3-D top bevel"},
 		TextParagraphs: []textParagraph{{
 			Text:     "Ready",
 			FontSize: 1800,
@@ -7464,7 +6688,7 @@ func TestRenderShapeReportsSpecificUnsupportedTextLayoutFeatures(t *testing.T) {
 		t.Fatalf("expected text to still render best-effort, got rendered=%v", element.Rendered)
 	}
 	got := unsupportedMessages(unsupported)
-	for _, want := range []string{"vertical mode", "rotation", "columns"} {
+	for _, want := range []string{"vertical mode", "rotation", "columns", "text 3-D top bevel"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("expected %q in unsupported messages, got %s", want, got)
 		}
@@ -7662,390 +6886,6 @@ func unsupportedMessages(items []model.SkipItem) string {
 	return strings.Join(messages, "; ")
 }
 
-func TestShapeAutofitTargetExpandsHeightForText(t *testing.T) {
-	got, err := shapeAutofitTarget(slideElement{
-		HasShapeAutofit: true,
-		Text:            "First\nSecond",
-		FontSize:        4800,
-		TextParagraphs: []textParagraph{{
-			Text:     "First",
-			FontSize: 4800,
-			Runs:     []textRun{{Text: "First", FontSize: 4800}},
-		}, {
-			Text:     "Second",
-			FontSize: 4800,
-			Runs:     []textRun{{Text: "Second", FontSize: 4800}},
-		}},
-	}, image.Rect(10, 20, 210, 30), slideSize{CX: 12192000, CY: 6858000}, image.Rect(0, 0, 960, 540))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.Dy() <= 10 {
-		t.Fatalf("expected shape target to grow, got %+v", got)
-	}
-	if got.Min.Y != 20 || got.Min.X != 10 || got.Max.X != 210 {
-		t.Fatalf("unexpected horizontal or top adjustment: %+v", got)
-	}
-}
-
-func TestShapeAutofitTargetShrinksHeightToText(t *testing.T) {
-	got, err := shapeAutofitTarget(slideElement{
-		HasShapeAutofit: true,
-		Text:            "Short",
-		FontSize:        1800,
-		TextParagraphs: []textParagraph{{
-			Text:     "Short",
-			FontSize: 1800,
-			Runs:     []textRun{{Text: "Short", FontSize: 1800}},
-		}},
-	}, image.Rect(10, 20, 210, 220), slideSize{CX: 12192000, CY: 6858000}, image.Rect(0, 0, 960, 540))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.Dy() >= 200 || got.Dy() <= 0 {
-		t.Fatalf("expected shape target to shrink to measured text, got %+v", got)
-	}
-	if got.Min.Y != 20 || got.Min.X != 10 || got.Max.X != 210 {
-		t.Fatalf("unexpected horizontal or top adjustment: %+v", got)
-	}
-}
-
-func TestShapeAutofitTargetExpandsNoWrapWidthForText(t *testing.T) {
-	got, err := shapeAutofitTarget(slideElement{
-		HasShapeAutofit: true,
-		TextWrap:        "none",
-		Text:            "This heading is intentionally wider than the original box",
-		FontSize:        2400,
-		TextParagraphs: []textParagraph{{
-			Text:     "This heading is intentionally wider than the original box",
-			FontSize: 2400,
-			Runs:     []textRun{{Text: "This heading is intentionally wider than the original box", FontSize: 2400}},
-		}},
-	}, image.Rect(10, 20, 90, 70), slideSize{CX: 12192000, CY: 6858000}, image.Rect(0, 0, 960, 540))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.Dx() <= 80 {
-		t.Fatalf("expected no-wrap shape target to grow horizontally, got %+v", got)
-	}
-	if got.Min.X != 10 || got.Min.Y != 20 {
-		t.Fatalf("unexpected top-left adjustment: %+v", got)
-	}
-}
-
-func TestShapeAutofitTargetDoesNotExpandWrappedWidth(t *testing.T) {
-	got, err := shapeAutofitTarget(slideElement{
-		HasShapeAutofit: true,
-		TextWrap:        "square",
-		Text:            "This heading is intentionally wider than the original box",
-		FontSize:        2400,
-		TextParagraphs: []textParagraph{{
-			Text:     "This heading is intentionally wider than the original box",
-			FontSize: 2400,
-			Runs:     []textRun{{Text: "This heading is intentionally wider than the original box", FontSize: 2400}},
-		}},
-	}, image.Rect(10, 20, 90, 70), slideSize{CX: 12192000, CY: 6858000}, image.Rect(0, 0, 960, 540))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.Min.X != 10 || got.Max.X != 90 {
-		t.Fatalf("expected wrapped shape target to preserve horizontal bounds, got %+v", got)
-	}
-}
-
-func TestFitNormalAutofitElementScalesTextToBounds(t *testing.T) {
-	got := fitNormalAutofitElement(slideElement{
-		HasNormAutofit:  true,
-		PlaceholderType: "title",
-		FontScalePct:    90000,
-		FontSize:        4000,
-		TextParagraphs: []textParagraph{{
-			Text:     "Wide Heading With Several Words",
-			FontSize: 4000,
-			Runs: []textRun{{
-				Text:     "Wide Heading With Several Words",
-				FontSize: 4000,
-			}},
-		}},
-	}, image.Rect(0, 0, 420, 65))
-	if got.FontScalePct == 0 || got.FontScalePct >= 90000 {
-		t.Fatalf("expected normal autofit to select a reduced font scale, got %+v", got)
-	}
-}
-
-func TestFitNormalAutofitElementUsesAuthoredScaleAsProbeStart(t *testing.T) {
-	got := fitNormalAutofitElement(slideElement{
-		HasNormAutofit:  true,
-		HasFontScalePct: true,
-		FontScalePct:    90000,
-		FontFamily:      "Carlito",
-		FontSize:        4000,
-		TextParagraphs: []textParagraph{{
-			Text:     "Wide Heading With Several Words",
-			FontSize: 4000,
-			Runs: []textRun{{
-				Text:     "Wide Heading With Several Words",
-				FontSize: 4000,
-			}},
-		}},
-	}, image.Rect(0, 0, 420, 65))
-	if got.FontScalePct == 0 || got.FontScalePct > 90000 {
-		t.Fatalf("authored normal-autofit fontScale should cap the probe start, got %+v", got)
-	}
-}
-
-func TestFitNormalAutofitElementCanScaleBelowFiftyPercent(t *testing.T) {
-	got := fitNormalAutofitElement(slideElement{
-		HasNormAutofit: true,
-		FontFamily:     "Carlito",
-		FontSize:       4000,
-		TextWrap:       "none",
-		TextParagraphs: []textParagraph{{
-			Text:     "Wide Heading With Several Words",
-			FontSize: 4000,
-			Runs: []textRun{{
-				Text:     "Wide Heading With Several Words",
-				FontSize: 4000,
-			}},
-		}},
-	}, image.Rect(0, 0, 180, 30))
-	if got.FontScalePct >= 50000 || got.FontScalePct < minimumNormalAutofitFontScalePct {
-		t.Fatalf("expected normal autofit to use the supported scale range below 50%%, got %+v", got)
-	}
-	if !textFitsAtScale(got, image.Rect(0, 0, 180, 30), got.FontScalePct, normalAutofitMaxSoftLines(got), defaultOutputDPI) {
-		t.Fatalf("selected scale should fit in the target bounds, got %+v", got)
-	}
-}
-
-func TestFitNormalAutofitElementSelectsLargestFittingScale(t *testing.T) {
-	element := slideElement{
-		HasNormAutofit: true,
-		FontFamily:     "Carlito",
-		FontSize:       4000,
-		TextWrap:       "none",
-		TextParagraphs: []textParagraph{{
-			Text:     "Wide Heading With Several Words",
-			FontSize: 4000,
-			Runs: []textRun{{
-				Text:     "Wide Heading With Several Words",
-				FontSize: 4000,
-			}},
-		}},
-	}
-	bounds := image.Rect(0, 0, 180, 30)
-	got := fitNormalAutofitElement(element, bounds)
-
-	if got.FontScalePct <= minimumNormalAutofitFontScalePct || got.FontScalePct >= 100000 {
-		t.Fatalf("expected a derived normal-autofit scale within supported bounds, got %+v", got)
-	}
-	if !textFitsAtScale(got, bounds, got.FontScalePct, normalAutofitMaxSoftLines(got), defaultOutputDPI) {
-		t.Fatalf("selected normal-autofit scale should fit, got %+v", got)
-	}
-	if textFitsAtScale(got, bounds, got.FontScalePct+1, normalAutofitMaxSoftLines(got), defaultOutputDPI) {
-		t.Fatalf("selected normal-autofit scale should be the largest fitting scale, got %+v", got)
-	}
-}
-
-func TestFitNormalAutofitElementPreservesAuthoredLineSpacingReduction(t *testing.T) {
-	got := fitNormalAutofitElement(slideElement{
-		HasNormAutofit:             true,
-		HasLineSpacingReductionPct: true,
-		LineSpacingReductionPct:    10000,
-		FontFamily:                 "Carlito",
-		FontSize:                   2400,
-		TextWrap:                   "square",
-		TextParagraphs: []textParagraph{{
-			Text:           "Short body",
-			FontSize:       2400,
-			LineSpacingPct: 90000,
-			Runs: []textRun{{
-				Text:     "Short body",
-				FontSize: 2400,
-			}},
-		}},
-	}, image.Rect(0, 0, 500, 100))
-	if !got.HasLineSpacingReductionPct || got.LineSpacingReductionPct != 10000 {
-		t.Fatalf("authored line spacing reduction should be preserved: %+v", got)
-	}
-}
-
-func TestNormalAutofitMaxSoftLinesHonorsWrapNoneAndHardBreaks(t *testing.T) {
-	if got := normalAutofitMaxSoftLines(slideElement{
-		TextWrap: "square",
-		Text:     "Single line title",
-		TextParagraphs: []textParagraph{{
-			Text: "Single line title",
-			Runs: []textRun{{Text: "Single line title"}},
-		}},
-	}); got != 0 {
-		t.Fatalf("wrapping text without hard breaks should not cap soft lines, got %d", got)
-	}
-	if got := normalAutofitMaxSoftLines(slideElement{
-		TextWrap: "none",
-		Text:     "Single line title",
-		TextParagraphs: []textParagraph{{
-			Text: "Single line title",
-			Runs: []textRun{{Text: "Single line title"}},
-		}},
-	}); got != 1 {
-		t.Fatalf(`expected wrap="none" text without hard breaks to require single-line fit, got %d`, got)
-	}
-	if got := normalAutofitMaxSoftLines(slideElement{
-		TextWrap: "square",
-		Text:     "Line one\nLine two",
-		TextParagraphs: []textParagraph{{
-			Text: "Line one\nLine two",
-			Runs: []textRun{{Text: "Line one\nLine two"}},
-		}},
-	}); got != 2 {
-		t.Fatalf("hard breaks should cap normal-autofit soft lines to authored line count, got %d", got)
-	}
-}
-
-func TestTextRenderLinesPreserveDrawingMLBreakRuns(t *testing.T) {
-	root, err := parseXMLNode([]byte(`<p:txBody xmlns:p="p" xmlns:a="a"><a:bodyPr><a:normAutofit/></a:bodyPr><a:lstStyle/><a:p><a:r><a:rPr sz="4400"/><a:t> Welcome to </a:t></a:r><a:br><a:rPr sz="4400"/></a:br><a:r><a:rPr sz="4400"/><a:t>GENERATE: The Game of Energy Choices</a:t></a:r></a:p></p:txBody>`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	paragraphs := textParagraphsFromNode(root)
-	faces := newFontFaceCache(false, "Carlito")
-	defer faces.Close()
-	face, err := faces.Get(4400, false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	boldFace, err := faces.Get(4400, true)
-	if err != nil {
-		t.Fatal(err)
-	}
-	lines, err := textRenderLinesForElement(faces, face, boldFace, slideElement{TextParagraphs: paragraphs, FontSize: 4400}, 900)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(lines) != 2 {
-		t.Fatalf("expected DrawingML break to create two render lines, got %d: %+v", len(lines), lines)
-	}
-	if !strings.Contains(lines[1].Text, "GENERATE") {
-		t.Fatalf("expected second line to preserve following run text, got %+v", lines[1])
-	}
-}
-
-func TestFitNormalAutofitAllowsWrappingWithinHardBreakLines(t *testing.T) {
-	got := fitNormalAutofitElement(slideElement{
-		HasNormAutofit: true,
-		FontScalePct:   90000,
-		FontFamily:     "Carlito",
-		FontSize:       4000,
-		Text:           "Residual Risk and Technology Review of\nSurface Coating NESHAP",
-		TextParagraphs: []textParagraph{{
-			Text:     "Residual Risk and Technology Review of\nSurface Coating NESHAP",
-			FontSize: 4000,
-			Runs: []textRun{
-				{Text: "Residual Risk and Technology Review of ", FontSize: 4000},
-				{Text: "\n", FontSize: 4000},
-				{Text: "Surface Coating NESHAP", FontSize: 4000},
-			},
-		}},
-	}, image.Rect(0, 0, 520, 150))
-	if got.FontScalePct == 90000 {
-		t.Fatalf("hard-break segments that soft-wrap should trigger normal autofit scaling, got %+v", got)
-	}
-}
-
-func TestFitNormalAutofitDoesNotMutateParagraphFontSizes(t *testing.T) {
-	element := slideElement{
-		HasNormAutofit: true,
-		FontScalePct:   90000,
-		FontFamily:     "Carlito",
-		FontSize:       4000,
-		TextParagraphs: []textParagraph{{
-			TextAlign: "ctr",
-			FontSize:  4000,
-			Runs: []textRun{
-				{Text: "Residual Risk and Technology Review of ", FontSize: 4000},
-				{Text: "\n", FontSize: 4000},
-				{Text: "Surface Coating NESHAP ", FontSize: 4000},
-				{Text: "\n"},
-			},
-		}},
-	}
-
-	got := fitNormalAutofitElement(element, image.Rect(0, 0, 700, 200))
-	if element.TextParagraphs[0].FontSize != 4000 || element.TextParagraphs[0].Runs[0].FontSize != 4000 {
-		t.Fatalf("normal-autofit probing mutated source text sizes: %+v", element.TextParagraphs[0])
-	}
-
-	scaled := scaledTextElement(got)
-	if scaled.FontSize != 3600 || scaled.TextParagraphs[0].FontSize != 3600 || scaled.TextParagraphs[0].Runs[0].FontSize != 3600 {
-		t.Fatalf("expected explicit 90%% normal-autofit to scale text once, got element=%+v paragraph=%+v", scaled, scaled.TextParagraphs[0])
-	}
-}
-
-func TestScaleParagraphSpacingForDPIDoesNotMutateSourceParagraphs(t *testing.T) {
-	element := slideElement{TextParagraphs: []textParagraph{{
-		SpaceBefore: 9,
-		SpaceAfter:  18,
-		TabStops:    []int64{914400},
-		Runs:        []textRun{{Text: "Title", FontSize: 2400}},
-	}}}
-
-	got := scaleParagraphSpacingForDPI(element, 96)
-	if element.TextParagraphs[0].SpaceBefore != 9 || element.TextParagraphs[0].SpaceAfter != 18 || element.TextParagraphs[0].Runs[0].FontSize != 2400 {
-		t.Fatalf("DPI spacing scaling mutated source paragraphs: %+v", element.TextParagraphs[0])
-	}
-	got.TextParagraphs[0].Runs[0].FontSize = 1200
-	got.TextParagraphs[0].TabStops[0] = 1
-	if element.TextParagraphs[0].Runs[0].FontSize != 2400 || element.TextParagraphs[0].TabStops[0] != 914400 {
-		t.Fatalf("DPI spacing scaling reused nested paragraph slices: %+v", element.TextParagraphs[0])
-	}
-}
-
-func TestMeasuredTextHeightIncludesInkExtentsWhenLineSpacingIsTight(t *testing.T) {
-	got := measuredTextHeight([]measuredTextLine{
-		{Ascent: 39, Descent: 10, Height: 36},
-		{Ascent: 39, Descent: 10, Height: 36},
-		{Ascent: 39, Descent: 10, Height: 36},
-	})
-	if got != 121 {
-		t.Fatalf("expected ink extents to exceed tight line advances, got %d", got)
-	}
-}
-
-func TestMeasuredTextAnchorHeightUsesVisibleInkBoxForCenteredText(t *testing.T) {
-	lines := []measuredTextLine{{
-		Ascent:      30,
-		Descent:     8,
-		Height:      48,
-		HasText:     true,
-		SpaceBefore: 2,
-		SpaceAfter:  3,
-	}}
-
-	if got := measuredTextAnchorHeight(lines, "ctr"); got != 43 {
-		t.Fatalf("centered text anchor should use visible ink height, got %d", got)
-	}
-	if got := measuredTextAnchorHeight(lines, "b"); got != 43 {
-		t.Fatalf("bottom text anchor should use visible ink height, got %d", got)
-	}
-	if got := measuredTextAnchorHeight(lines, ""); got != 53 {
-		t.Fatalf("top anchored text should keep full line advance, got %d", got)
-	}
-}
-
-func TestMeasuredTextAnchorHeightKeepsEmptyParagraphAdvance(t *testing.T) {
-	lines := []measuredTextLine{{
-		Ascent:      30,
-		Descent:     8,
-		Height:      48,
-		SpaceBefore: 2,
-		SpaceAfter:  3,
-	}}
-
-	if got := measuredTextAnchorHeight(lines, "ctr"); got != 53 {
-		t.Fatalf("centered empty paragraph should use authored line advance, got %d", got)
-	}
-}
-
 func TestGoogleTitleNormalAutofitMetricsIncludeInkExtents(t *testing.T) {
 	element := slideElement{
 		HasNormAutofit:          true,
@@ -8096,256 +6936,6 @@ func TestGoogleTitleNormalAutofitMetricsIncludeInkExtents(t *testing.T) {
 	}
 	if got := measuredTextHeight(measured); got <= 108 {
 		t.Fatalf("expected measured text block to include ink extents beyond line advances, got height=%d measured=%+v", got, measured)
-	}
-}
-
-func TestDrawShapeTextDoesNotDropBottomAnchoredLineByBaseline(t *testing.T) {
-	img := image.NewRGBA(image.Rect(0, 0, 320, 44))
-	draw.Draw(img, img.Bounds(), &image.Uniform{C: color.White}, image.Point{}, draw.Src)
-	element := slideElement{
-		FontFamily: "Carlito",
-		FontSize:   2400,
-		TextAnchor: "b",
-		TextParagraphs: []textParagraph{{
-			Runs: []textRun{
-				{Text: "First line", FontSize: 2400, HasTextColor: true, TextColor: color.RGBA{B: 255, A: 255}},
-				{Text: "\n", FontSize: 2400, HasTextColor: true, TextColor: color.RGBA{B: 255, A: 255}},
-				{Text: "Second line", FontSize: 2400, HasTextColor: true, TextColor: color.RGBA{B: 255, A: 255}},
-			},
-		}},
-	}
-	if err := drawShapeTextWithDPI(img, img.Bounds(), element, defaultOutputDPI); err != nil {
-		t.Fatal(err)
-	}
-	if got := countNonWhitePixelsBelow(img, 26); got == 0 {
-		t.Fatal("expected bottom-anchored second line to render when its line box intersects the bounds")
-	}
-}
-
-func TestDrawShapeTextClipsGlyphsToTextBounds(t *testing.T) {
-	img := image.NewRGBA(image.Rect(0, 0, 220, 70))
-	draw.Draw(img, img.Bounds(), &image.Uniform{C: color.White}, image.Point{}, draw.Src)
-	element := slideElement{
-		FontFamily:              "Carlito",
-		FontSize:                3200,
-		TextAnchor:              "b",
-		TextVerticalOverflow:    "clip",
-		HasTextVerticalOverflow: true,
-		TextParagraphs: []textParagraph{{
-			Runs: []textRun{
-				{Text: "First", FontSize: 3200, HasTextColor: true, TextColor: color.RGBA{B: 255, A: 255}},
-				{Text: "\n", FontSize: 3200, HasTextColor: true, TextColor: color.RGBA{B: 255, A: 255}},
-				{Text: "Second", FontSize: 3200, HasTextColor: true, TextColor: color.RGBA{B: 255, A: 255}},
-			},
-		}},
-	}
-	bounds := image.Rect(0, 0, 220, 44)
-	if err := drawShapeTextWithDPI(img, bounds, element, defaultOutputDPI); err != nil {
-		t.Fatal(err)
-	}
-	if got := countNonWhitePixelsBelow(img, 44); got != 0 {
-		t.Fatalf("expected text drawing to be clipped at the text bounds, got %d painted pixel(s) below", got)
-	}
-	if got := countNonWhitePixelsBelow(img, 26); got == 0 {
-		t.Fatal("expected the bottom line to remain visible inside the clipped text bounds")
-	}
-}
-
-func countNonWhitePixelsBelow(img *image.RGBA, minY int) int {
-	count := 0
-	bounds := img.Bounds()
-	for y := maxInt(bounds.Min.Y, minY); y < bounds.Max.Y; y++ {
-		for x := bounds.Min.X; x < bounds.Max.X; x++ {
-			if img.RGBAAt(x, y) != (color.RGBA{R: 255, G: 255, B: 255, A: 255}) {
-				count++
-			}
-		}
-	}
-	return count
-}
-
-func TestShouldFitNormalAutofitUsesImplicitScaleWhenRequested(t *testing.T) {
-	if !shouldFitNormalAutofit(slideElement{HasNormAutofit: true, PlaceholderType: "title"}) {
-		t.Fatal("regular title normal-autofit should derive a scale when requested")
-	}
-	if !shouldFitNormalAutofit(slideElement{HasNormAutofit: true, PlaceholderType: "title", FontScalePct: 90000}) {
-		t.Fatal("expected title normal-autofit with explicit fontScale to fit")
-	}
-	if !shouldFitNormalAutofit(slideElement{HasNormAutofit: true, PlaceholderType: "ctrTitle"}) {
-		t.Fatal("centered title normal-autofit should derive a scale when requested")
-	}
-	if !shouldFitNormalAutofit(slideElement{HasNormAutofit: true, PlaceholderType: "ctrTitle", FontScalePct: 90000}) {
-		t.Fatal("expected centered title normal-autofit with explicit fontScale to fit")
-	}
-	if !shouldFitNormalAutofit(slideElement{HasNormAutofit: true, LineSpacingReductionPct: 10000}) {
-		t.Fatal("content normal-autofit should derive a scale when requested")
-	}
-	if shouldFitNormalAutofit(slideElement{}) {
-		t.Fatal("normal-autofit should not run when the text body did not request it")
-	}
-}
-
-func TestScaledTextElementAppliesNormalAutofitFontScale(t *testing.T) {
-	got := scaledTextElement(slideElement{
-		FontScalePct:            85000,
-		FontSize:                2000,
-		LineSpacingReductionPct: 20000,
-		TextParagraphs: []textParagraph{{
-			FontSize:       1000,
-			SpaceBefore:    10,
-			SpaceAfter:     20,
-			LineSpacingPct: 90000,
-			Runs: []textRun{
-				{Text: "A", FontSize: 1200},
-			},
-		}},
-	})
-	if got.FontSize != 1700 || got.TextParagraphs[0].FontSize != 850 || got.TextParagraphs[0].Runs[0].FontSize != 1020 {
-		t.Fatalf("unexpected scaled text sizes: %+v", got)
-	}
-	if got.TextParagraphs[0].LineSpacingPct != 70000 {
-		t.Fatalf("unexpected reduced line spacing: %+v", got)
-	}
-	if got.TextParagraphs[0].SpaceBefore != 9 || got.TextParagraphs[0].SpaceAfter != 17 {
-		t.Fatalf("unexpected scaled paragraph spacing: %+v", got)
-	}
-}
-
-func TestScaledTextElementAppliesNormalAutofitLineSpacingReductionWithoutFontScale(t *testing.T) {
-	got := scaledTextElement(slideElement{
-		LineSpacingReductionPct: 10000,
-		FontSize:                2000,
-		TextParagraphs: []textParagraph{{
-			FontSize:       2000,
-			SpaceBefore:    8,
-			SpaceAfter:     12,
-			LineSpacingPct: 90000,
-			Runs: []textRun{{
-				Text:     "A",
-				FontSize: 2000,
-			}},
-		}},
-	})
-	if got.FontSize != 2000 || got.TextParagraphs[0].FontSize != 2000 || got.TextParagraphs[0].Runs[0].FontSize != 2000 {
-		t.Fatalf("line spacing reduction must not scale font sizes: %+v", got)
-	}
-	if got.TextParagraphs[0].LineSpacingPct != 80000 {
-		t.Fatalf("line spacing reduction should apply independently of font scaling: %+v", got)
-	}
-	if got.TextParagraphs[0].SpaceBefore != 8 || got.TextParagraphs[0].SpaceAfter != 12 {
-		t.Fatalf("line spacing reduction must not scale paragraph spacing: %+v", got)
-	}
-}
-
-func TestScaledTextElementScalesParagraphSpacingForDPI(t *testing.T) {
-	got := scaledTextElement(slideElement{
-		TextParagraphs: []textParagraph{{
-			SpaceBefore: 9,
-			SpaceAfter:  12,
-		}},
-	}, 96)
-	if got.TextParagraphs[0].SpaceBefore != 12 || got.TextParagraphs[0].SpaceAfter != 16 {
-		t.Fatalf("unexpected dpi-scaled paragraph spacing: %+v", got)
-	}
-}
-
-func TestScaledTextElementAppliesLineSpacingReductionAtFullScale(t *testing.T) {
-	got := scaledTextElement(slideElement{
-		FontScalePct:            100000,
-		LineSpacingReductionPct: 10000,
-		TextParagraphs: []textParagraph{{
-			Text:           "Body",
-			FontSize:       2400,
-			LineSpacingPct: 100000,
-		}},
-	})
-	if got.TextParagraphs[0].LineSpacingPct != 90000 {
-		t.Fatalf("line spacing reduction should apply when fontScale is 100%%: %+v", got)
-	}
-}
-
-func TestScaledTextElementDoesNotInventPercentageLineSpacingForReduction(t *testing.T) {
-	got := scaledTextElement(slideElement{
-		LineSpacingReductionPct: 10000,
-		TextParagraphs: []textParagraph{{
-			Text:     "Body",
-			FontSize: 2400,
-		}},
-	})
-	if got.TextParagraphs[0].LineSpacingPct != 0 {
-		t.Fatalf("line spacing reduction applies only to percentage line spacing: %+v", got)
-	}
-}
-
-func TestFallbackFontPointSizeKeepsThirtyTwoPointText(t *testing.T) {
-	got := fallbackFontPointSize(3200, false, false)
-	want := 32.0
-	if got != want {
-		t.Fatalf("expected 32pt text to keep its DrawingML point size: got %v want %v", got, want)
-	}
-}
-
-func TestParseTextPropertiesKeepsRunSizeOverEndParagraphDefault(t *testing.T) {
-	root, err := parseXMLNode([]byte(`<p:sp xmlns:p="p" xmlns:a="a">
-  <p:txBody>
-    <a:p>
-      <a:r><a:rPr sz="1400"><a:solidFill><a:srgbClr val="112233"/></a:solidFill></a:rPr><a:t>1</a:t></a:r>
-      <a:endParaRPr sz="2000"><a:solidFill><a:srgbClr val="445566"/></a:solidFill></a:endParaRPr>
-    </a:p>
-  </p:txBody>
-</p:sp>`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	got := parseSlideElementNode(root, renderTransform{ScaleX: 1, ScaleY: 1})
-	if got.FontSize != 0 {
-		t.Fatalf("endParaRPr font size should not promote to shape fallback, got %+v", got)
-	}
-	if got.HasTextColor {
-		t.Fatalf("expected direct run text color to stay run-scoped, got %+v", got)
-	}
-	if len(got.TextParagraphs) != 1 || len(got.TextParagraphs[0].Runs) != 1 {
-		t.Fatalf("expected one text run, got %+v", got.TextParagraphs)
-	}
-	run := got.TextParagraphs[0].Runs[0]
-	if run.FontSize != 1400 {
-		t.Fatalf("expected run font size to stay run-scoped, got %+v", run)
-	}
-	if !run.HasTextColor || run.TextColor.R != 0x11 || run.TextColor.G != 0x22 || run.TextColor.B != 0x33 {
-		t.Fatalf("expected run text color to win over endParaRPr, got %+v", run)
-	}
-}
-
-func TestTextParagraphsFromNodeUsesEndParagraphDefaultForParagraphOnly(t *testing.T) {
-	root, err := parseXMLNode([]byte(`<p:txBody xmlns:p="p" xmlns:a="a">
-  <a:p>
-    <a:r><a:rPr/><a:t>Default sized</a:t></a:r>
-    <a:endParaRPr sz="2000" b="1"/>
-  </a:p>
-  <a:p>
-    <a:r><a:rPr/><a:t>Plain</a:t></a:r>
-  </a:p>
-</p:txBody>`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	got := textParagraphsFromNode(root)
-	if len(got) != 2 {
-		t.Fatalf("unexpected paragraph parse: %+v", got)
-	}
-	if got[0].FontSize != 2000 || !got[0].Bold {
-		t.Fatalf("expected endParaRPr to become first paragraph default, got %+v", got[0])
-	}
-	if got[1].FontSize != 0 || got[1].Bold {
-		t.Fatalf("endParaRPr leaked to sibling paragraph: %+v", got[1])
-	}
-}
-
-func TestAnchoredTextStartYCentersLines(t *testing.T) {
-	got := anchoredTextStartY(image.Rect(0, 10, 100, 110), 2, 20, 12, "ctr")
-	want := 52
-	if got != want {
-		t.Fatalf("unexpected centered text y: got=%d want=%d", got, want)
 	}
 }
 
@@ -8482,59 +7072,6 @@ func TestThemeColorsForPartAppliesSlideMasterColorMap(t *testing.T) {
 	}
 	if got := colors["accent1"]; got.R != 0x70 || got.G != 0xad || got.B != 0x47 {
 		t.Fatalf("expected accent1 remap to accent6, got %#v", got)
-	}
-}
-
-func TestParseThemeFontsMapsLatinScheme(t *testing.T) {
-	fonts := parseThemeFonts([]byte(`<a:theme xmlns:a="a">
-  <a:themeElements>
-    <a:fontScheme name="Facet">
-      <a:majorFont><a:latin typeface="Trebuchet MS"/><a:ea typeface="Yu Gothic"/><a:cs typeface="Times New Roman"/></a:majorFont>
-      <a:minorFont><a:latin typeface="Arial"/><a:ea typeface="MS Gothic"/><a:cs typeface="Tahoma"/></a:minorFont>
-    </a:fontScheme>
-  </a:themeElements>
-</a:theme>`))
-	if fonts.MajorLatin != "Trebuchet MS" || fonts.MinorLatin != "Arial" {
-		t.Fatalf("unexpected theme fonts: %+v", fonts)
-	}
-	if fonts.MajorEA != "Yu Gothic" || fonts.MajorCS != "Times New Roman" || fonts.MinorEA != "MS Gothic" || fonts.MinorCS != "Tahoma" {
-		t.Fatalf("unexpected non-Latin theme fonts: %+v", fonts)
-	}
-}
-
-func TestApplyThemeFontFamiliesUsesMajorForTitles(t *testing.T) {
-	elements := []slideElement{
-		{Text: "Title", IsPlaceholder: true, PlaceholderType: "title"},
-		{Text: "Body", IsPlaceholder: true, PlaceholderType: "body"},
-		{Text: "Fixed", FontFamily: "Existing"},
-		{Text: "ElementToken", FontFamily: "+mn-lt"},
-		{Text: "Runs", TextParagraphs: []textParagraph{{Runs: []textRun{
-			{Text: "Major", FontFamily: "+mj-lt"},
-			{Text: "Minor", FontFamily: "+mn-lt"},
-			{Text: "MajorEA", FontFamily: "+mj-ea"},
-			{Text: "MinorCS", FontFamily: "+mn-cs"},
-		}}}},
-		{Text: "Bullet", TextParagraphs: []textParagraph{{Bullet: "•", BulletFontFamily: "+mj-cs"}}},
-	}
-	got := applyThemeFontFamilies(elements, themeFonts{
-		MajorLatin: "Trebuchet MS",
-		MajorEA:    "Yu Gothic",
-		MajorCS:    "Times New Roman",
-		MinorLatin: "Arial",
-		MinorEA:    "MS Gothic",
-		MinorCS:    "Tahoma",
-	})
-	if got[0].FontFamily != "Trebuchet MS" || got[1].FontFamily != "Arial" || got[2].FontFamily != "Existing" || got[3].FontFamily != "Arial" {
-		t.Fatalf("unexpected font family application: %+v", got)
-	}
-	if got[4].TextParagraphs[0].Runs[0].FontFamily != "Trebuchet MS" || got[4].TextParagraphs[0].Runs[1].FontFamily != "Arial" {
-		t.Fatalf("unexpected run font family application: %+v", got[4].TextParagraphs[0].Runs)
-	}
-	if got[4].TextParagraphs[0].Runs[2].FontFamily != "Yu Gothic" || got[4].TextParagraphs[0].Runs[3].FontFamily != "Tahoma" {
-		t.Fatalf("unexpected non-Latin run font family application: %+v", got[4].TextParagraphs[0].Runs)
-	}
-	if got[5].TextParagraphs[0].BulletFontFamily != "Times New Roman" {
-		t.Fatalf("unexpected bullet font family application: %+v", got[5].TextParagraphs[0])
 	}
 }
 
@@ -8784,7 +7321,7 @@ func TestParseStylePropertiesAppliesThemeShape3DEffectReference(t *testing.T) {
 	}
 
 	got := parseSlideElementNodeWithThemeAndEffects(root, renderTransform{ScaleX: 1, ScaleY: 1}, defaultThemeColors(), effectStyles)
-	if !got.HasShape3D || !slices.Contains(got.Shape3DFeatures, "3-D top bevel") {
+	if !got.HasShape3D || !slices.Contains(got.Shape3DFeatures, "3-D top bevel") || !slices.Contains(got.Shape3DFeatures, "3-D scene camera orthographicFront") || !slices.Contains(got.Shape3DFeatures, "3-D scene light rig threePt/t") {
 		t.Fatalf("expected effectRef to apply theme 3-D shape properties, got %+v", got)
 	}
 }
@@ -9213,47 +7750,6 @@ func TestColorAtGradientPositionUsesOfficeGammaForMirroredThreeStopGradients(t *
 	}
 }
 
-func TestDrawSoftRectDistributesShadowAlpha(t *testing.T) {
-	img := image.NewRGBA(image.Rect(0, 0, 20, 20))
-	draw.Draw(img, img.Bounds(), &image.Uniform{C: color.RGBA{R: 255, G: 255, B: 255, A: 255}}, image.Point{}, draw.Src)
-	drawSoftRect(img, image.Rect(5, 5, 15, 15), color.RGBA{A: 90}, 4)
-
-	r, _, _, _ := img.At(10, 10).RGBA()
-	if r < 0xa000 {
-		t.Fatalf("expected bounded shadow alpha to avoid over-darkening, red=%04x", r)
-	}
-}
-
-func TestDrawSoftRectFadesBeyondShapeBounds(t *testing.T) {
-	img := image.NewRGBA(image.Rect(0, 0, 24, 24))
-	draw.Draw(img, img.Bounds(), &image.Uniform{C: color.White}, image.Point{}, draw.Src)
-	drawSoftRect(img, image.Rect(8, 8, 16, 16), color.RGBA{A: 128}, 4)
-
-	center := img.RGBAAt(12, 12)
-	edge := img.RGBAAt(6, 12)
-	outside := img.RGBAAt(2, 12)
-	if center.R >= edge.R {
-		t.Fatalf("expected center shadow to be darker than faded edge, center=%+v edge=%+v", center, edge)
-	}
-	if edge.R >= outside.R {
-		t.Fatalf("expected faded edge to be darker than untouched outside, edge=%+v outside=%+v", edge, outside)
-	}
-}
-
-func TestGaussianKernelNormalizesWeights(t *testing.T) {
-	kernel := gaussianKernel(4)
-	sum := 0.0
-	for _, weight := range kernel {
-		sum += weight
-	}
-	if math.Abs(sum-1) > 0.000001 {
-		t.Fatalf("expected normalized gaussian kernel, got sum=%f weights=%+v", sum, kernel)
-	}
-	if kernel[4] <= kernel[0] {
-		t.Fatalf("expected gaussian center weight to dominate edge, got %+v", kernel)
-	}
-}
-
 func TestDrawPolygonAntialiasesEdges(t *testing.T) {
 	img := image.NewRGBA(image.Rect(0, 0, 10, 10))
 	draw.Draw(img, img.Bounds(), &image.Uniform{C: color.RGBA{R: 255, G: 255, B: 255, A: 255}}, image.Point{}, draw.Src)
@@ -9273,6 +7769,31 @@ func TestUnsupportedItemsSkipsEmptyPlaceholders(t *testing.T) {
 	})
 	if len(got) != 1 || !strings.Contains(got[0].Message, "Rectangle 1") {
 		t.Fatalf("unexpected unsupported items: %+v", got)
+	}
+}
+
+func TestPresentationUnsupportedItemsReportsEmbeddedFonts(t *testing.T) {
+	got := presentationUnsupportedItems("ppt/presentation.xml", []byte(`<p:presentation xmlns:p="p">
+  <p:embeddedFontLst>
+    <p:embeddedFont>
+      <p:font typeface="Example Font"/>
+      <p:regular r:id="rIdFont" xmlns:r="r"/>
+    </p:embeddedFont>
+  </p:embeddedFontLst>
+</p:presentation>`))
+
+	if len(got) != 1 {
+		t.Fatalf("expected embedded font unsupported item, got %+v", got)
+	}
+	if got[0].Code != partialUnsupportedCode || got[0].Part != "ppt/presentation.xml" || !strings.Contains(got[0].Message, "embedded font") {
+		t.Fatalf("unexpected embedded font unsupported item: %+v", got[0])
+	}
+}
+
+func TestPresentationUnsupportedItemsIgnoresPresentationWithoutEmbeddedFonts(t *testing.T) {
+	got := presentationUnsupportedItems("ppt/presentation.xml", []byte(`<p:presentation xmlns:p="p"><p:sldIdLst/></p:presentation>`))
+	if len(got) != 0 {
+		t.Fatalf("presentation without embedded fonts should not report unsupported items, got %+v", got)
 	}
 }
 

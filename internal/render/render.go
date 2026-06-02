@@ -25,6 +25,7 @@ const (
 	partialUnsupportedCode = "render_partial_object"
 	diagramDataRelType     = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/diagramData"
 	diagramDrawingRelType  = "http://schemas.microsoft.com/office/2007/relationships/diagramDrawing"
+	chartRelType           = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/chart"
 	themeRelType           = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme"
 )
 
@@ -83,13 +84,23 @@ func Render(ctx context.Context, inputPath string, options Options) (model.Comma
 	inheritedHeaderFooterPart := inheritedHeaderFooterRenderPart(pkg, paintParts, slidePart, headerFooter)
 	img := image.NewRGBA(image.Rect(0, 0, width, height))
 	var unsupported []model.SkipItem
-	if background.HasGradient {
+	unsupported = append(unsupported, presentationUnsupportedItems(pkg.PresentationPath, pkg.Parts[pkg.PresentationPath])...)
+	if objectDebugUsesOwnBackground(options.ObjectDebug) {
+		if color, ok := objectDebugBackgroundColor(options.ObjectDebug); ok {
+			draw.Draw(img, img.Bounds(), &image.Uniform{C: color}, image.Point{}, draw.Src)
+		}
+	} else if background.HasGradient {
 		drawGradientBackground(img, background.Gradient)
 		if !background.Gradient.FullySupported {
 			unsupported = append(unsupported, unsupportedItem(background.Part, partialUnsupportedCode, "slide background gradient was rendered with simplified layout"))
 		}
+	} else if background.HasPattern {
+		drawPatternRect(img, img.Bounds(), background.Pattern)
 	} else {
 		draw.Draw(img, img.Bounds(), &image.Uniform{C: background.Color}, image.Point{}, draw.Src)
+	}
+	for _, message := range background.Unsupported {
+		unsupported = append(unsupported, unsupportedItem(background.Part, partialUnsupportedCode, message))
 	}
 
 	for _, renderPart := range paintParts {
@@ -109,7 +120,7 @@ func Render(ctx context.Context, inputPath string, options Options) (model.Comma
 		elements = applyInheritedTableTextStyles(elements, textStyles)
 		elements = applyThemeFontFamilies(elements, partFonts)
 		elements = resolveTextFields(elements, options.SlideNumber)
-		unsupported = append(unsupported, renderElements(pkg, renderPart, size, img, elements, tableStyles)...)
+		unsupported = append(unsupported, renderElementsWithDebug(pkg, slidePart, renderPart, size, img, elements, tableStyles, options.ObjectDebug)...)
 		unsupported = append(unsupported, unsupportedItems(renderPart, elements)...)
 		unsupported = append(unsupported, timingUnsupportedItems(renderPart, pkg.Parts[renderPart], elements)...)
 	}

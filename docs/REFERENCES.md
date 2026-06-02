@@ -8,6 +8,8 @@ Puppt's `.pptx` reader/writer is product-core code. It MUST be implemented again
 
 Source: https://ecma-international.org/publications-and-standards/standards/ecma-376/
 
+Local reference bundle: `docs/specs/ecma-376/`
+
 Use:
 
 - Office Open XML vocabulary and document representation.
@@ -68,6 +70,81 @@ Puppt interpretation:
 
 - Use this as a compatibility reference when PowerPoint behavior matters more than a minimal standard reading.
 - Do not assume standards-only output opens correctly in PowerPoint without fixture tests.
+
+### Microsoft Learn: Office Drawing Extensions to Office Open XML
+
+Source: https://learn.microsoft.com/en-us/openspecs/office_standards/ms-odrawxml/
+
+Local notes: `docs/specs/ms-odrawxml/`
+
+Use:
+
+- Microsoft `a14` and related Office Drawing extension elements that appear in
+  real `.pptx` source XML.
+- Compatibility interpretation after the ECMA-376 DrawingML model has already
+  been checked.
+
+Puppt interpretation:
+
+- Preserve unknown or unsupported extension XML where possible.
+- Do not infer visible renderer behavior from an extension element unless the
+  official extension documentation and an attributed object fixture support it.
+
+## Renderer Primitive Dependency References
+
+These are not `.pptx` authorities. They are candidate primitive libraries for
+graphics/text/color work behind Puppt-owned DrawingML interpretation.
+
+### go-text/typesetting
+
+Source:
+
+- https://pkg.go.dev/github.com/go-text/typesetting/harfbuzz
+- https://pkg.go.dev/github.com/go-text/typesetting/shaping
+
+Use:
+
+- Candidate pure-Go text shaping and OpenType positioning backend.
+
+Puppt interpretation:
+
+- May be evaluated behind a text-shaping adapter that consumes Puppt-resolved
+  text runs and font files.
+- Must not read, write, render, mutate, validate, or interpret `.pptx` packages.
+- Added as a controlled primitive dependency on 2026-06-01 for the test-only
+  text shaping diagnostic; production text rendering is not replaced yet.
+
+### draw2d
+
+Source: https://pkg.go.dev/github.com/llgcode/draw2d
+
+Use:
+
+- Candidate pure-Go vector path/stroke/rasterization backend under the current
+  Go 1.24 toolchain.
+
+Puppt interpretation:
+
+- May be evaluated behind a shape-rasterization adapter that consumes
+  Puppt-parsed DrawingML geometry.
+- Must first prove focused object fixtures before replacing production shape
+  painting.
+- Added as a controlled primitive dependency on 2026-06-01 for the
+  test-only rectangle backend diagnostic; production shape rendering is not
+  replaced yet.
+
+### tdewolff/canvas
+
+Source: https://pkg.go.dev/github.com/tdewolff/canvas
+
+Use:
+
+- Candidate future vector/text/raster backend.
+
+Puppt interpretation:
+
+- Not an immediate dependency while Puppt remains on Go 1.24.3 because the
+  current latest module advertises Go 1.25.0.
 
 ## Implementation Rule
 

@@ -14,36 +14,67 @@ import (
 )
 
 func renderElements(pkg *pptx.Package, slidePart string, size slideSize, img *image.RGBA, elements []slideElement, tableStyles tableStyleSet) []model.SkipItem {
-	relationships, err := pkg.RelationshipsForPart(slidePart)
+	return renderElementsWithDebug(pkg, slidePart, slidePart, size, img, elements, tableStyles, nil)
+}
+
+func renderElementsWithDebug(pkg *pptx.Package, slidePart string, sourcePart string, size slideSize, img *image.RGBA, elements []slideElement, tableStyles tableStyleSet, debug *ObjectDebugOptions) []model.SkipItem {
+	relationships, err := pkg.RelationshipsForPart(sourcePart)
 	if err != nil {
 		return []model.SkipItem{{
 			Code:    unsupportedCode,
 			Message: fmt.Sprintf("slide relationships could not be parsed for rendering: %v", err),
-			Part:    pptx.RelationshipsPartFor(slidePart),
+			Part:    pptx.RelationshipsPartFor(sourcePart),
 		}}
 	}
 	relationshipByID := make(map[string]pptx.Relationship, len(relationships))
 	for _, relationship := range relationships {
 		relationshipByID[relationship.ID] = relationship
 	}
+	// M03 render-scene lowering is a zero-diff prepaint boundary while legacy
+	// backends are migrated one primitive family at a time.
+	_, _ = renderSceneFromElements(pkg, slidePart, sourcePart, size, img.Bounds(), elements, relationshipByID)
 
 	var unsupported []model.SkipItem
 	for index := range elements {
-		var items []model.SkipItem
-		switch elements[index].Kind {
-		case "pic":
-			items = renderPicture(pkg, slidePart, size, img, &elements[index], relationshipByID)
-		case "sp", "cxnSp":
-			if elements[index].EmbedID != "" {
-				items = append(items, renderPicture(pkg, slidePart, size, img, &elements[index], relationshipByID)...)
-			}
-			items = append(items, renderShape(slidePart, size, img, &elements[index])...)
-		case "graphicFrame":
-			items = renderGraphicFrame(pkg, slidePart, size, img, &elements[index], relationshipByID, tableStyles)
+		zOrder := debug.nextObjectZOrder()
+		shouldPaint := debug.shouldPaintObject(zOrder)
+		var before *image.RGBA
+		if debug != nil {
+			before = cloneRGBA(img)
 		}
+		var items []model.SkipItem
+		if shouldPaint {
+			items = renderOneElement(pkg, sourcePart, size, img, &elements[index], relationshipByID, tableStyles)
+		}
+		record := paintedObjectRecord(slidePart, sourcePart, elements[index], zOrder, size, img.Bounds(), before, img, shouldPaint && elements[index].Rendered, items)
+		if debug != nil && debug.ArtifactDir != "" && shouldPaint {
+			objectImage := image.NewRGBA(img.Bounds())
+			objectElement := elements[index]
+			_ = renderOneElement(pkg, sourcePart, size, objectImage, &objectElement, relationshipByID, tableStyles)
+			writeObjectDebugArtifacts(debug, renderDPIForCanvas(size, img.Bounds()), &record, before, objectImage, img)
+		}
+		appendPaintedObjectRecord(debug, record)
 		unsupported = append(unsupported, items...)
 	}
 	return unsupported
+}
+
+func renderOneElement(pkg *pptx.Package, slidePart string, size slideSize, img *image.RGBA, element *slideElement, relationships map[string]pptx.Relationship, tableStyles tableStyleSet) []model.SkipItem {
+	switch element.Kind {
+	case "pic":
+		return renderPicture(pkg, slidePart, size, img, element, relationships)
+	case "sp", "cxnSp":
+		var items []model.SkipItem
+		if element.EmbedID != "" {
+			items = append(items, renderPicture(pkg, slidePart, size, img, element, relationships)...)
+		}
+		items = append(items, renderShape(slidePart, size, img, element)...)
+		return items
+	case "graphicFrame":
+		return renderGraphicFrame(pkg, slidePart, size, img, element, relationships, tableStyles)
+	default:
+		return renderUnsupportedPayloadElement(pkg, slidePart, element, relationships)
+	}
 }
 
 func renderGraphicFrame(pkg *pptx.Package, slidePart string, size slideSize, img *image.RGBA, element *slideElement, relationships map[string]pptx.Relationship, tableStyles tableStyleSet) []model.SkipItem {
@@ -53,15 +84,13 @@ func renderGraphicFrame(pkg *pptx.Package, slidePart string, size slideSize, img
 	if element.HasTable {
 		return renderTableGraphicFrame(slidePart, size, img, element, tableStyles)
 	}
+	if element.GraphicPayloadKind != "" {
+		return renderUnsupportedPayloadElement(pkg, slidePart, element, relationships)
+	}
 	if element.Text == "" || !element.HasTransform || element.ExtCX <= 0 || element.ExtCY <= 0 {
 		return nil
 	}
-	target := image.Rect(
-		scaleEMU(element.OffX, size.CX, img.Bounds().Dx()),
-		scaleEMU(element.OffY, size.CY, img.Bounds().Dy()),
-		scaleEMU(element.OffX+element.ExtCX, size.CX, img.Bounds().Dx()),
-		scaleEMU(element.OffY+element.ExtCY, size.CY, img.Bounds().Dy()),
-	).Intersect(img.Bounds())
+	target := sceneElementClippedPixelTarget(*element, size, img.Bounds())
 	if target.Empty() {
 		return nil
 	}
@@ -81,7 +110,9 @@ func renderDiagramGraphicFrame(pkg *pptx.Package, slidePart string, size slideSi
 		return []model.SkipItem{unsupportedItem(slidePart, unsupportedCode, fmt.Sprintf("graphic frame object %q diagram could not be resolved: %v", elementLabel(*element), err))}
 	}
 	if !ok {
-		return nil
+		message := fmt.Sprintf("graphic frame object %q diagram payload was preserved but SmartArt layout fallback drawing was not available", elementLabel(*element))
+		element.UnsupportedNote = message
+		return []model.SkipItem{unsupportedItem(slidePart, partialUnsupportedCode, message)}
 	}
 	diagramElements := diagramDrawingElements(pkg, slidePart, drawingPart)
 	diagramElements = fitDiagramElementsToFrame(diagramElements, *element)
@@ -101,6 +132,60 @@ func renderDiagramGraphicFrame(pkg *pptx.Package, slidePart string, size slideSi
 	}
 	element.Rendered = renderedSupportedElement
 	return unsupported
+}
+
+func renderUnsupportedPayloadElement(pkg *pptx.Package, slidePart string, element *slideElement, relationships map[string]pptx.Relationship) []model.SkipItem {
+	kind := element.GraphicPayloadKind
+	if kind == "" {
+		kind = objectKindLabel(element.Kind)
+	}
+	message := fmt.Sprintf("%s object %q %s payload was preserved but is not rendered", objectKindLabel(element.Kind), elementLabel(*element), kind)
+	code := unsupportedCode
+	switch kind {
+	case "chart":
+		code = partialUnsupportedCode
+		message = fmt.Sprintf("graphic frame object %q chart payload was preserved but chart graphics are not rendered yet", elementLabel(*element))
+	case "unknown graphic payload":
+		message = fmt.Sprintf("graphic frame object %q graphicData payload was preserved but URI %q is not rendered", elementLabel(*element), element.GraphicPayloadURI)
+	case "content part":
+		message = fmt.Sprintf("content part object %q was preserved but is not rendered", elementLabel(*element))
+	case "OLE object":
+		message = fmt.Sprintf("OLE object %q was preserved but embedded application content is not rendered", elementLabel(*element))
+		if element.OLEProgID != "" {
+			message = fmt.Sprintf("OLE object %q (%s) was preserved but embedded application content is not rendered", elementLabel(*element), element.OLEProgID)
+		}
+	case "control":
+		message = fmt.Sprintf("control object %q was preserved but active controls are not rendered", elementLabel(*element))
+	case "audio", "video":
+		message = fmt.Sprintf("%s object %q was preserved but rich media playback is not rendered", kind, elementLabel(*element))
+	}
+	if detail := payloadRelationshipDetail(pkg, slidePart, element.PayloadRelationshipID, relationships); detail != "" {
+		message += "; " + detail
+	}
+	element.UnsupportedNote = message
+	return []model.SkipItem{unsupportedItem(slidePart, code, message)}
+}
+
+func payloadRelationshipDetail(pkg *pptx.Package, sourcePart string, relationshipID string, relationships map[string]pptx.Relationship) string {
+	if relationshipID == "" {
+		return ""
+	}
+	relationship, ok := relationships[relationshipID]
+	if !ok {
+		return fmt.Sprintf("relationship %s is missing", relationshipID)
+	}
+	if relationship.TargetMode != "" && !strings.EqualFold(relationship.TargetMode, "Internal") {
+		return fmt.Sprintf("relationship %s targets external %q with type %q", relationshipID, relationship.Target, relationship.Type)
+	}
+	targetPart := pptx.ResolveTargetPart(sourcePart, relationship.Target)
+	contentType := ""
+	if pkg != nil {
+		contentType = pkg.ContentTypes.ForPart(targetPart)
+	}
+	if contentType == "" {
+		return fmt.Sprintf("relationship %s targets %s with type %q", relationshipID, targetPart, relationship.Type)
+	}
+	return fmt.Sprintf("relationship %s targets %s (%s) with type %q", relationshipID, targetPart, contentType, relationship.Type)
 }
 
 func diagramDrawingElements(pkg *pptx.Package, slidePart, drawingPart string) []slideElement {
@@ -215,19 +300,15 @@ func renderShape(slidePart string, size slideSize, img *image.RGBA, element *sli
 	if isLineGeometry(element.PrstGeom) && element.HasLine && !element.NoLine && (element.ExtCX != 0 || element.ExtCY != 0) {
 		startX, startY, endX, endY := lineEndpointsForElement(*element, size, img.Bounds())
 		lineWidth := emuLineWidthToPixels(element.LineWidth, size.CX, img.Bounds().Dx())
-		drawStyledLine(img, startX, startY, endX, endY, element.LineColor, lineWidth, element.LineDash, element.LineCap)
+		drawStyledCompoundLine(img, startX, startY, endX, endY, element.LineColor, lineWidth, element.LineDash, element.LineCap, element.LineCompound)
 		markerPartial := false
 		if element.HeadLineMarker != "" {
-			if element.HeadLineMarker == "triangle" {
-				drawLineTriangleMarker(img, startX, startY, startX-endX, startY-endY, element.LineColor, lineWidth, element.HeadLineMarkerWidth, element.HeadLineMarkerLength)
-			} else {
+			if !drawLineEndMarker(img, element.HeadLineMarker, startX, startY, startX-endX, startY-endY, element.LineColor, lineWidth, element.HeadLineMarkerWidth, element.HeadLineMarkerLength) {
 				markerPartial = true
 			}
 		}
 		if element.TailLineMarker != "" {
-			if element.TailLineMarker == "triangle" {
-				drawLineTriangleMarker(img, endX, endY, endX-startX, endY-startY, element.LineColor, lineWidth, element.TailLineMarkerWidth, element.TailLineMarkerLength)
-			} else {
+			if !drawLineEndMarker(img, element.TailLineMarker, endX, endY, endX-startX, endY-startY, element.LineColor, lineWidth, element.TailLineMarkerWidth, element.TailLineMarkerLength) {
 				markerPartial = true
 			}
 		}
@@ -240,17 +321,13 @@ func renderShape(slidePart string, size slideSize, img *image.RGBA, element *sli
 		element.Rendered = rendered
 		return unsupported
 	}
-	target := image.Rect(
-		scaleEMU(element.OffX, size.CX, img.Bounds().Dx()),
-		scaleEMU(element.OffY, size.CY, img.Bounds().Dy()),
-		scaleEMU(element.OffX+element.ExtCX, size.CX, img.Bounds().Dx()),
-		scaleEMU(element.OffY+element.ExtCY, size.CY, img.Bounds().Dy()),
-	)
+	transform := renderElementTransformFor(*element, size, img.Bounds())
+	target := transform.Target
 	targetFloat := floatRect{
-		MinX: scaleEMUFloat(element.OffX, size.CX, img.Bounds().Dx()),
-		MinY: scaleEMUFloat(element.OffY, size.CY, img.Bounds().Dy()),
-		MaxX: scaleEMUFloat(element.OffX+element.ExtCX, size.CX, img.Bounds().Dx()),
-		MaxY: scaleEMUFloat(element.OffY+element.ExtCY, size.CY, img.Bounds().Dy()),
+		MinX: transform.FractionalTarget.MinX,
+		MinY: transform.FractionalTarget.MinY,
+		MaxX: transform.FractionalTarget.MaxX,
+		MaxY: transform.FractionalTarget.MaxY,
 	}
 	if element.HasShapeAutofit && element.Text != "" && normalizedRotationDegrees(element.Rotation) == 0 {
 		adjusted, err := shapeAutofitTarget(*element, target, size, img.Bounds())
@@ -264,6 +341,26 @@ func renderShape(slidePart string, size slideSize, img *image.RGBA, element *sli
 		element.Rendered = rendered
 		return unsupported
 	}
+	if element.HasEffectTransform && (element.EffectTransformOffsetX != 0 || element.EffectTransformOffsetY != 0) {
+		xfrmUnsupported, xfrmRendered := renderShapeWithEffectTransform(slidePart, size, img, *element, target)
+		unsupported = append(unsupported, xfrmUnsupported...)
+		if xfrmRendered {
+			rendered = true
+			element.Rendered = rendered
+			return unsupported
+		}
+		unsupported = append(unsupported, unsupportedItem(slidePart, partialUnsupportedCode, fmt.Sprintf("shape object %q xfrm effect was not rendered", elementLabel(*element))))
+	}
+	if element.HasRelativeOffset && (element.RelativeOffsetX != 0 || element.RelativeOffsetY != 0) {
+		relOffUnsupported, relOffRendered := renderShapeWithRelativeOffset(slidePart, size, img, *element, target)
+		unsupported = append(unsupported, relOffUnsupported...)
+		if relOffRendered {
+			rendered = true
+			element.Rendered = rendered
+			return unsupported
+		}
+		unsupported = append(unsupported, unsupportedItem(slidePart, partialUnsupportedCode, fmt.Sprintf("shape object %q relOff effect was not rendered", elementLabel(*element))))
+	}
 	if element.HasShadow {
 		for _, message := range shadowTransformUnsupportedMessages(*element) {
 			unsupported = append(unsupported, unsupportedItem(slidePart, partialUnsupportedCode, fmt.Sprintf("shape object %q %s", elementLabel(*element), message)))
@@ -274,11 +371,82 @@ func renderShape(slidePart string, size slideSize, img *image.RGBA, element *sli
 			unsupported = append(unsupported, unsupportedItem(slidePart, partialUnsupportedCode, fmt.Sprintf("shape object %q outer shadow geometry was not rendered", elementLabel(*element))))
 		}
 	}
+	if element.HasGlow {
+		if drawShapeGlow(img, target, *element, size) {
+			rendered = true
+		} else if element.GlowColor.A != 0 {
+			unsupported = append(unsupported, unsupportedItem(slidePart, partialUnsupportedCode, fmt.Sprintf("shape object %q glow geometry was not rendered", elementLabel(*element))))
+		}
+	}
 	for _, message := range shape3DUnsupportedMessages(*element) {
 		unsupported = append(unsupported, unsupportedItem(slidePart, partialUnsupportedCode, fmt.Sprintf("shape object %q %s", elementLabel(*element), message)))
 	}
-	for _, message := range shapeSoftEdgeUnsupportedMessages(*element) {
+	for _, message := range element.EffectUnsupported {
 		unsupported = append(unsupported, unsupportedItem(slidePart, partialUnsupportedCode, fmt.Sprintf("shape object %q %s", elementLabel(*element), message)))
+	}
+	if element.HasInnerShadow {
+		innerShadowUnsupported, innerShadowRendered := renderShapeWithInnerShadow(slidePart, size, img, *element, target)
+		unsupported = append(unsupported, innerShadowUnsupported...)
+		if innerShadowRendered {
+			rendered = true
+			element.Rendered = rendered
+			return unsupported
+		}
+		if element.InnerShadowColor.A != 0 {
+			unsupported = append(unsupported, unsupportedItem(slidePart, partialUnsupportedCode, fmt.Sprintf("shape object %q inner shadow effect was not rendered", elementLabel(*element))))
+		}
+	}
+	if element.HasReflection {
+		reflectionUnsupported, reflectionRendered := renderShapeWithReflection(slidePart, size, img, *element, target)
+		unsupported = append(unsupported, reflectionUnsupported...)
+		if reflectionRendered {
+			rendered = true
+			element.Rendered = rendered
+			return unsupported
+		}
+		unsupported = append(unsupported, unsupportedItem(slidePart, partialUnsupportedCode, fmt.Sprintf("shape object %q reflection effect was not rendered", elementLabel(*element))))
+	}
+	if element.HasFillOverlay {
+		overlayUnsupported, overlayRendered := renderShapeWithFillOverlay(slidePart, size, img, *element, target)
+		unsupported = append(unsupported, overlayUnsupported...)
+		if overlayRendered {
+			rendered = true
+			element.Rendered = rendered
+			return unsupported
+		}
+		unsupported = append(unsupported, unsupportedItem(slidePart, partialUnsupportedCode, fmt.Sprintf("shape object %q fillOverlay effect was not rendered", elementLabel(*element))))
+	}
+	if element.HasBlur && element.BlurRadius > 0 {
+		blurUnsupported, blurRendered := renderShapeWithBlur(slidePart, size, img, *element, target)
+		unsupported = append(unsupported, blurUnsupported...)
+		if blurRendered {
+			rendered = true
+			element.Rendered = rendered
+			return unsupported
+		}
+		unsupported = append(unsupported, unsupportedItem(slidePart, partialUnsupportedCode, fmt.Sprintf("shape object %q blur effect was not rendered", elementLabel(*element))))
+	}
+	if element.HasAlphaOutset && element.AlphaOutsetRadius > 0 {
+		alphaOutsetUnsupported, alphaOutsetRendered := renderShapeWithAlphaOutset(slidePart, size, img, *element, target)
+		unsupported = append(unsupported, alphaOutsetUnsupported...)
+		if alphaOutsetRendered {
+			rendered = true
+			element.Rendered = rendered
+			return unsupported
+		}
+		unsupported = append(unsupported, unsupportedItem(slidePart, partialUnsupportedCode, fmt.Sprintf("shape object %q alphaOutset effect was not rendered", elementLabel(*element))))
+	}
+	if element.HasSoftEdge && element.SoftEdgeRadius > 0 {
+		softUnsupported, softEdgeRendered := renderShapeWithSoftEdge(slidePart, size, img, *element, target)
+		unsupported = append(unsupported, softUnsupported...)
+		if softEdgeRendered {
+			rendered = true
+			element.Rendered = rendered
+			return unsupported
+		}
+		for _, message := range shapeSoftEdgeUnsupportedMessages(*element) {
+			unsupported = append(unsupported, unsupportedItem(slidePart, partialUnsupportedCode, fmt.Sprintf("shape object %q %s", elementLabel(*element), message)))
+		}
 	}
 	gradientFillRendered := false
 	if element.HasFillGradient && !element.NoFill {
@@ -308,12 +476,62 @@ func renderShape(slidePart string, size slideSize, img *image.RGBA, element *sli
 			gradientFillRendered = true
 		}
 	}
-	if element.HasFillGradient && !gradientFillRendered && !element.NoFill && len(element.CustomPath) >= 3 {
-		drawGradientPolygon(img, target, transformedPathPoints(element.CustomPath, *element), element.FillGradient)
-		rendered = true
-		gradientFillRendered = true
+	if element.HasFillGradient && !gradientFillRendered && !element.NoFill {
+		for _, path := range customGeometryFillPaths(*element) {
+			drawGradientPolygon(img, target, path, element.FillGradient)
+			rendered = true
+			gradientFillRendered = true
+		}
 	}
-	if element.HasFill && !element.NoFill && !gradientFillRendered {
+	patternFillRendered := false
+	if element.HasPatternFill && !element.NoFill {
+		switch element.PrstGeom {
+		case "rect", "":
+			drawPatternRect(img, target, element.PatternFill)
+			rendered = true
+			patternFillRendered = true
+		case "roundRect":
+			drawPatternRoundRect(img, target, roundRectRadius(target, element.PrstGeomAdjustments), roundedCorners{TopLeft: true, TopRight: true, BottomLeft: true, BottomRight: true}, element.PatternFill)
+			rendered = true
+			patternFillRendered = true
+		case "round1Rect":
+			drawPatternRoundRect(img, target, roundRectRadius(target, element.PrstGeomAdjustments), roundedCorners{TopRight: true}, element.PatternFill)
+			rendered = true
+			patternFillRendered = true
+		case "ellipse":
+			drawPatternEllipse(img, target, element.PatternFill)
+			rendered = true
+			patternFillRendered = true
+		}
+	}
+	if element.HasPatternFill && !patternFillRendered && !element.NoFill {
+		if points, ok := presetPolygonPointsForElement(*element); ok {
+			drawPatternPolygon(img, target, points, element.PatternFill)
+			rendered = true
+			patternFillRendered = true
+		}
+	}
+	if element.HasPatternFill && !patternFillRendered && !element.NoFill && (element.PrstGeom == "curvedDownArrow" || element.PrstGeom == "curvedUpArrow") {
+		for _, path := range curvedArrowPresetFillPaths(*element) {
+			drawPatternPolygon(img, target, path, element.PatternFill)
+			rendered = true
+			patternFillRendered = true
+		}
+	}
+	if element.HasPatternFill && !patternFillRendered && !element.NoFill && element.PrstGeom == "rightBrace" {
+		drawPatternPolygon(img, target, rightBracePresetPath(*element), element.PatternFill)
+		rendered = true
+		patternFillRendered = true
+	}
+	if element.HasPatternFill && !patternFillRendered && !element.NoFill {
+		for _, path := range customGeometryFillPaths(*element) {
+			drawPatternPolygon(img, target, path, element.PatternFill)
+			rendered = true
+			patternFillRendered = true
+		}
+	}
+	solidFillAllowed := element.HasFill && !element.NoFill && !gradientFillRendered && !patternFillRendered
+	if solidFillAllowed {
 		switch element.PrstGeom {
 		case "rect":
 			fillShapeRectWithFloatBounds(img, floatRectPixelBounds(targetFloat).Intersect(img.Bounds()), targetFloat, element.FillColor)
@@ -326,56 +544,61 @@ func renderShape(slidePart string, size slideSize, img *image.RGBA, element *sli
 			rendered = true
 		}
 	}
-	if points, ok := presetPolygonPointsForElement(*element); ok && element.HasFill && !element.NoFill {
+	if points, ok := presetPolygonPointsForElement(*element); ok && solidFillAllowed {
 		drawPolygon(img, target, points, element.FillColor)
 		rendered = true
 	}
-	if element.PrstGeom == "ellipse" && element.HasFill && !element.NoFill {
+	if element.PrstGeom == "ellipse" && solidFillAllowed {
 		drawEllipse(img, target, element.FillColor)
 		rendered = true
 	}
-	if (element.PrstGeom == "curvedDownArrow" || element.PrstGeom == "curvedUpArrow") && element.HasFill && !element.NoFill {
+	if (element.PrstGeom == "curvedDownArrow" || element.PrstGeom == "curvedUpArrow") && solidFillAllowed {
 		drawCurvedArrow(img, target, *element, element.FillColor)
 		rendered = true
 	}
-	if element.PrstGeom == "rightBrace" && element.HasFill && !element.NoFill {
+	if element.PrstGeom == "rightBrace" && solidFillAllowed {
 		drawPolygon(img, target, rightBracePresetPath(*element), element.FillColor)
 		rendered = true
 	}
-	if len(element.CustomPath) >= 3 && element.HasFill && !element.NoFill {
-		drawPolygon(img, target, transformedPathPoints(element.CustomPath, *element), element.FillColor)
-		rendered = true
+	if solidFillAllowed {
+		for _, path := range customGeometryFillPaths(*element) {
+			drawPolygonWithFloatBounds(img, floatRectPixelBounds(targetFloat).Intersect(img.Bounds()), targetFloat, path, element.FillColor)
+			rendered = true
+		}
 	}
 	if element.HasFillGradient && !gradientFillRendered {
 		unsupported = append(unsupported, unsupportedItem(slidePart, partialUnsupportedCode, fmt.Sprintf("shape object %q gradient fill was rendered as a solid fallback", elementLabel(*element))))
 	} else if element.HasFillGradient && !element.FillGradient.FullySupported {
 		unsupported = append(unsupported, unsupportedItem(slidePart, partialUnsupportedCode, fmt.Sprintf("shape object %q gradient fill was rendered with simplified layout", elementLabel(*element))))
 	}
+	for _, message := range element.PaintUnsupported {
+		unsupported = append(unsupported, unsupportedItem(slidePart, partialUnsupportedCode, fmt.Sprintf("shape object %q %s", elementLabel(*element), message)))
+	}
 	if element.HasLine && !element.NoLine {
 		lineWidth := emuLineWidthToPixels(element.LineWidth, size.CX, img.Bounds().Dx())
 		switch element.PrstGeom {
 		case "rect", "roundRect", "round1Rect", "":
-			drawStyledRectOutlineAlignedWithCap(img, target, element.LineColor, lineWidth, element.LineDash, element.LineAlign, element.LineCap)
+			drawStyledRectOutlineCompound(img, target, element.LineColor, lineWidth, element.LineDash, element.LineAlign, element.LineCap, element.LineJoin, element.LineCompound)
 			rendered = true
 		case "ellipse":
 			drawEllipseOutline(img, target, element.LineColor, lineWidth)
 			rendered = true
 		case "triangle", "rightArrow", "notchedRightArrow", "chevron":
 			if points, ok := presetPolygonPointsForElement(*element); ok {
-				drawPolygonOutline(img, target, points, element.LineColor, lineWidth)
+				drawPathOutlineStyled(img, target, points, element.LineColor, lineWidth, element.LineDash, element.LineCap, element.LineJoin, element.LineCompound, true)
 				rendered = true
 			}
 		case "curvedDownArrow", "curvedUpArrow":
 			if points := curvedArrowPresetOutlinePath(*element); len(points) >= 2 {
-				drawOpenPathOutline(img, target, points, element.LineColor, lineWidth)
+				drawPathOutlineStyled(img, target, points, element.LineColor, lineWidth, element.LineDash, element.LineCap, element.LineJoin, element.LineCompound, false)
 				rendered = true
 			}
 		case "rightBrace":
 			drawRightBrace(img, target, *element, element.LineColor, lineWidth)
 			rendered = true
 		}
-		if len(element.CustomPath) >= 3 {
-			drawPolygonOutline(img, target, transformedPathPoints(element.CustomPath, *element), element.LineColor, lineWidth)
+		for _, path := range customGeometryStrokePaths(*element) {
+			drawPathOutlineStyled(img, target, path, element.LineColor, lineWidth, element.LineDash, element.LineCap, element.LineJoin, element.LineCompound, true)
 			rendered = true
 		}
 	}
@@ -400,20 +623,432 @@ func renderShape(slidePart string, size slideSize, img *image.RGBA, element *sli
 	return unsupported
 }
 
-func lineEndpointsForElement(element slideElement, size slideSize, bounds image.Rectangle) (int, int, int, int) {
-	left := scaleEMU(element.OffX, size.CX, bounds.Dx())
-	top := scaleEMU(element.OffY, size.CY, bounds.Dy())
-	right := scaleEMU(element.OffX+element.ExtCX, size.CX, bounds.Dx())
-	bottom := scaleEMU(element.OffY+element.ExtCY, size.CY, bounds.Dy())
-	startX, startY := left, top
-	endX, endY := right, bottom
-	if element.FlipH {
-		startX, endX = endX, startX
+func renderShapeWithReflection(slidePart string, size slideSize, img *image.RGBA, element slideElement, target image.Rectangle) ([]model.SkipItem, bool) {
+	if target.Empty() {
+		return nil, false
 	}
-	if element.FlipV {
-		startY, endY = endY, startY
+	layer := image.NewRGBA(img.Bounds())
+	inner := element
+	inner.Rendered = false
+	inner.HasReflection = false
+	inner.ReflectionBlur = 0
+	inner.ReflectionDistance = 0
+	inner.ReflectionDirection = 0
+	inner.HasShadow = false
+	inner.ShadowColor = color.RGBA{}
+	inner.ShadowBlur = 0
+	inner.ShadowDistance = 0
+	inner.ShadowDirection = 0
+	inner.HasGlow = false
+	inner.GlowColor = color.RGBA{}
+	inner.GlowRadius = 0
+	inner.HasShape3D = false
+	inner.Shape3DFeatures = nil
+	inner.EffectUnsupported = nil
+	unsupported := renderShape(slidePart, size, layer, &inner)
+	if !inner.Rendered {
+		return unsupported, false
 	}
-	return startX, startY, endX, endY
+	if !applyReflection(layer, target, element.ReflectionParameters(), size, img.Bounds().Dx()) {
+		return unsupported, false
+	}
+	draw.Draw(img, img.Bounds(), layer, image.Point{}, draw.Over)
+	return unsupported, true
+}
+
+func renderShapeWithInnerShadow(slidePart string, size slideSize, img *image.RGBA, element slideElement, target image.Rectangle) ([]model.SkipItem, bool) {
+	if target.Empty() {
+		return nil, false
+	}
+	layer := image.NewRGBA(img.Bounds())
+	inner := element
+	inner.Rendered = false
+	inner.HasInnerShadow = false
+	inner.InnerShadowColor = color.RGBA{}
+	inner.InnerShadowBlur = 0
+	inner.InnerShadowDistance = 0
+	inner.InnerShadowDirection = 0
+	inner.HasShadow = false
+	inner.ShadowColor = color.RGBA{}
+	inner.ShadowBlur = 0
+	inner.ShadowDistance = 0
+	inner.ShadowDirection = 0
+	inner.HasGlow = false
+	inner.GlowColor = color.RGBA{}
+	inner.GlowRadius = 0
+	inner.HasShape3D = false
+	inner.Shape3DFeatures = nil
+	inner.EffectUnsupported = nil
+	unsupported := renderShape(slidePart, size, layer, &inner)
+	if !inner.Rendered {
+		return unsupported, false
+	}
+	blur := innerShadowBlurPixels(element.InnerShadowBlur, size, img.Bounds().Dx())
+	offset := innerShadowOffset(element.InnerShadowDistance, element.InnerShadowDirection, size, img.Bounds().Dx())
+	pad := blur + absInt(offset.X) + absInt(offset.Y)
+	crop := target.Inset(-pad).Intersect(layer.Bounds())
+	if crop.Empty() {
+		return unsupported, false
+	}
+	if !applyInnerShadow(layer, crop, element.InnerShadowColor, blur, offset) {
+		return unsupported, false
+	}
+	draw.Draw(img, crop, layer, crop.Min, draw.Over)
+	return unsupported, true
+}
+
+type reflectionParameters struct {
+	Blur          int64
+	StartAlpha    int64
+	StartPosition int64
+	EndAlpha      int64
+	EndPosition   int64
+	Distance      int64
+	Direction     int64
+	ScaleY        int64
+}
+
+func (element slideElement) ReflectionParameters() reflectionParameters {
+	return reflectionParameters{
+		Blur:          element.ReflectionBlur,
+		StartAlpha:    element.ReflectionStartAlpha,
+		StartPosition: element.ReflectionStartPosition,
+		EndAlpha:      element.ReflectionEndAlpha,
+		EndPosition:   element.ReflectionEndPosition,
+		Distance:      element.ReflectionDistance,
+		Direction:     element.ReflectionDirection,
+		ScaleY:        element.ReflectionScaleY,
+	}
+}
+
+func applyReflection(layer *image.RGBA, target image.Rectangle, reflection reflectionParameters, size slideSize, outputWidth int) bool {
+	if layer == nil || target.Empty() {
+		return false
+	}
+	if reflection.ScaleY <= 0 {
+		reflection.ScaleY = 100000
+	}
+	height := int(math.Round(float64(target.Dy()) * float64(reflection.ScaleY) / 100000))
+	if height <= 0 {
+		return false
+	}
+	source := image.NewRGBA(image.Rect(0, 0, target.Dx(), height))
+	for y := 0; y < height; y++ {
+		sourceY := target.Max.Y - 1 - int(float64(y)*float64(target.Dy())/float64(height))
+		if sourceY < target.Min.Y {
+			sourceY = target.Min.Y
+		}
+		for x := 0; x < target.Dx(); x++ {
+			c := layer.RGBAAt(target.Min.X+x, sourceY)
+			opacity := reflectionOpacityPercent(reflection, y, height)
+			c.A = uint8(int(c.A) * int(opacity) / 100000)
+			source.SetRGBA(x, y, c)
+		}
+	}
+	if blur := innerShadowBlurPixels(reflection.Blur, size, outputWidth); blur > 0 {
+		source = gaussianBlurRGBA(source, blur)
+	}
+	offset := innerShadowOffset(reflection.Distance, reflection.Direction, size, outputWidth)
+	dest := image.Rect(target.Min.X+offset.X, target.Max.Y+maxInt(0, offset.Y), target.Min.X+offset.X+source.Bounds().Dx(), target.Max.Y+maxInt(0, offset.Y)+source.Bounds().Dy())
+	paint := dest.Intersect(layer.Bounds())
+	if paint.Empty() {
+		return false
+	}
+	draw.Draw(layer, paint, source, image.Point{X: paint.Min.X - dest.Min.X, Y: paint.Min.Y - dest.Min.Y}, draw.Over)
+	return true
+}
+
+func reflectionOpacityPercent(reflection reflectionParameters, y int, height int) int64 {
+	if height <= 1 {
+		return clampInt64(reflection.StartAlpha, 0, 100000)
+	}
+	position := int64(y) * 100000 / int64(height-1)
+	startPosition := reflection.StartPosition
+	endPosition := reflection.EndPosition
+	if endPosition <= startPosition {
+		if position <= startPosition {
+			return clampInt64(reflection.StartAlpha, 0, 100000)
+		}
+		return clampInt64(reflection.EndAlpha, 0, 100000)
+	}
+	if position <= startPosition {
+		return clampInt64(reflection.StartAlpha, 0, 100000)
+	}
+	if position >= endPosition {
+		return clampInt64(reflection.EndAlpha, 0, 100000)
+	}
+	span := endPosition - startPosition
+	offset := position - startPosition
+	return clampInt64(reflection.StartAlpha+(reflection.EndAlpha-reflection.StartAlpha)*offset/span, 0, 100000)
+}
+
+func clampInt64(value int64, minValue int64, maxValue int64) int64 {
+	if value < minValue {
+		return minValue
+	}
+	if value > maxValue {
+		return maxValue
+	}
+	return value
+}
+
+func applyInnerShadow(layer *image.RGBA, crop image.Rectangle, shadow color.RGBA, blur int, offset image.Point) bool {
+	if layer == nil || crop.Empty() || shadow.A == 0 {
+		return false
+	}
+	width := crop.Dx()
+	height := crop.Dy()
+	base := make([]uint8, width*height)
+	for y := 0; y < height; y++ {
+		for x := 0; x < width; x++ {
+			base[y*width+x] = layer.RGBAAt(crop.Min.X+x, crop.Min.Y+y).A
+		}
+	}
+	shifted := make([]uint8, len(base))
+	for y := 0; y < height; y++ {
+		for x := 0; x < width; x++ {
+			sourceX := x - offset.X
+			sourceY := y - offset.Y
+			if sourceX < 0 || sourceY < 0 || sourceX >= width || sourceY >= height {
+				continue
+			}
+			shifted[y*width+x] = base[sourceY*width+sourceX]
+		}
+	}
+	blurred := gaussianBlurAlpha(shifted, width, height, blur)
+	painted := false
+	for y := 0; y < height; y++ {
+		for x := 0; x < width; x++ {
+			index := y*width + x
+			if base[index] == 0 {
+				continue
+			}
+			alpha := int(base[index]) * (255 - int(blurred[index])) / 255
+			alpha = alpha * int(shadow.A) / 255
+			if alpha <= 0 {
+				continue
+			}
+			if alpha > 255 {
+				alpha = 255
+			}
+			blendPixel(layer, crop.Min.X+x, crop.Min.Y+y, color.RGBA{R: shadow.R, G: shadow.G, B: shadow.B, A: uint8(alpha)})
+			painted = true
+		}
+	}
+	return painted
+}
+
+func renderShapeWithFillOverlay(slidePart string, size slideSize, img *image.RGBA, element slideElement, target image.Rectangle) ([]model.SkipItem, bool) {
+	if target.Empty() {
+		return nil, false
+	}
+	layer := image.NewRGBA(img.Bounds())
+	inner := element
+	inner.Rendered = false
+	inner.HasFillOverlay = false
+	inner.FillOverlay = backgroundPaint{}
+	inner.FillOverlayBlend = ""
+	inner.HasShadow = false
+	inner.ShadowColor = color.RGBA{}
+	inner.ShadowBlur = 0
+	inner.ShadowDistance = 0
+	inner.ShadowDirection = 0
+	inner.HasGlow = false
+	inner.GlowColor = color.RGBA{}
+	inner.GlowRadius = 0
+	inner.HasShape3D = false
+	inner.Shape3DFeatures = nil
+	inner.EffectUnsupported = nil
+	unsupported := renderShape(slidePart, size, layer, &inner)
+	if !inner.Rendered {
+		return unsupported, false
+	}
+	crop := target.Intersect(layer.Bounds())
+	if crop.Empty() {
+		return unsupported, false
+	}
+	applyFillOverlay(layer, crop, element.FillOverlay, element.FillOverlayBlend)
+	draw.Draw(img, crop, layer, crop.Min, draw.Over)
+	return unsupported, true
+}
+
+func renderShapeWithBlur(slidePart string, size slideSize, img *image.RGBA, element slideElement, target image.Rectangle) ([]model.SkipItem, bool) {
+	if target.Empty() {
+		return nil, false
+	}
+	radius := blurRadiusPixels(element, size, img.Bounds().Dx())
+	if radius <= 0 {
+		return nil, false
+	}
+	layer := image.NewRGBA(img.Bounds())
+	inner := element
+	inner.Rendered = false
+	inner.HasBlur = false
+	inner.BlurRadius = 0
+	inner.BlurGrow = false
+	inner.HasShadow = false
+	inner.ShadowColor = color.RGBA{}
+	inner.ShadowBlur = 0
+	inner.ShadowDistance = 0
+	inner.ShadowDirection = 0
+	inner.HasGlow = false
+	inner.GlowColor = color.RGBA{}
+	inner.GlowRadius = 0
+	inner.HasShape3D = false
+	inner.Shape3DFeatures = nil
+	inner.EffectUnsupported = nil
+	unsupported := renderShape(slidePart, size, layer, &inner)
+	if !inner.Rendered {
+		return unsupported, false
+	}
+	crop := target.Inset(-radius)
+	crop = crop.Intersect(layer.Bounds())
+	if crop.Empty() {
+		return unsupported, false
+	}
+	source := image.NewRGBA(image.Rect(0, 0, crop.Dx(), crop.Dy()))
+	draw.Draw(source, source.Bounds(), layer, crop.Min, draw.Src)
+	blurred := gaussianBlurRGBA(source, radius)
+	paint := crop
+	if !element.BlurGrow {
+		paint = paint.Intersect(target)
+	}
+	paint = paint.Intersect(img.Bounds())
+	if paint.Empty() {
+		return unsupported, false
+	}
+	draw.Draw(img, paint, blurred, image.Point{X: paint.Min.X - crop.Min.X, Y: paint.Min.Y - crop.Min.Y}, draw.Over)
+	return unsupported, true
+}
+
+func renderShapeWithRelativeOffset(slidePart string, size slideSize, img *image.RGBA, element slideElement, target image.Rectangle) ([]model.SkipItem, bool) {
+	if target.Empty() {
+		return nil, false
+	}
+	offset := relativeOffsetPixels(target, element.RelativeOffsetX, element.RelativeOffsetY)
+	if offset == (image.Point{}) {
+		return nil, false
+	}
+	layer := image.NewRGBA(img.Bounds())
+	inner := element
+	inner.Rendered = false
+	inner.HasRelativeOffset = false
+	inner.RelativeOffsetX = 0
+	inner.RelativeOffsetY = 0
+	unsupported := renderShape(slidePart, size, layer, &inner)
+	if !inner.Rendered {
+		return unsupported, false
+	}
+	drawRGBAAt(img, layer.Bounds().Add(offset), layer)
+	return unsupported, true
+}
+
+func renderShapeWithEffectTransform(slidePart string, size slideSize, img *image.RGBA, element slideElement, target image.Rectangle) ([]model.SkipItem, bool) {
+	if target.Empty() {
+		return nil, false
+	}
+	offset := effectTransformOffsetPixels(size, img.Bounds(), element.EffectTransformOffsetX, element.EffectTransformOffsetY)
+	if offset == (image.Point{}) {
+		return nil, false
+	}
+	layer := image.NewRGBA(img.Bounds())
+	inner := element
+	inner.Rendered = false
+	inner.HasEffectTransform = false
+	inner.EffectTransformScaleX = 0
+	inner.EffectTransformScaleY = 0
+	inner.EffectTransformSkewX = 0
+	inner.EffectTransformSkewY = 0
+	inner.EffectTransformOffsetX = 0
+	inner.EffectTransformOffsetY = 0
+	unsupported := renderShape(slidePart, size, layer, &inner)
+	if !inner.Rendered {
+		return unsupported, false
+	}
+	drawRGBAAt(img, layer.Bounds().Add(offset), layer)
+	return unsupported, true
+}
+
+func renderShapeWithAlphaOutset(slidePart string, size slideSize, img *image.RGBA, element slideElement, target image.Rectangle) ([]model.SkipItem, bool) {
+	if target.Empty() {
+		return nil, false
+	}
+	radius := alphaOutsetRadiusPixels(element.AlphaOutsetRadius, size, img.Bounds().Dx())
+	if radius <= 0 {
+		return nil, false
+	}
+	layer := image.NewRGBA(img.Bounds())
+	inner := element
+	inner.Rendered = false
+	inner.HasAlphaOutset = false
+	inner.AlphaOutsetRadius = 0
+	inner.HasShadow = false
+	inner.ShadowColor = color.RGBA{}
+	inner.ShadowBlur = 0
+	inner.ShadowDistance = 0
+	inner.ShadowDirection = 0
+	inner.HasGlow = false
+	inner.GlowColor = color.RGBA{}
+	inner.GlowRadius = 0
+	inner.HasShape3D = false
+	inner.Shape3DFeatures = nil
+	inner.EffectUnsupported = nil
+	unsupported := renderShape(slidePart, size, layer, &inner)
+	if !inner.Rendered {
+		return unsupported, false
+	}
+	crop := target.Inset(-radius).Intersect(layer.Bounds())
+	if crop.Empty() {
+		return unsupported, false
+	}
+	if !applyAlphaOutset(layer, crop, radius) {
+		return unsupported, false
+	}
+	draw.Draw(img, crop, layer, crop.Min, draw.Over)
+	return unsupported, true
+}
+
+func renderShapeWithSoftEdge(slidePart string, size slideSize, img *image.RGBA, element slideElement, target image.Rectangle) ([]model.SkipItem, bool) {
+	if target.Empty() {
+		return nil, false
+	}
+	radius := softEdgeRadiusPixels(element, size, img.Bounds().Dx())
+	if radius <= 0 {
+		return nil, false
+	}
+	layer := image.NewRGBA(img.Bounds())
+	inner := element
+	inner.Rendered = false
+	inner.HasSoftEdge = false
+	inner.SoftEdgeRadius = 0
+	inner.HasShadow = false
+	inner.ShadowColor = color.RGBA{}
+	inner.ShadowBlur = 0
+	inner.ShadowDistance = 0
+	inner.ShadowDirection = 0
+	inner.HasGlow = false
+	inner.GlowColor = color.RGBA{}
+	inner.GlowRadius = 0
+	inner.HasShape3D = false
+	inner.Shape3DFeatures = nil
+	inner.EffectUnsupported = nil
+	unsupported := renderShape(slidePart, size, layer, &inner)
+	if !inner.Rendered {
+		return unsupported, false
+	}
+	crop := target.Intersect(layer.Bounds())
+	if crop.Empty() {
+		return unsupported, false
+	}
+	softLayer := image.NewRGBA(image.Rect(0, 0, crop.Dx(), crop.Dy()))
+	draw.Draw(softLayer, softLayer.Bounds(), layer, crop.Min, draw.Src)
+	applySoftEdgeAlpha(softLayer, radius)
+	for y := 0; y < softLayer.Bounds().Dy(); y++ {
+		for x := 0; x < softLayer.Bounds().Dx(); x++ {
+			blendPixel(img, crop.Min.X+x, crop.Min.Y+y, softLayer.RGBAAt(x, y))
+		}
+	}
+	return unsupported, true
 }
 
 func drawShapeTextForElement(img *image.RGBA, target image.Rectangle, element slideElement, size slideSize) error {
@@ -815,6 +1450,39 @@ func transformedPathPoints(points []pathPoint, element slideElement) []pathPoint
 	return rotatePathPoints(transformed, normalizedRotationDegrees(element.Rotation))
 }
 
+func customGeometryFillPaths(element slideElement) [][]pathPoint {
+	return customGeometryPaths(element, element.CustomPathFills, true)
+}
+
+func customGeometryStrokePaths(element slideElement) [][]pathPoint {
+	return customGeometryPaths(element, element.CustomPathStrokes, true)
+}
+
+func customGeometryPaths(element slideElement, flags []bool, defaultValue bool) [][]pathPoint {
+	source := element.CustomPaths
+	if len(source) == 0 && len(element.CustomPath) > 0 {
+		source = [][]pathPoint{element.CustomPath}
+	}
+	if len(source) == 0 {
+		return nil
+	}
+	paths := make([][]pathPoint, 0, len(source))
+	for index, path := range source {
+		if len(path) < 3 {
+			continue
+		}
+		enabled := defaultValue
+		if index < len(flags) {
+			enabled = flags[index]
+		}
+		if !enabled {
+			continue
+		}
+		paths = append(paths, transformedPathPoints(path, element))
+	}
+	return paths
+}
+
 func rotatePathPoints(points []pathPoint, rotation int) []pathPoint {
 	if rotation != 90 && rotation != 180 && rotation != 270 {
 		return points
@@ -866,8 +1534,51 @@ func drawShapeShadow(img *image.RGBA, target image.Rectangle, element slideEleme
 		} else {
 			return false
 		}
-	case len(element.CustomPath) >= 3:
-		drawSoftPolygon(img, shadowBounds, transformedPathPoints(element.CustomPath, element), element.ShadowColor, blur)
+	case len(customGeometryFillPaths(element)) > 0:
+		for _, path := range customGeometryFillPaths(element) {
+			drawSoftPolygon(img, shadowBounds, path, element.ShadowColor, blur)
+		}
+	default:
+		return false
+	}
+	return true
+}
+
+func drawShapeGlow(img *image.RGBA, target image.Rectangle, element slideElement, size slideSize) bool {
+	if element.GlowColor.A == 0 {
+		return false
+	}
+	blur := glowRadiusPixels(element.GlowRadius, size, img.Bounds().Dx())
+	if !shadowIntersectsCanvas(target, blur, img.Bounds()) {
+		return false
+	}
+	switch {
+	case isRectGeometry(element.PrstGeom):
+		drawSoftRect(img, target, element.GlowColor, blur)
+	case element.PrstGeom == "ellipse":
+		drawSoftEllipse(img, target, element.GlowColor, blur)
+	case element.PrstGeom == "triangle":
+		drawSoftPolygon(img, target, transformedPathPoints([]pathPoint{{X: 0.5, Y: 0}, {X: 1, Y: 1}, {X: 0, Y: 1}}, element), element.GlowColor, blur)
+	case element.PrstGeom == "rightArrow":
+		drawSoftPolygon(img, target, transformedPathPoints([]pathPoint{
+			{X: 0, Y: 0.25},
+			{X: 0.65, Y: 0.25},
+			{X: 0.65, Y: 0},
+			{X: 1, Y: 0.5},
+			{X: 0.65, Y: 1},
+			{X: 0.65, Y: 0.75},
+			{X: 0, Y: 0.75},
+		}, element), element.GlowColor, blur)
+	case isFilledPresetPolygonGeometry(element.PrstGeom):
+		if points, ok := presetPolygonPointsForElement(element); ok {
+			drawSoftPolygon(img, target, points, element.GlowColor, blur)
+		} else {
+			return false
+		}
+	case len(customGeometryFillPaths(element)) > 0:
+		for _, path := range customGeometryFillPaths(element) {
+			drawSoftPolygon(img, target, path, element.GlowColor, blur)
+		}
 	default:
 		return false
 	}
@@ -926,10 +1637,68 @@ func shadowOffset(element slideElement, size slideSize, outputWidth int) image.P
 	}
 }
 
+func innerShadowOffset(distanceEMU int64, direction int64, size slideSize, outputWidth int) image.Point {
+	distance := scaleEMU(distanceEMU, size.CX, outputWidth)
+	if distance == 0 && distanceEMU > 0 {
+		distance = 1
+	}
+	angle := float64(direction) / 60000 * math.Pi / 180
+	return image.Point{
+		X: int(math.Round(math.Cos(angle) * float64(distance))),
+		Y: int(math.Round(math.Sin(angle) * float64(distance))),
+	}
+}
+
 func shadowBlurPixels(element slideElement, size slideSize, outputWidth int) int {
 	blur := scaleEMU(element.ShadowBlur, size.CX, outputWidth)
 	if blur < 0 {
 		return 0
 	}
 	return blur
+}
+
+func innerShadowBlurPixels(blurEMU int64, size slideSize, outputWidth int) int {
+	blur := scaleEMU(blurEMU, size.CX, outputWidth)
+	if blur < 0 {
+		return 0
+	}
+	return blur
+}
+
+func blurRadiusPixels(element slideElement, size slideSize, outputWidth int) int {
+	radius := scaleEMU(element.BlurRadius, size.CX, outputWidth)
+	if radius < 0 {
+		return 0
+	}
+	return radius
+}
+
+func glowRadiusPixels(radiusEMU int64, size slideSize, outputWidth int) int {
+	radius := scaleEMU(radiusEMU, size.CX, outputWidth)
+	if radius < 0 {
+		return 0
+	}
+	return radius
+}
+
+func alphaOutsetRadiusPixels(radiusEMU int64, size slideSize, outputWidth int) int {
+	radius := scaleEMU(radiusEMU, size.CX, outputWidth)
+	if radius < 0 {
+		return 0
+	}
+	return min(radius, 64)
+}
+
+func relativeOffsetPixels(target image.Rectangle, txPct int64, tyPct int64) image.Point {
+	return image.Point{
+		X: int(math.Round(float64(target.Dx()) * float64(txPct) / 100000)),
+		Y: int(math.Round(float64(target.Dy()) * float64(tyPct) / 100000)),
+	}
+}
+
+func effectTransformOffsetPixels(size slideSize, canvas image.Rectangle, txEMU int64, tyEMU int64) image.Point {
+	return image.Point{
+		X: scaleEMU(txEMU, size.CX, canvas.Dx()),
+		Y: scaleEMU(tyEMU, size.CY, canvas.Dy()),
+	}
 }

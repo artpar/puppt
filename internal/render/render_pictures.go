@@ -14,6 +14,7 @@ import (
 	"io"
 	"math"
 	"path"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -24,73 +25,578 @@ import (
 )
 
 func renderPicture(pkg *pptx.Package, slidePart string, size slideSize, img *image.RGBA, element *slideElement, relationships map[string]pptx.Relationship) []model.SkipItem {
-	if element.EmbedID == "" {
-		return []model.SkipItem{pictureUnsupported(slidePart, element, fmt.Sprintf("picture object %q has no embedded image relationship", elementLabel(*element)))}
+	primitive, err := renderPicturePrimitiveFromElement(pkg, slidePart, size, img.Bounds(), *element, relationships)
+	if err != nil {
+		return []model.SkipItem{pictureUnsupported(slidePart, element, err.Error())}
 	}
-	relationship, ok := relationships[element.EmbedID]
-	if !ok {
-		return []model.SkipItem{pictureUnsupported(slidePart, element, fmt.Sprintf("picture object %q references missing relationship %q", elementLabel(*element), element.EmbedID))}
+	relationshipID := primitive.RelationshipID
+	if relationshipID == "" {
+		relationshipID = primitive.LinkRelationshipID
 	}
-	if relationship.Type != pptx.ImageRelType || (relationship.TargetMode != "" && !strings.EqualFold(relationship.TargetMode, "Internal")) {
-		return []model.SkipItem{pictureUnsupported(slidePart, element, fmt.Sprintf("picture object %q uses unsupported relationship %q", elementLabel(*element), relationship.Type))}
-	}
-	if !element.HasTransform || element.ExtCX <= 0 || element.ExtCY <= 0 {
-		return []model.SkipItem{pictureUnsupported(slidePart, element, fmt.Sprintf("picture object %q has no renderable transform", elementLabel(*element)))}
-	}
+	relationship := relationships[relationshipID]
 
 	source, targetPart, partialUnsupported := pictureSourceImage(pkg, slidePart, element, relationships, relationship)
 	if source == nil {
 		return []model.SkipItem{pictureUnsupported(slidePart, element, fmt.Sprintf("picture object %q uses unsupported image data %q: %v", elementLabel(*element), targetPart, partialUnsupported))}
 	}
-
-	target := image.Rect(
-		scaleEMU(element.OffX, size.CX, img.Bounds().Dx()),
-		scaleEMU(element.OffY, size.CY, img.Bounds().Dy()),
-		scaleEMU(element.OffX+element.ExtCX, size.CX, img.Bounds().Dx()),
-		scaleEMU(element.OffY+element.ExtCY, size.CY, img.Bounds().Dy()),
-	)
-	var unsupported []model.SkipItem
-	if element.HasShadow {
-		for _, message := range shadowTransformUnsupportedMessages(*element) {
-			unsupported = append(unsupported, unsupportedItem(slidePart, partialUnsupportedCode, fmt.Sprintf("picture object %q %s", elementLabel(*element), message)))
-		}
-		if drawPictureShadow(img, target, *element, size) {
-			// Supported picture shadows are painted before the image so the image occludes the inner shadow area.
-		} else if element.ShadowColor.A != 0 {
-			unsupported = append(unsupported, unsupportedItem(slidePart, partialUnsupportedCode, fmt.Sprintf("picture object %q outer shadow geometry was not rendered", elementLabel(*element))))
-		}
-	}
-	for _, message := range shape3DUnsupportedMessages(*element) {
-		unsupported = append(unsupported, unsupportedItem(slidePart, partialUnsupportedCode, fmt.Sprintf("picture object %q %s", elementLabel(*element), message)))
-	}
-	pictureImage, pictureBounds := pictureSourceForElement(source, *element)
-	softEdgeRendered := drawPictureRaster(img, target, pictureImage, pictureBounds, *element, size)
-	if element.HasLine && !element.NoLine {
-		lineWidth := emuLineWidthToPixels(element.LineWidth, size.CX, img.Bounds().Dx())
-		if normalizedRotationDegrees(element.Rotation) == 0 {
-			drawPictureOutline(img, target, *element, lineWidth)
-		}
-	}
+	element.ImageMediaPart = targetPart
+	element.ImageContentType = primitive.ContentType
+	sourceBounds := source.Bounds()
+	element.ImageWidth = sourceBounds.Dx()
+	element.ImageHeight = sourceBounds.Dy()
+	unsupported := currentPictureBackend{}.RenderPicture(pictureBackendInput{
+		SlidePart:          slidePart,
+		Size:               size,
+		Canvas:             img,
+		Primitive:          primitive,
+		Source:             source,
+		TargetPart:         targetPart,
+		PartialUnsupported: partialUnsupported,
+	})
 	element.Rendered = true
+	return unsupported
+}
 
-	if len(element.CustomPath) >= 3 && len(element.CustomPathUnsupported) > 0 {
-		for _, message := range element.CustomPathUnsupported {
-			unsupported = append(unsupported, unsupportedItem(slidePart, partialUnsupportedCode, fmt.Sprintf("picture object %q %s", elementLabel(*element), message)))
+type pictureBackend interface {
+	RenderPicture(input pictureBackendInput) []model.SkipItem
+}
+
+type pictureBackendInput struct {
+	SlidePart          string
+	Size               slideSize
+	Canvas             *image.RGBA
+	Primitive          renderPicturePrimitive
+	Source             image.Image
+	TargetPart         string
+	PartialUnsupported error
+}
+
+type pictureSamplingStage interface {
+	Draw(input pictureSamplingInput) bool
+}
+
+type pictureSamplingInput struct {
+	Canvas       *image.RGBA
+	Target       image.Rectangle
+	Source       image.Image
+	SourceBounds image.Rectangle
+	Primitive    renderPicturePrimitive
+	Size         slideSize
+	OutputWidth  int
+}
+
+type currentPictureSamplingStage struct{}
+
+type currentPictureBackend struct {
+	sampler pictureSamplingStage
+}
+
+func (backend currentPictureBackend) RenderPicture(input pictureBackendInput) []model.SkipItem {
+	primitive := input.Primitive
+	img := input.Canvas
+	size := input.Size
+	target := imageRectFromObjectPixelBounds(primitive.Target)
+	var unsupported []model.SkipItem
+	if primitive.HasEffectTransform && (primitive.EffectTransformOffsetX != 0 || primitive.EffectTransformOffsetY != 0) {
+		xfrmUnsupported, xfrmRendered := backend.drawPicturePrimitiveWithEffectTransform(input)
+		unsupported = append(unsupported, xfrmUnsupported...)
+		if xfrmRendered {
+			return unsupported
+		}
+		unsupported = append(unsupported, unsupportedItem(input.SlidePart, partialUnsupportedCode, fmt.Sprintf("picture object %q xfrm effect was not rendered", picturePrimitiveLabel(primitive))))
+		return unsupported
+	}
+	if primitive.HasRelativeOffset && (primitive.RelativeOffsetX != 0 || primitive.RelativeOffsetY != 0) {
+		relOffUnsupported, relOffRendered := backend.drawPicturePrimitiveWithRelativeOffset(input)
+		unsupported = append(unsupported, relOffUnsupported...)
+		if relOffRendered {
+			return unsupported
+		}
+		unsupported = append(unsupported, unsupportedItem(input.SlidePart, partialUnsupportedCode, fmt.Sprintf("picture object %q relOff effect was not rendered", picturePrimitiveLabel(primitive))))
+		return unsupported
+	}
+	if primitive.HasShadow {
+		for _, message := range picturePrimitiveShadowTransformUnsupportedMessages(primitive) {
+			unsupported = append(unsupported, unsupportedItem(input.SlidePart, partialUnsupportedCode, fmt.Sprintf("picture object %q %s", picturePrimitiveLabel(primitive), message)))
+		}
+		if drawPicturePrimitiveShadow(img, target, primitive, size) {
+			// Supported picture shadows are painted before the image so the image occludes the inner shadow area.
+		} else if primitive.ShadowColor.A != 0 {
+			unsupported = append(unsupported, unsupportedItem(input.SlidePart, partialUnsupportedCode, fmt.Sprintf("picture object %q outer shadow geometry was not rendered", picturePrimitiveLabel(primitive))))
 		}
 	}
-	if element.HasSoftEdge {
+	if primitive.HasGlow {
+		if drawPicturePrimitiveGlow(img, target, primitive, size) {
+			// Supported picture glows are painted before the image so the image occludes the inner glow area.
+		} else if primitive.GlowColor.A != 0 {
+			unsupported = append(unsupported, unsupportedItem(input.SlidePart, partialUnsupportedCode, fmt.Sprintf("picture object %q glow geometry was not rendered", picturePrimitiveLabel(primitive))))
+		}
+	}
+	for _, message := range picturePrimitiveShape3DUnsupportedMessages(primitive) {
+		unsupported = append(unsupported, unsupportedItem(input.SlidePart, partialUnsupportedCode, fmt.Sprintf("picture object %q %s", picturePrimitiveLabel(primitive), message)))
+	}
+	for _, message := range primitive.EffectUnsupported {
+		unsupported = append(unsupported, unsupportedItem(input.SlidePart, partialUnsupportedCode, fmt.Sprintf("picture object %q %s", picturePrimitiveLabel(primitive), message)))
+	}
+	for _, message := range primitive.ImageUnsupported {
+		unsupported = append(unsupported, unsupportedItem(input.SlidePart, partialUnsupportedCode, fmt.Sprintf("picture object %q %s", picturePrimitiveLabel(primitive), message)))
+	}
+	if primitive.BlipFillMode == "tile" && (primitive.HasSoftEdge || len(primitive.CustomPath) >= 3) {
+		unsupported = append(unsupported, unsupportedItem(input.SlidePart, partialUnsupportedCode, fmt.Sprintf("picture object %q tiled blip fill with mask/soft edge was rendered as stretched image", picturePrimitiveLabel(primitive))))
+	}
+	pictureImage, pictureBounds := pictureSourceForPrimitive(input.Source, primitive)
+	softEdgeRendered := false
+	blurRendered := false
+	fillOverlayRendered := false
+	innerShadowRendered := false
+	reflectionRendered := false
+	alphaOutsetRendered := false
+	sourceBlurRendered := false
+	if primitive.HasReflection {
+		softEdgeRendered, reflectionRendered = backend.drawPicturePrimitiveWithReflection(img, target, pictureImage, pictureBounds, primitive, size)
+		if reflectionRendered {
+			innerShadowRendered = primitive.HasInnerShadow
+			fillOverlayRendered = primitive.HasFillOverlay
+			blurRendered = primitive.HasBlur && primitive.BlurRadius > 0
+			alphaOutsetRendered = primitive.HasAlphaOutset && primitive.AlphaOutsetRadius > 0
+		}
+	} else if primitive.HasInnerShadow {
+		softEdgeRendered, innerShadowRendered = backend.drawPicturePrimitiveWithInnerShadow(img, target, pictureImage, pictureBounds, primitive, size)
+		if innerShadowRendered {
+			fillOverlayRendered = primitive.HasFillOverlay
+			blurRendered = primitive.HasBlur && primitive.BlurRadius > 0
+			alphaOutsetRendered = primitive.HasAlphaOutset && primitive.AlphaOutsetRadius > 0
+		}
+	} else if primitive.HasFillOverlay {
+		softEdgeRendered, fillOverlayRendered = backend.drawPicturePrimitiveWithFillOverlay(img, target, pictureImage, pictureBounds, primitive, size)
+		if fillOverlayRendered {
+			alphaOutsetRendered = primitive.HasAlphaOutset && primitive.AlphaOutsetRadius > 0
+		}
+	} else if primitive.HasBlur && primitive.BlurRadius > 0 {
+		softEdgeRendered, blurRendered = backend.drawPicturePrimitiveWithBlur(img, target, pictureImage, pictureBounds, primitive, size)
+		if blurRendered {
+			alphaOutsetRendered = primitive.HasAlphaOutset && primitive.AlphaOutsetRadius > 0
+		}
+	} else if primitive.HasAlphaOutset && primitive.AlphaOutsetRadius > 0 {
+		softEdgeRendered, alphaOutsetRendered = backend.drawPicturePrimitiveWithAlphaOutset(img, target, pictureImage, pictureBounds, primitive, size)
+	} else if primitive.HasSourceBlur && primitive.SourceBlurRadius > 0 {
+		softEdgeRendered, sourceBlurRendered = backend.drawPicturePrimitiveWithSourceBlur(img, target, pictureImage, pictureBounds, primitive, size)
+	} else {
+		softEdgeRendered = backend.samplingStage().Draw(pictureSamplingInput{
+			Canvas:       img,
+			Target:       target,
+			Source:       pictureImage,
+			SourceBounds: pictureBounds,
+			Primitive:    primitive,
+			Size:         size,
+			OutputWidth:  img.Bounds().Dx(),
+		})
+	}
+	if primitive.HasLine && !primitive.NoLine && !primitive.HasReflection && !primitive.HasInnerShadow && !primitive.HasBlur && !primitive.HasAlphaOutset && !primitive.HasFillOverlay && !primitive.HasSourceBlur {
+		lineWidth := emuLineWidthToPixels(primitive.LineWidth, size.CX, img.Bounds().Dx())
+		if primitive.RotationDegrees == 0 {
+			drawPicturePrimitiveOutline(img, target, primitive, lineWidth)
+		}
+	}
+	if primitive.HasBlur && !blurRendered {
+		unsupported = append(unsupported, unsupportedItem(input.SlidePart, partialUnsupportedCode, fmt.Sprintf("picture object %q blur effect was not rendered", picturePrimitiveLabel(primitive))))
+	}
+	if primitive.HasSourceBlur && primitive.SourceBlurRadius > 0 && !sourceBlurRendered {
+		unsupported = append(unsupported, unsupportedItem(input.SlidePart, partialUnsupportedCode, fmt.Sprintf("picture object %q blip blur effect was not rendered with combined object effects", picturePrimitiveLabel(primitive))))
+	}
+	if primitive.HasAlphaOutset && primitive.AlphaOutsetRadius > 0 && !alphaOutsetRendered {
+		unsupported = append(unsupported, unsupportedItem(input.SlidePart, partialUnsupportedCode, fmt.Sprintf("picture object %q alphaOutset effect was not rendered", picturePrimitiveLabel(primitive))))
+	}
+	if primitive.HasFillOverlay && !fillOverlayRendered {
+		unsupported = append(unsupported, unsupportedItem(input.SlidePart, partialUnsupportedCode, fmt.Sprintf("picture object %q fillOverlay effect was not rendered", picturePrimitiveLabel(primitive))))
+	}
+	if primitive.HasInnerShadow && !innerShadowRendered && primitive.InnerShadowColor.A != 0 {
+		unsupported = append(unsupported, unsupportedItem(input.SlidePart, partialUnsupportedCode, fmt.Sprintf("picture object %q inner shadow effect was not rendered", picturePrimitiveLabel(primitive))))
+	}
+	if primitive.HasReflection && !reflectionRendered {
+		unsupported = append(unsupported, unsupportedItem(input.SlidePart, partialUnsupportedCode, fmt.Sprintf("picture object %q reflection effect was not rendered", picturePrimitiveLabel(primitive))))
+	}
+
+	if len(primitive.CustomPath) >= 3 && len(primitive.CustomPathUnsupported) > 0 {
+		for _, message := range primitive.CustomPathUnsupported {
+			unsupported = append(unsupported, unsupportedItem(input.SlidePart, partialUnsupportedCode, fmt.Sprintf("picture object %q %s", picturePrimitiveLabel(primitive), message)))
+		}
+	}
+	if primitive.HasSoftEdge {
 		if !softEdgeRendered {
-			unsupported = append(unsupported, unsupportedItem(slidePart, partialUnsupportedCode, fmt.Sprintf("picture object %q soft edge was not rendered", elementLabel(*element))))
+			unsupported = append(unsupported, unsupportedItem(input.SlidePart, partialUnsupportedCode, fmt.Sprintf("picture object %q soft edge was not rendered", picturePrimitiveLabel(primitive))))
 		}
 	}
-	if partialUnsupported != nil {
-		if strings.EqualFold(path.Ext(targetPart), ".svg") {
-			unsupported = append(unsupported, unsupportedItem(slidePart, partialUnsupportedCode, fmt.Sprintf("picture object %q rendered from SVG because fallback raster could not be decoded: %v", elementLabel(*element), partialUnsupported)))
+	if input.PartialUnsupported != nil {
+		if strings.EqualFold(path.Ext(input.TargetPart), ".svg") {
+			unsupported = append(unsupported, unsupportedItem(input.SlidePart, partialUnsupportedCode, fmt.Sprintf("picture object %q rendered from SVG because fallback raster could not be decoded: %v", picturePrimitiveLabel(primitive), input.PartialUnsupported)))
 		} else {
-			unsupported = append(unsupported, unsupportedItem(slidePart, partialUnsupportedCode, fmt.Sprintf("picture object %q rendered from fallback raster because SVG image could not be decoded: %v", elementLabel(*element), partialUnsupported)))
+			unsupported = append(unsupported, unsupportedItem(input.SlidePart, partialUnsupportedCode, fmt.Sprintf("picture object %q rendered from fallback raster because SVG image could not be decoded: %v", picturePrimitiveLabel(primitive), input.PartialUnsupported)))
 		}
 	}
 	return unsupported
+}
+
+func (backend currentPictureBackend) drawPicturePrimitiveWithReflection(img *image.RGBA, target image.Rectangle, pictureImage image.Image, pictureBounds image.Rectangle, primitive renderPicturePrimitive, size slideSize) (bool, bool) {
+	if target.Empty() {
+		return false, false
+	}
+	layer := image.NewRGBA(img.Bounds())
+	inner := primitive
+	inner.HasReflection = false
+	inner.ReflectionBlur = 0
+	inner.ReflectionDistance = 0
+	inner.ReflectionDirection = 0
+	softEdgeRendered := false
+	if inner.HasInnerShadow {
+		softEdgeRendered, _ = backend.drawPicturePrimitiveWithInnerShadow(layer, target, pictureImage, pictureBounds, inner, size)
+	} else if inner.HasFillOverlay {
+		softEdgeRendered, _ = backend.drawPicturePrimitiveWithFillOverlay(layer, target, pictureImage, pictureBounds, inner, size)
+	} else if inner.HasBlur && inner.BlurRadius > 0 {
+		softEdgeRendered, _ = backend.drawPicturePrimitiveWithBlur(layer, target, pictureImage, pictureBounds, inner, size)
+	} else if inner.HasAlphaOutset && inner.AlphaOutsetRadius > 0 {
+		softEdgeRendered, _ = backend.drawPicturePrimitiveWithAlphaOutset(layer, target, pictureImage, pictureBounds, inner, size)
+	} else {
+		softEdgeRendered = backend.samplingStage().Draw(pictureSamplingInput{
+			Canvas:       layer,
+			Target:       target,
+			Source:       pictureImage,
+			SourceBounds: pictureBounds,
+			Primitive:    inner,
+			Size:         size,
+			OutputWidth:  img.Bounds().Dx(),
+		})
+	}
+	if primitive.HasLine && !primitive.NoLine && primitive.RotationDegrees == 0 {
+		lineWidth := emuLineWidthToPixels(primitive.LineWidth, size.CX, img.Bounds().Dx())
+		drawPicturePrimitiveOutline(layer, target, primitive, lineWidth)
+	}
+	if !applyReflection(layer, target, primitive.ReflectionParameters(), size, img.Bounds().Dx()) {
+		return softEdgeRendered, false
+	}
+	draw.Draw(img, img.Bounds(), layer, image.Point{}, draw.Over)
+	return softEdgeRendered, true
+}
+
+func (primitive renderPicturePrimitive) ReflectionParameters() reflectionParameters {
+	return reflectionParameters{
+		Blur:          primitive.ReflectionBlur,
+		StartAlpha:    primitive.ReflectionStartAlpha,
+		StartPosition: primitive.ReflectionStartPosition,
+		EndAlpha:      primitive.ReflectionEndAlpha,
+		EndPosition:   primitive.ReflectionEndPosition,
+		Distance:      primitive.ReflectionDistance,
+		Direction:     primitive.ReflectionDirection,
+		ScaleY:        primitive.ReflectionScaleY,
+	}
+}
+
+func (backend currentPictureBackend) drawPicturePrimitiveWithRelativeOffset(input pictureBackendInput) ([]model.SkipItem, bool) {
+	target := imageRectFromObjectPixelBounds(input.Primitive.Target)
+	if target.Empty() {
+		return nil, false
+	}
+	offset := relativeOffsetPixels(target, input.Primitive.RelativeOffsetX, input.Primitive.RelativeOffsetY)
+	if offset == (image.Point{}) {
+		return nil, false
+	}
+	layer := image.NewRGBA(input.Canvas.Bounds())
+	inner := input.Primitive
+	inner.HasRelativeOffset = false
+	inner.RelativeOffsetX = 0
+	inner.RelativeOffsetY = 0
+	innerInput := input
+	innerInput.Canvas = layer
+	innerInput.Primitive = inner
+	unsupported := backend.RenderPicture(innerInput)
+	drawRGBAAt(input.Canvas, layer.Bounds().Add(offset), layer)
+	return unsupported, true
+}
+
+func (backend currentPictureBackend) drawPicturePrimitiveWithEffectTransform(input pictureBackendInput) ([]model.SkipItem, bool) {
+	target := imageRectFromObjectPixelBounds(input.Primitive.Target)
+	if target.Empty() {
+		return nil, false
+	}
+	offset := effectTransformOffsetPixels(input.Size, input.Canvas.Bounds(), input.Primitive.EffectTransformOffsetX, input.Primitive.EffectTransformOffsetY)
+	if offset == (image.Point{}) {
+		return nil, false
+	}
+	layer := image.NewRGBA(input.Canvas.Bounds())
+	inner := input.Primitive
+	inner.HasEffectTransform = false
+	inner.EffectTransformScaleX = 0
+	inner.EffectTransformScaleY = 0
+	inner.EffectTransformSkewX = 0
+	inner.EffectTransformSkewY = 0
+	inner.EffectTransformOffsetX = 0
+	inner.EffectTransformOffsetY = 0
+	innerInput := input
+	innerInput.Canvas = layer
+	innerInput.Primitive = inner
+	unsupported := backend.RenderPicture(innerInput)
+	drawRGBAAt(input.Canvas, layer.Bounds().Add(offset), layer)
+	return unsupported, true
+}
+
+func (backend currentPictureBackend) drawPicturePrimitiveWithInnerShadow(img *image.RGBA, target image.Rectangle, pictureImage image.Image, pictureBounds image.Rectangle, primitive renderPicturePrimitive, size slideSize) (bool, bool) {
+	if target.Empty() {
+		return false, false
+	}
+	layer := image.NewRGBA(img.Bounds())
+	inner := primitive
+	inner.HasInnerShadow = false
+	inner.InnerShadowColor = color.RGBA{}
+	inner.InnerShadowBlur = 0
+	inner.InnerShadowDistance = 0
+	inner.InnerShadowDirection = 0
+	softEdgeRendered := false
+	if inner.HasFillOverlay {
+		softEdgeRendered, _ = backend.drawPicturePrimitiveWithFillOverlay(layer, target, pictureImage, pictureBounds, inner, size)
+	} else if inner.HasBlur && inner.BlurRadius > 0 {
+		softEdgeRendered, _ = backend.drawPicturePrimitiveWithBlur(layer, target, pictureImage, pictureBounds, inner, size)
+	} else if inner.HasAlphaOutset && inner.AlphaOutsetRadius > 0 {
+		softEdgeRendered, _ = backend.drawPicturePrimitiveWithAlphaOutset(layer, target, pictureImage, pictureBounds, inner, size)
+	} else {
+		softEdgeRendered = backend.samplingStage().Draw(pictureSamplingInput{
+			Canvas:       layer,
+			Target:       target,
+			Source:       pictureImage,
+			SourceBounds: pictureBounds,
+			Primitive:    inner,
+			Size:         size,
+			OutputWidth:  img.Bounds().Dx(),
+		})
+	}
+	if primitive.HasLine && !primitive.NoLine && primitive.RotationDegrees == 0 {
+		lineWidth := emuLineWidthToPixels(primitive.LineWidth, size.CX, img.Bounds().Dx())
+		drawPicturePrimitiveOutline(layer, target, primitive, lineWidth)
+	}
+	blur := innerShadowBlurPixels(primitive.InnerShadowBlur, size, img.Bounds().Dx())
+	offset := innerShadowOffset(primitive.InnerShadowDistance, primitive.InnerShadowDirection, size, img.Bounds().Dx())
+	pad := blur + absInt(offset.X) + absInt(offset.Y)
+	crop := target.Inset(-pad).Intersect(layer.Bounds())
+	if crop.Empty() {
+		return softEdgeRendered, false
+	}
+	if !applyInnerShadow(layer, crop, primitive.InnerShadowColor, blur, offset) {
+		return softEdgeRendered, false
+	}
+	draw.Draw(img, crop, layer, crop.Min, draw.Over)
+	return softEdgeRendered, true
+}
+
+func (backend currentPictureBackend) drawPicturePrimitiveWithFillOverlay(img *image.RGBA, target image.Rectangle, pictureImage image.Image, pictureBounds image.Rectangle, primitive renderPicturePrimitive, size slideSize) (bool, bool) {
+	if target.Empty() {
+		return false, false
+	}
+	layer := image.NewRGBA(img.Bounds())
+	inner := primitive
+	inner.HasFillOverlay = false
+	inner.FillOverlay = backgroundPaint{}
+	inner.FillOverlayBlend = ""
+	softEdgeRendered := false
+	if inner.HasBlur && inner.BlurRadius > 0 {
+		softEdgeRendered, _ = backend.drawPicturePrimitiveWithBlur(layer, target, pictureImage, pictureBounds, inner, size)
+	} else if inner.HasAlphaOutset && inner.AlphaOutsetRadius > 0 {
+		softEdgeRendered, _ = backend.drawPicturePrimitiveWithAlphaOutset(layer, target, pictureImage, pictureBounds, inner, size)
+	} else {
+		softEdgeRendered = backend.samplingStage().Draw(pictureSamplingInput{
+			Canvas:       layer,
+			Target:       target,
+			Source:       pictureImage,
+			SourceBounds: pictureBounds,
+			Primitive:    inner,
+			Size:         size,
+			OutputWidth:  img.Bounds().Dx(),
+		})
+	}
+	if primitive.HasLine && !primitive.NoLine && primitive.RotationDegrees == 0 {
+		lineWidth := emuLineWidthToPixels(primitive.LineWidth, size.CX, img.Bounds().Dx())
+		drawPicturePrimitiveOutline(layer, target, primitive, lineWidth)
+	}
+	crop := target.Intersect(layer.Bounds())
+	if crop.Empty() {
+		return softEdgeRendered, false
+	}
+	applyFillOverlay(layer, crop, primitive.FillOverlay, primitive.FillOverlayBlend)
+	draw.Draw(img, crop, layer, crop.Min, draw.Over)
+	return softEdgeRendered, true
+}
+
+func (backend currentPictureBackend) drawPicturePrimitiveWithAlphaOutset(img *image.RGBA, target image.Rectangle, pictureImage image.Image, pictureBounds image.Rectangle, primitive renderPicturePrimitive, size slideSize) (bool, bool) {
+	if target.Empty() {
+		return false, false
+	}
+	radius := alphaOutsetRadiusPixels(primitive.AlphaOutsetRadius, size, img.Bounds().Dx())
+	if radius <= 0 {
+		return false, false
+	}
+	layer := image.NewRGBA(img.Bounds())
+	inner := primitive
+	inner.HasAlphaOutset = false
+	inner.AlphaOutsetRadius = 0
+	softEdgeRendered := false
+	if inner.HasBlur && inner.BlurRadius > 0 {
+		softEdgeRendered, _ = backend.drawPicturePrimitiveWithBlur(layer, target, pictureImage, pictureBounds, inner, size)
+	} else {
+		softEdgeRendered = backend.samplingStage().Draw(pictureSamplingInput{
+			Canvas:       layer,
+			Target:       target,
+			Source:       pictureImage,
+			SourceBounds: pictureBounds,
+			Primitive:    inner,
+			Size:         size,
+			OutputWidth:  img.Bounds().Dx(),
+		})
+	}
+	if primitive.HasLine && !primitive.NoLine && primitive.RotationDegrees == 0 {
+		lineWidth := emuLineWidthToPixels(primitive.LineWidth, size.CX, img.Bounds().Dx())
+		drawPicturePrimitiveOutline(layer, target, primitive, lineWidth)
+	}
+	crop := target.Inset(-radius).Intersect(layer.Bounds())
+	if crop.Empty() {
+		return softEdgeRendered, false
+	}
+	if !applyAlphaOutset(layer, crop, radius) {
+		return softEdgeRendered, false
+	}
+	draw.Draw(img, crop, layer, crop.Min, draw.Over)
+	return softEdgeRendered, true
+}
+
+func (backend currentPictureBackend) drawPicturePrimitiveWithBlur(img *image.RGBA, target image.Rectangle, pictureImage image.Image, pictureBounds image.Rectangle, primitive renderPicturePrimitive, size slideSize) (bool, bool) {
+	if target.Empty() {
+		return false, false
+	}
+	radius := picturePrimitiveBlurRadiusPixels(primitive, size, img.Bounds().Dx())
+	if radius <= 0 {
+		return false, false
+	}
+	layer := image.NewRGBA(img.Bounds())
+	inner := primitive
+	inner.HasBlur = false
+	inner.BlurRadius = 0
+	inner.BlurGrow = false
+	softEdgeRendered := backend.samplingStage().Draw(pictureSamplingInput{
+		Canvas:       layer,
+		Target:       target,
+		Source:       pictureImage,
+		SourceBounds: pictureBounds,
+		Primitive:    inner,
+		Size:         size,
+		OutputWidth:  img.Bounds().Dx(),
+	})
+	if primitive.HasLine && !primitive.NoLine && primitive.RotationDegrees == 0 {
+		lineWidth := emuLineWidthToPixels(primitive.LineWidth, size.CX, img.Bounds().Dx())
+		drawPicturePrimitiveOutline(layer, target, primitive, lineWidth)
+	}
+	crop := target.Inset(-radius).Intersect(layer.Bounds())
+	if crop.Empty() {
+		return softEdgeRendered, false
+	}
+	source := image.NewRGBA(image.Rect(0, 0, crop.Dx(), crop.Dy()))
+	draw.Draw(source, source.Bounds(), layer, crop.Min, draw.Src)
+	blurred := gaussianBlurRGBA(source, radius)
+	paint := crop
+	if !primitive.BlurGrow {
+		paint = paint.Intersect(target)
+	}
+	paint = paint.Intersect(img.Bounds())
+	if paint.Empty() {
+		return softEdgeRendered, false
+	}
+	draw.Draw(img, paint, blurred, image.Point{X: paint.Min.X - crop.Min.X, Y: paint.Min.Y - crop.Min.Y}, draw.Over)
+	return softEdgeRendered, true
+}
+
+func (backend currentPictureBackend) drawPicturePrimitiveWithSourceBlur(img *image.RGBA, target image.Rectangle, pictureImage image.Image, pictureBounds image.Rectangle, primitive renderPicturePrimitive, size slideSize) (bool, bool) {
+	if target.Empty() {
+		return false, false
+	}
+	radius := picturePrimitiveSourceBlurRadiusPixels(primitive, size, img.Bounds().Dx())
+	if radius <= 0 {
+		return false, false
+	}
+	layer := image.NewRGBA(img.Bounds())
+	inner := primitive
+	inner.HasSourceBlur = false
+	inner.SourceBlurRadius = 0
+	inner.SourceBlurGrow = false
+	inner.HasLine = false
+	inner.NoLine = true
+	softEdgeRendered := backend.samplingStage().Draw(pictureSamplingInput{
+		Canvas:       layer,
+		Target:       target,
+		Source:       pictureImage,
+		SourceBounds: pictureBounds,
+		Primitive:    inner,
+		Size:         size,
+		OutputWidth:  img.Bounds().Dx(),
+	})
+	crop := target.Inset(-radius).Intersect(layer.Bounds())
+	if crop.Empty() {
+		return softEdgeRendered, false
+	}
+	source := image.NewRGBA(image.Rect(0, 0, crop.Dx(), crop.Dy()))
+	draw.Draw(source, source.Bounds(), layer, crop.Min, draw.Src)
+	blurred := gaussianBlurRGBA(source, radius)
+	paint := crop
+	if !primitive.SourceBlurGrow {
+		paint = paint.Intersect(target)
+	}
+	paint = paint.Intersect(img.Bounds())
+	if paint.Empty() {
+		return softEdgeRendered, false
+	}
+	draw.Draw(img, paint, blurred, image.Point{X: paint.Min.X - crop.Min.X, Y: paint.Min.Y - crop.Min.Y}, draw.Over)
+	drawPicturePrimitivePostEffectOutline(img, target, primitive, size)
+	return softEdgeRendered, true
+}
+
+func (backend currentPictureBackend) samplingStage() pictureSamplingStage {
+	if backend.sampler != nil {
+		return backend.sampler
+	}
+	return currentPictureSamplingStage{}
+}
+
+func imageRectFromObjectPixelBounds(bounds ObjectPixelBounds) image.Rectangle {
+	return image.Rect(bounds.MinX, bounds.MinY, bounds.MaxX+1, bounds.MaxY+1)
+}
+
+func picturePrimitiveLabel(primitive renderPicturePrimitive) string {
+	label := strings.TrimSpace(primitive.Name)
+	if label == "" {
+		label = primitive.ID
+	}
+	if label == "" {
+		label = primitive.ObjectKind
+	}
+	return label
+}
+
+func picturePrimitiveShadowTransformUnsupportedMessages(primitive renderPicturePrimitive) []string {
+	var messages []string
+	if (primitive.HasShadowScaleX && primitive.ShadowScaleX != 100000) || (primitive.HasShadowScaleY && primitive.ShadowScaleY != 100000) || (primitive.HasShadowSkewX && primitive.ShadowSkewX != 0) || (primitive.HasShadowSkewY && primitive.ShadowSkewY != 0) {
+		messages = append(messages, "outer shadow scale/skew transform was not rendered")
+	}
+	if primitive.HasShadowRotateWithShape && !primitive.ShadowRotateWithShape && primitive.RotationDegrees != 0 {
+		messages = append(messages, "outer shadow rotate-with-shape transform was not rendered")
+	}
+	return messages
+}
+
+func picturePrimitiveShape3DUnsupportedMessages(primitive renderPicturePrimitive) []string {
+	if !primitive.HasShape3D {
+		return nil
+	}
+	if len(primitive.Shape3DFeatures) == 0 {
+		return []string{"3-D shape properties were not rendered"}
+	}
+	features := append([]string{}, primitive.Shape3DFeatures...)
+	sort.Strings(features)
+	return []string{fmt.Sprintf("%s were not rendered", strings.Join(features, ", "))}
 }
 
 func drawPictureRaster(img *image.RGBA, target image.Rectangle, pictureImage image.Image, pictureBounds image.Rectangle, element slideElement, size slideSize) bool {
@@ -118,6 +624,18 @@ func drawPictureRaster(img *image.RGBA, target image.Rectangle, pictureImage ima
 	return softEdgeRendered
 }
 
+func drawPicturePrimitiveRaster(img *image.RGBA, target image.Rectangle, pictureImage image.Image, pictureBounds image.Rectangle, primitive renderPicturePrimitive, size slideSize) bool {
+	return currentPictureSamplingStage{}.Draw(pictureSamplingInput{
+		Canvas:       img,
+		Target:       target,
+		Source:       pictureImage,
+		SourceBounds: pictureBounds,
+		Primitive:    primitive,
+		Size:         size,
+		OutputWidth:  img.Bounds().Dx(),
+	})
+}
+
 func pictureRotatesWithShape(element slideElement) bool {
 	return !element.HasBlipRotWithShape || element.BlipRotWithShape
 }
@@ -135,8 +653,75 @@ func drawPictureRasterLayer(img *image.RGBA, target image.Rectangle, pictureImag
 	return false
 }
 
+func drawPicturePrimitiveRasterLayer(img *image.RGBA, target image.Rectangle, pictureImage image.Image, pictureBounds image.Rectangle, primitive renderPicturePrimitive, size slideSize, outputWidth int) bool {
+	if primitive.HasSoftEdge && len(primitive.CustomPath) < 3 {
+		scaleImageWithSoftEdge(img, target, pictureImage, pictureBounds, picturePrimitiveSoftEdgeRadiusPixels(primitive, size, outputWidth))
+		return true
+	}
+	if len(primitive.CustomPath) >= 3 {
+		scaleImageWithCustomMask(img, target, pictureImage, pictureBounds, primitive.CustomPath, primitive.CustomPathCommands)
+		return false
+	}
+	if primitive.BlipFillMode == "tile" {
+		tileImage(img, target, pictureImage, pictureBounds, primitive, size, outputWidth)
+		return false
+	}
+	scaleImage(img, target, pictureImage, pictureBounds)
+	return false
+}
+
+func (currentPictureSamplingStage) Draw(input pictureSamplingInput) bool {
+	rotation := input.Primitive.RotationDegrees
+	if !input.Primitive.RotatesWithShape {
+		rotation = 0
+	}
+	if rotation == 0 {
+		return drawPicturePrimitiveRasterLayer(input.Canvas, input.Target, input.Source, input.SourceBounds, input.Primitive, input.Size, input.OutputWidth)
+	}
+	if input.Target.Empty() {
+		return false
+	}
+	layer := image.NewRGBA(image.Rect(0, 0, input.Target.Dx(), input.Target.Dy()))
+	layerTarget := layer.Bounds()
+	softEdgeRendered := drawPicturePrimitiveRasterLayer(layer, layerTarget, input.Source, input.SourceBounds, input.Primitive, input.Size, input.OutputWidth)
+	if input.Primitive.HasLine && !input.Primitive.NoLine {
+		lineWidth := emuLineWidthToPixels(input.Primitive.LineWidth, input.Size.CX, input.OutputWidth)
+		drawPicturePrimitiveOutline(layer, layerTarget, input.Primitive, lineWidth)
+	}
+	rotated := rotateRGBA(layer, rotation)
+	center := image.Point{X: input.Target.Min.X + input.Target.Dx()/2, Y: input.Target.Min.Y + input.Target.Dy()/2}
+	dst := image.Rect(center.X-rotated.Bounds().Dx()/2, center.Y-rotated.Bounds().Dy()/2, center.X-rotated.Bounds().Dx()/2+rotated.Bounds().Dx(), center.Y-rotated.Bounds().Dy()/2+rotated.Bounds().Dy())
+	drawRGBAAt(input.Canvas, dst, rotated)
+	return softEdgeRendered
+}
+
 func drawPictureOutline(img *image.RGBA, target image.Rectangle, element slideElement, lineWidth int) {
-	drawStyledRectOutlineAlignedWithCap(img, target, element.LineColor, lineWidth, element.LineDash, element.LineAlign, element.LineCap)
+	drawStyledRectOutlineCompound(img, target, element.LineColor, lineWidth, element.LineDash, element.LineAlign, element.LineCap, element.LineJoin, element.LineCompound)
+}
+
+func drawPicturePrimitiveOutline(img *image.RGBA, target image.Rectangle, primitive renderPicturePrimitive, lineWidth int) {
+	drawStyledRectOutlineCompound(img, target, primitive.LineColor, lineWidth, primitive.LineDash, primitive.LineAlign, primitive.LineCap, primitive.LineJoin, primitive.LineCompound)
+}
+
+func drawPicturePrimitivePostEffectOutline(img *image.RGBA, target image.Rectangle, primitive renderPicturePrimitive, size slideSize) {
+	if !primitive.HasLine || primitive.NoLine || target.Empty() {
+		return
+	}
+	lineWidth := emuLineWidthToPixels(primitive.LineWidth, size.CX, img.Bounds().Dx())
+	rotation := primitive.RotationDegrees
+	if !primitive.RotatesWithShape {
+		rotation = 0
+	}
+	if rotation == 0 {
+		drawPicturePrimitiveOutline(img, target, primitive, lineWidth)
+		return
+	}
+	layer := image.NewRGBA(image.Rect(0, 0, target.Dx(), target.Dy()))
+	drawPicturePrimitiveOutline(layer, layer.Bounds(), primitive, lineWidth)
+	rotated := rotateRGBA(layer, rotation)
+	center := image.Point{X: target.Min.X + target.Dx()/2, Y: target.Min.Y + target.Dy()/2}
+	dst := image.Rect(center.X-rotated.Bounds().Dx()/2, center.Y-rotated.Bounds().Dy()/2, center.X-rotated.Bounds().Dx()/2+rotated.Bounds().Dx(), center.Y-rotated.Bounds().Dy()/2+rotated.Bounds().Dy())
+	drawRGBAAt(img, dst, rotated)
 }
 
 func drawPictureShadow(img *image.RGBA, target image.Rectangle, element slideElement, size slideSize) bool {
@@ -155,6 +740,60 @@ func drawPictureShadow(img *image.RGBA, target image.Rectangle, element slideEle
 		drawSoftRect(img, shadowBounds, element.ShadowColor, blur)
 	}
 	return true
+}
+
+func drawPicturePrimitiveShadow(img *image.RGBA, target image.Rectangle, primitive renderPicturePrimitive, size slideSize) bool {
+	if primitive.ShadowColor.A == 0 {
+		return false
+	}
+	offset := picturePrimitiveShadowOffset(primitive, size, img.Bounds().Dx())
+	shadowBounds := target.Add(offset)
+	blur := picturePrimitiveShadowBlurPixels(primitive, size, img.Bounds().Dx())
+	if !shadowIntersectsCanvas(shadowBounds, blur, img.Bounds()) {
+		return false
+	}
+	if len(primitive.CustomPath) >= 3 {
+		drawSoftPolygon(img, shadowBounds, primitive.CustomPath, primitive.ShadowColor, blur)
+	} else {
+		drawSoftRect(img, shadowBounds, primitive.ShadowColor, blur)
+	}
+	return true
+}
+
+func drawPicturePrimitiveGlow(img *image.RGBA, target image.Rectangle, primitive renderPicturePrimitive, size slideSize) bool {
+	if primitive.GlowColor.A == 0 {
+		return false
+	}
+	blur := glowRadiusPixels(primitive.GlowRadius, size, img.Bounds().Dx())
+	if !shadowIntersectsCanvas(target, blur, img.Bounds()) {
+		return false
+	}
+	if len(primitive.CustomPath) >= 3 {
+		drawSoftPolygon(img, target, primitive.CustomPath, primitive.GlowColor, blur)
+	} else {
+		drawSoftRect(img, target, primitive.GlowColor, blur)
+	}
+	return true
+}
+
+func picturePrimitiveShadowOffset(primitive renderPicturePrimitive, size slideSize, outputWidth int) image.Point {
+	distance := scaleEMU(primitive.ShadowDistance, size.CX, outputWidth)
+	if distance == 0 && primitive.ShadowDistance > 0 {
+		distance = 1
+	}
+	angle := float64(primitive.ShadowDirection) / 60000 * math.Pi / 180
+	return image.Point{
+		X: int(math.Round(math.Cos(angle) * float64(distance))),
+		Y: int(math.Round(math.Sin(angle) * float64(distance))),
+	}
+}
+
+func picturePrimitiveShadowBlurPixels(primitive renderPicturePrimitive, size slideSize, outputWidth int) int {
+	blur := scaleEMU(primitive.ShadowBlur, size.CX, outputWidth)
+	if blur < 0 {
+		return 0
+	}
+	return blur
 }
 
 func pictureSourceImage(pkg *pptx.Package, slidePart string, element *slideElement, relationships map[string]pptx.Relationship, fallbackRelationship pptx.Relationship) (image.Image, string, error) {
@@ -182,6 +821,15 @@ func pictureSourceImage(pkg *pptx.Package, slidePart string, element *slideEleme
 }
 
 func fallbackPictureSourceImage(pkg *pptx.Package, slidePart string, relationship pptx.Relationship) (image.Image, string, error) {
+	if relationship.Target == "" {
+		return nil, "", fmt.Errorf("missing image relationship")
+	}
+	if relationship.Type != "" && relationship.Type != pptx.ImageRelType {
+		return nil, "", fmt.Errorf("relationship type %q is not an image", relationship.Type)
+	}
+	if relationship.TargetMode != "" && !strings.EqualFold(relationship.TargetMode, "Internal") {
+		return nil, relationship.Target, fmt.Errorf("linked image relationship target %q is external and was not fetched", relationship.Target)
+	}
 	targetPart := pptx.ResolveTargetPart(slidePart, relationship.Target)
 	data, ok := pkg.Parts[targetPart]
 	if !ok {
@@ -1089,6 +1737,23 @@ func sourceCropRect(bounds image.Rectangle, element slideElement) image.Rectangl
 	return cropped
 }
 
+func sourceCropRectForPrimitive(bounds image.Rectangle, primitive renderPicturePrimitive) image.Rectangle {
+	if primitive.Crop.Left == 0 && primitive.Crop.Top == 0 && primitive.Crop.Right == 0 && primitive.Crop.Bottom == 0 {
+		return bounds
+	}
+	width := bounds.Dx()
+	height := bounds.Dy()
+	left := bounds.Min.X + cropPixels(width, primitive.Crop.Left)
+	top := bounds.Min.Y + cropPixels(height, primitive.Crop.Top)
+	right := bounds.Max.X - cropPixels(width, primitive.Crop.Right)
+	bottom := bounds.Max.Y - cropPixels(height, primitive.Crop.Bottom)
+	cropped := image.Rect(left, top, right, bottom)
+	if cropped.Empty() || cropped.Intersect(bounds).Empty() {
+		return bounds
+	}
+	return cropped
+}
+
 func cropPixels(total int, percentage int64) int {
 	if percentage == 0 || total == 0 {
 		return 0
@@ -1098,14 +1763,72 @@ func cropPixels(total int, percentage int64) int {
 
 func pictureSourceForElement(src image.Image, element slideElement) (image.Image, image.Rectangle) {
 	srcBounds := sourceCropRect(src.Bounds(), element)
-	if !element.FlipH && !element.FlipV && !shouldApplyImageAlphaModFix(element) {
+	if !element.FlipH && !element.FlipV && !shouldApplyImageEffects(element) {
 		return src, srcBounds
 	}
 	return transformedPictureImage(src, srcBounds, element), image.Rect(0, 0, srcBounds.Dx(), srcBounds.Dy())
 }
 
+func pictureSourceForPrimitive(src image.Image, primitive renderPicturePrimitive) (image.Image, image.Rectangle) {
+	srcBounds := sourceCropRectForPrimitive(src.Bounds(), primitive)
+	if !primitive.FlipH && !primitive.FlipV && !shouldApplyPrimitiveImageEffects(primitive) {
+		return src, srcBounds
+	}
+	return transformedPicturePrimitiveImage(src, srcBounds, primitive), image.Rect(0, 0, srcBounds.Dx(), srcBounds.Dy())
+}
+
 func shouldApplyImageAlphaModFix(element slideElement) bool {
-	return element.HasImageAlphaModFix && element.ImageAlphaModFixPct > 0 && element.ImageAlphaModFixPct != 100000
+	return element.HasImageAlphaModFix && element.ImageAlphaModFixPct != 100000
+}
+
+func shouldApplyPrimitiveAlphaModFix(primitive renderPicturePrimitive) bool {
+	return primitive.HasAlphaModFix && primitive.AlphaModFixPct != 100000
+}
+
+func shouldApplyImageAlphaModulate(element slideElement) bool {
+	return element.HasImageAlphaModulate && element.ImageAlphaModulatePct != 100000
+}
+
+func shouldApplyPrimitiveAlphaModulate(primitive renderPicturePrimitive) bool {
+	return primitive.HasAlphaModulate && primitive.AlphaModulatePct != 100000
+}
+
+func shouldApplyImageEffects(element slideElement) bool {
+	return shouldApplyImageAlphaModFix(element) ||
+		shouldApplyImageAlphaModulate(element) ||
+		element.HasImageAlphaBiLevel ||
+		element.HasImageAlphaCeiling ||
+		element.HasImageAlphaFloor ||
+		element.HasImageAlphaInverse ||
+		element.HasImageAlphaReplace ||
+		element.HasImageBiLevel ||
+		element.HasImageGrayscale ||
+		element.HasImageLuminance ||
+		element.HasImageHSL ||
+		element.HasImageTint ||
+		element.HasImageFillOverlay ||
+		element.HasImageColorChange ||
+		element.HasImageColorReplace ||
+		element.HasImageDuotone
+}
+
+func shouldApplyPrimitiveImageEffects(primitive renderPicturePrimitive) bool {
+	return shouldApplyPrimitiveAlphaModFix(primitive) ||
+		shouldApplyPrimitiveAlphaModulate(primitive) ||
+		primitive.HasAlphaBiLevel ||
+		primitive.HasAlphaCeiling ||
+		primitive.HasAlphaFloor ||
+		primitive.HasAlphaInverse ||
+		primitive.HasAlphaReplace ||
+		primitive.HasBiLevel ||
+		primitive.HasGrayscale ||
+		primitive.HasLuminance ||
+		primitive.HasHSL ||
+		primitive.HasTint ||
+		primitive.HasSourceFillOverlay ||
+		primitive.HasColorChange ||
+		primitive.HasColorReplace ||
+		primitive.HasDuotone
 }
 
 func transformedPictureImage(src image.Image, srcBounds image.Rectangle, element slideElement) *image.RGBA {
@@ -1123,9 +1846,37 @@ func transformedPictureImage(src image.Image, srcBounds image.Rectangle, element
 				srcX = srcBounds.Max.X - 1 - x
 			}
 			pixel := color.RGBAModel.Convert(src.At(srcX, srcY)).(color.RGBA)
-			pixel = applyImageAlphaModFix(pixel, element)
+			pixel = applyImageEffects(pixel, element)
 			dst.SetRGBA(x, y, pixel)
 		}
+	}
+	if element.HasImageFillOverlay {
+		applyFillOverlay(dst, dst.Bounds(), element.ImageFillOverlay, element.ImageFillOverlayBlend)
+	}
+	return dst
+}
+
+func transformedPicturePrimitiveImage(src image.Image, srcBounds image.Rectangle, primitive renderPicturePrimitive) *image.RGBA {
+	width := srcBounds.Dx()
+	height := srcBounds.Dy()
+	dst := image.NewRGBA(image.Rect(0, 0, width, height))
+	for y := 0; y < height; y++ {
+		srcY := srcBounds.Min.Y + y
+		if primitive.FlipV {
+			srcY = srcBounds.Max.Y - 1 - y
+		}
+		for x := 0; x < width; x++ {
+			srcX := srcBounds.Min.X + x
+			if primitive.FlipH {
+				srcX = srcBounds.Max.X - 1 - x
+			}
+			pixel := color.RGBAModel.Convert(src.At(srcX, srcY)).(color.RGBA)
+			pixel = applyPrimitiveImageEffects(pixel, primitive)
+			dst.SetRGBA(x, y, pixel)
+		}
+	}
+	if primitive.HasSourceFillOverlay {
+		applyFillOverlay(dst, dst.Bounds(), primitive.SourceFillOverlay, primitive.SourceFillOverlayBlend)
 	}
 	return dst
 }
@@ -1137,6 +1888,225 @@ func applyImageAlphaModFix(c color.RGBA, element slideElement) color.RGBA {
 	return c
 }
 
+func applyPrimitiveAlphaModFix(c color.RGBA, primitive renderPicturePrimitive) color.RGBA {
+	if shouldApplyPrimitiveAlphaModFix(primitive) {
+		c.A = scaleColorChannel(c.A, primitive.AlphaModFixPct)
+	}
+	return c
+}
+
+func applyImageAlphaModulate(c color.RGBA, element slideElement) color.RGBA {
+	if shouldApplyImageAlphaModulate(element) {
+		c.A = scaleColorChannel(c.A, element.ImageAlphaModulatePct)
+	}
+	return c
+}
+
+func applyPrimitiveAlphaModulate(c color.RGBA, primitive renderPicturePrimitive) color.RGBA {
+	if shouldApplyPrimitiveAlphaModulate(primitive) {
+		c.A = scaleColorChannel(c.A, primitive.AlphaModulatePct)
+	}
+	return c
+}
+
+func applyImageEffects(c color.RGBA, element slideElement) color.RGBA {
+	c = applyImageAlphaModFix(c, element)
+	c = applyImageAlphaModulate(c, element)
+	if element.HasImageAlphaBiLevel {
+		c.A = alphaBiLevel(c.A, element.ImageAlphaBiLevelThreshold)
+	}
+	if element.HasImageAlphaCeiling {
+		c.A = alphaCeiling(c.A)
+	}
+	if element.HasImageAlphaFloor {
+		c.A = alphaFloor(c.A)
+	}
+	if element.HasImageAlphaInverse {
+		c.A = 255 - c.A
+	}
+	if element.HasImageAlphaReplace {
+		c.A = colorChannelFromPercent(element.ImageAlphaReplacePct)
+	}
+	if element.HasImageColorChange && colorMatchesBlipChange(c, element.ImageColorChangeFrom, element.ImageColorChangeUseAlpha) {
+		c = replacementColorWithAlpha(element.ImageColorChangeTo, c.A, element.ImageColorChangeUseAlpha)
+	}
+	if element.HasImageColorReplace {
+		c = replacementColorWithAlpha(element.ImageColorReplace, c.A, false)
+	}
+	if element.HasImageGrayscale {
+		c = applyGrayscale(c)
+	}
+	if element.HasImageBiLevel {
+		c = applyBiLevel(c, element.ImageBiLevelThreshold)
+	}
+	if element.HasImageLuminance {
+		c = applyImageLuminance(c, element.ImageLuminanceBright, element.ImageLuminanceContrast)
+	}
+	if element.HasImageHSL {
+		c = applyImageHSL(c, element.ImageHSLHue, element.ImageHSLSaturation, element.ImageHSLLuminance)
+	}
+	if element.HasImageTint {
+		c = applyImageTint(c, element.ImageTintHue, element.ImageTintAmount)
+	}
+	if element.HasImageDuotone {
+		c = applyDuotone(c, element.ImageDuotoneDark, element.ImageDuotoneLight)
+	}
+	return c
+}
+
+func applyPrimitiveImageEffects(c color.RGBA, primitive renderPicturePrimitive) color.RGBA {
+	c = applyPrimitiveAlphaModFix(c, primitive)
+	c = applyPrimitiveAlphaModulate(c, primitive)
+	if primitive.HasAlphaBiLevel {
+		c.A = alphaBiLevel(c.A, primitive.AlphaBiLevelThreshold)
+	}
+	if primitive.HasAlphaCeiling {
+		c.A = alphaCeiling(c.A)
+	}
+	if primitive.HasAlphaFloor {
+		c.A = alphaFloor(c.A)
+	}
+	if primitive.HasAlphaInverse {
+		c.A = 255 - c.A
+	}
+	if primitive.HasAlphaReplace {
+		c.A = colorChannelFromPercent(primitive.AlphaReplacePct)
+	}
+	if primitive.HasColorChange && colorMatchesBlipChange(c, primitive.ColorChangeFrom, primitive.ColorChangeUseAlpha) {
+		c = replacementColorWithAlpha(primitive.ColorChangeTo, c.A, primitive.ColorChangeUseAlpha)
+	}
+	if primitive.HasColorReplace {
+		c = replacementColorWithAlpha(primitive.ColorReplace, c.A, false)
+	}
+	if primitive.HasGrayscale {
+		c = applyGrayscale(c)
+	}
+	if primitive.HasBiLevel {
+		c = applyBiLevel(c, primitive.BiLevelThreshold)
+	}
+	if primitive.HasLuminance {
+		c = applyImageLuminance(c, primitive.LuminanceBright, primitive.LuminanceContrast)
+	}
+	if primitive.HasHSL {
+		c = applyImageHSL(c, primitive.HSLHue, primitive.HSLSaturation, primitive.HSLLuminance)
+	}
+	if primitive.HasTint {
+		c = applyImageTint(c, primitive.TintHue, primitive.TintAmount)
+	}
+	if primitive.HasDuotone {
+		c = applyDuotone(c, primitive.DuotoneDark, primitive.DuotoneLight)
+	}
+	return c
+}
+
+func alphaBiLevel(alpha uint8, threshold int64) uint8 {
+	if int64(alpha)*100000/255 >= threshold {
+		return 255
+	}
+	return 0
+}
+
+func alphaCeiling(alpha uint8) uint8 {
+	if alpha > 0 {
+		return 255
+	}
+	return 0
+}
+
+func alphaFloor(alpha uint8) uint8 {
+	if alpha < 255 {
+		return 0
+	}
+	return 255
+}
+
+func colorMatchesBlipChange(c color.RGBA, from color.RGBA, useAlpha bool) bool {
+	if c.R != from.R || c.G != from.G || c.B != from.B {
+		return false
+	}
+	return !useAlpha || c.A == from.A
+}
+
+func replacementColorWithAlpha(replacement color.RGBA, originalAlpha uint8, useReplacementAlpha bool) color.RGBA {
+	if !useReplacementAlpha {
+		replacement.A = originalAlpha
+	}
+	return replacement
+}
+
+func applyBiLevel(c color.RGBA, threshold int64) color.RGBA {
+	luma := int64(math.Round(0.2126*float64(c.R) + 0.7152*float64(c.G) + 0.0722*float64(c.B)))
+	if luma*100000/255 >= threshold {
+		c.R, c.G, c.B = 255, 255, 255
+	} else {
+		c.R, c.G, c.B = 0, 0, 0
+	}
+	return c
+}
+
+func applyImageLuminance(c color.RGBA, bright int64, contrast int64) color.RGBA {
+	c.R = applyImageLuminanceChannel(c.R, bright, contrast)
+	c.G = applyImageLuminanceChannel(c.G, bright, contrast)
+	c.B = applyImageLuminanceChannel(c.B, bright, contrast)
+	return c
+}
+
+func applyImageLuminanceChannel(channel uint8, bright int64, contrast int64) uint8 {
+	value := (float64(channel)-127.5)*(1+float64(contrast)/100000) + 127.5 + 255*float64(bright)/100000
+	return clampColor(int64(math.Round(value)))
+}
+
+func applyImageHSL(c color.RGBA, hue int64, saturation int64, luminance int64) color.RGBA {
+	c = applyHueOffset(c, hue)
+	c = applySaturationOffset(c, saturation)
+	c = applyLuminanceOffset(c, luminance)
+	return c
+}
+
+func applyLuminanceOffset(c color.RGBA, value int64) color.RGBA {
+	if value == 0 {
+		return c
+	}
+	h, s, l := rgbToHSL(c)
+	l += float64(value) / 100000
+	l = clampFloat(l, 0, 1)
+	c.R, c.G, c.B = hslToRGB(h, s, l)
+	return c
+}
+
+func applyImageTint(c color.RGBA, hue int64, amount int64) color.RGBA {
+	if amount == 0 {
+		return c
+	}
+	currentHue, s, l := rgbToHSL(c)
+	targetHue := math.Mod(float64(hue)/60000, 360)
+	if targetHue < 0 {
+		targetHue += 360
+	}
+	delta := targetHue - currentHue
+	if delta > 180 {
+		delta -= 360
+	} else if delta < -180 {
+		delta += 360
+	}
+	nextHue := math.Mod(currentHue+delta*float64(amount)/100000, 360)
+	if nextHue < 0 {
+		nextHue += 360
+	}
+	c.R, c.G, c.B = hslToRGB(nextHue, s, l)
+	return c
+}
+
+func applyDuotone(c color.RGBA, dark color.RGBA, light color.RGBA) color.RGBA {
+	luma := (0.2126*float64(c.R) + 0.7152*float64(c.G) + 0.0722*float64(c.B)) / 255
+	return color.RGBA{
+		R: clampColor(int64(math.Round(float64(dark.R)*(1-luma) + float64(light.R)*luma))),
+		G: clampColor(int64(math.Round(float64(dark.G)*(1-luma) + float64(light.G)*luma))),
+		B: clampColor(int64(math.Round(float64(dark.B)*(1-luma) + float64(light.B)*luma))),
+		A: c.A,
+	}
+}
+
 func scaleImage(dst *image.RGBA, target image.Rectangle, src image.Image, srcBounds image.Rectangle) {
 	target = target.Intersect(dst.Bounds())
 	if target.Empty() {
@@ -1146,6 +2116,109 @@ func scaleImage(dst *image.RGBA, target image.Rectangle, src image.Image, srcBou
 		return
 	}
 	pictureScaler(src, srcBounds).Scale(dst, target, src, srcBounds, xdraw.Over, nil)
+}
+
+func tileImage(dst *image.RGBA, target image.Rectangle, src image.Image, srcBounds image.Rectangle, primitive renderPicturePrimitive, size slideSize, outputWidth int) {
+	target = target.Intersect(dst.Bounds())
+	if target.Empty() || srcBounds.Empty() {
+		return
+	}
+	tile := scaledTileImage(src, srcBounds, primitive)
+	if tile.Bounds().Empty() {
+		return
+	}
+	offset := image.Point{
+		X: scaleEMU(primitive.BlipTileOffsetX, size.CX, outputWidth),
+		Y: scaleEMU(primitive.BlipTileOffsetY, size.CX, outputWidth),
+	}
+	start := tileStartPoint(target, tile.Bounds().Dx(), tile.Bounds().Dy(), offset, primitive.BlipTileAlignment)
+	tileIndexY := 0
+	for y := start.Y; y < target.Max.Y; y += tile.Bounds().Dy() {
+		if y+tile.Bounds().Dy() <= target.Min.Y {
+			tileIndexY++
+			continue
+		}
+		tileIndexX := 0
+		for x := start.X; x < target.Max.X; x += tile.Bounds().Dx() {
+			if x+tile.Bounds().Dx() <= target.Min.X {
+				tileIndexX++
+				continue
+			}
+			current := tile
+			flipH := (primitive.BlipTileFlip == "x" || primitive.BlipTileFlip == "xy") && tileIndexX%2 == 1
+			flipV := (primitive.BlipTileFlip == "y" || primitive.BlipTileFlip == "xy") && tileIndexY%2 == 1
+			if flipH || flipV {
+				current = flippedTileImage(tile, flipH, flipV)
+			}
+			draw.Draw(dst, image.Rect(x, y, x+current.Bounds().Dx(), y+current.Bounds().Dy()).Intersect(target), current, image.Point{}, draw.Over)
+			tileIndexX++
+		}
+		tileIndexY++
+	}
+}
+
+func scaledTileImage(src image.Image, srcBounds image.Rectangle, primitive renderPicturePrimitive) *image.RGBA {
+	scaleX := primitive.BlipTileScaleX
+	if scaleX == 0 {
+		scaleX = 100000
+	}
+	scaleY := primitive.BlipTileScaleY
+	if scaleY == 0 {
+		scaleY = 100000
+	}
+	width := int(math.Round(float64(srcBounds.Dx()) * float64(scaleX) / 100000))
+	height := int(math.Round(float64(srcBounds.Dy()) * float64(scaleY) / 100000))
+	if width < 1 {
+		width = 1
+	}
+	if height < 1 {
+		height = 1
+	}
+	tile := image.NewRGBA(image.Rect(0, 0, width, height))
+	scaleImage(tile, tile.Bounds(), src, srcBounds)
+	return tile
+}
+
+func tileStartPoint(target image.Rectangle, tileWidth int, tileHeight int, offset image.Point, alignment string) image.Point {
+	start := target.Min.Add(offset)
+	switch alignment {
+	case "t", "ctr", "b":
+		start.X = target.Min.X + (target.Dx()-tileWidth)/2 + offset.X
+	case "tr", "r", "br":
+		start.X = target.Max.X - tileWidth + offset.X
+	}
+	switch alignment {
+	case "l", "ctr", "r":
+		start.Y = target.Min.Y + (target.Dy()-tileHeight)/2 + offset.Y
+	case "bl", "b", "br":
+		start.Y = target.Max.Y - tileHeight + offset.Y
+	}
+	for start.X > target.Min.X {
+		start.X -= tileWidth
+	}
+	for start.Y > target.Min.Y {
+		start.Y -= tileHeight
+	}
+	return start
+}
+
+func flippedTileImage(src *image.RGBA, flipH bool, flipV bool) *image.RGBA {
+	bounds := src.Bounds()
+	dst := image.NewRGBA(bounds)
+	for y := 0; y < bounds.Dy(); y++ {
+		srcY := y
+		if flipV {
+			srcY = bounds.Dy() - 1 - y
+		}
+		for x := 0; x < bounds.Dx(); x++ {
+			srcX := x
+			if flipH {
+				srcX = bounds.Dx() - 1 - x
+			}
+			dst.SetRGBA(bounds.Min.X+x, bounds.Min.Y+y, src.RGBAAt(bounds.Min.X+srcX, bounds.Min.Y+srcY))
+		}
+	}
+	return dst
 }
 
 func pictureScaler(src image.Image, srcBounds image.Rectangle) xdraw.Scaler {
@@ -1205,8 +2278,81 @@ func applySoftEdgeAlpha(img *image.RGBA, radius int) {
 	}
 }
 
+func applyAlphaOutset(img *image.RGBA, bounds image.Rectangle, radius int) bool {
+	bounds = bounds.Intersect(img.Bounds())
+	if radius <= 0 || bounds.Empty() {
+		return false
+	}
+	width := bounds.Dx()
+	height := bounds.Dy()
+	source := make([]color.RGBA, width*height)
+	for y := 0; y < height; y++ {
+		for x := 0; x < width; x++ {
+			source[y*width+x] = img.RGBAAt(bounds.Min.X+x, bounds.Min.Y+y)
+		}
+	}
+	painted := false
+	radiusSquared := radius * radius
+	for y := 0; y < height; y++ {
+		for x := 0; x < width; x++ {
+			index := y*width + x
+			current := source[index]
+			best := current
+			for dy := -radius; dy <= radius; dy++ {
+				ny := y + dy
+				if ny < 0 || ny >= height {
+					continue
+				}
+				for dx := -radius; dx <= radius; dx++ {
+					if dx*dx+dy*dy > radiusSquared {
+						continue
+					}
+					nx := x + dx
+					if nx < 0 || nx >= width {
+						continue
+					}
+					candidate := source[ny*width+nx]
+					if candidate.A > best.A {
+						best = candidate
+					}
+				}
+			}
+			if best.A <= current.A {
+				continue
+			}
+			img.SetRGBA(bounds.Min.X+x, bounds.Min.Y+y, best)
+			painted = true
+		}
+	}
+	return painted
+}
+
 func softEdgeRadiusPixels(element slideElement, size slideSize, outputWidth int) int {
 	radius := scaleEMU(element.SoftEdgeRadius, size.CX, outputWidth)
+	if radius < 0 {
+		return 0
+	}
+	return radius
+}
+
+func picturePrimitiveSoftEdgeRadiusPixels(primitive renderPicturePrimitive, size slideSize, outputWidth int) int {
+	radius := scaleEMU(primitive.SoftEdgeRadius, size.CX, outputWidth)
+	if radius < 0 {
+		return 0
+	}
+	return radius
+}
+
+func picturePrimitiveBlurRadiusPixels(primitive renderPicturePrimitive, size slideSize, outputWidth int) int {
+	radius := scaleEMU(primitive.BlurRadius, size.CX, outputWidth)
+	if radius < 0 {
+		return 0
+	}
+	return radius
+}
+
+func picturePrimitiveSourceBlurRadiusPixels(primitive renderPicturePrimitive, size slideSize, outputWidth int) int {
+	radius := scaleEMU(primitive.SourceBlurRadius, size.CX, outputWidth)
 	if radius < 0 {
 		return 0
 	}
@@ -1255,6 +2401,17 @@ func rasterizePathMaskWithCommands(bounds image.Rectangle, points []pathPoint, c
 						maskPathX(command.Points[1], bounds), maskPathY(command.Points[1], bounds),
 						maskPathX(command.Points[2], bounds), maskPathY(command.Points[2], bounds),
 					)
+				}
+			case "quadBezTo":
+				if len(command.Points) == 2 {
+					rasterizer.QuadTo(
+						maskPathX(command.Points[0], bounds), maskPathY(command.Points[0], bounds),
+						maskPathX(command.Points[1], bounds), maskPathY(command.Points[1], bounds),
+					)
+				}
+			case "arcTo":
+				for _, point := range command.Points {
+					rasterizer.LineTo(maskPathX(point, bounds), maskPathY(point, bounds))
 				}
 			case "close":
 				rasterizer.ClosePath()

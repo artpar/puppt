@@ -258,16 +258,9 @@ func parseSlideBackgroundPaintWithThemeAndResolver(data []byte, theme themeColor
 	if background == nil {
 		return backgroundPaint{}, false
 	}
-	solidFill := firstDescendant(background, "solidFill")
-	if solidFill != nil {
-		if c, ok := colorFromSolidFillWithTheme(solidFill, theme); ok {
-			return backgroundPaint{Color: c}, true
-		}
-	}
-	gradFill := firstDescendant(background, "gradFill")
-	if gradFill != nil {
-		if gradient, ok := parseGradientFill(gradFill, theme); ok {
-			return backgroundPaint{Color: gradient.Stops[0].Color, HasGradient: true, Gradient: gradient}, true
+	if bgPr := firstChild(background, "bgPr"); bgPr != nil {
+		if paint, ok := fillPaintFromContainer(bgPr, theme, nil); ok {
+			return paint, true
 		}
 	}
 	if resolveStyle != nil {

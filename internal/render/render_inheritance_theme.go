@@ -458,8 +458,51 @@ func inheritPlaceholderVisualProperties(element *slideElement, source slideEleme
 		element.HasEffectProperties = source.HasEffectProperties
 		element.HasSoftEdge = source.HasSoftEdge
 		element.SoftEdgeRadius = source.SoftEdgeRadius
+		element.HasBlur = source.HasBlur
+		element.BlurRadius = source.BlurRadius
+		element.BlurGrow = source.BlurGrow
+		element.HasAlphaOutset = source.HasAlphaOutset
+		element.AlphaOutsetRadius = source.AlphaOutsetRadius
+		element.HasRelativeOffset = source.HasRelativeOffset
+		element.RelativeOffsetX = source.RelativeOffsetX
+		element.RelativeOffsetY = source.RelativeOffsetY
+		element.HasEffectTransform = source.HasEffectTransform
+		element.EffectTransformScaleX = source.EffectTransformScaleX
+		element.EffectTransformScaleY = source.EffectTransformScaleY
+		element.EffectTransformSkewX = source.EffectTransformSkewX
+		element.EffectTransformSkewY = source.EffectTransformSkewY
+		element.EffectTransformOffsetX = source.EffectTransformOffsetX
+		element.EffectTransformOffsetY = source.EffectTransformOffsetY
+		element.HasFillOverlay = source.HasFillOverlay
+		element.FillOverlay = source.FillOverlay
+		element.FillOverlayBlend = source.FillOverlayBlend
+		element.HasInnerShadow = source.HasInnerShadow
+		element.InnerShadowColor = source.InnerShadowColor
+		element.InnerShadowBlur = source.InnerShadowBlur
+		element.InnerShadowDistance = source.InnerShadowDistance
+		element.InnerShadowDirection = source.InnerShadowDirection
+		element.HasReflection = source.HasReflection
+		element.ReflectionBlur = source.ReflectionBlur
+		element.ReflectionStartAlpha = source.ReflectionStartAlpha
+		element.ReflectionStartPosition = source.ReflectionStartPosition
+		element.ReflectionEndAlpha = source.ReflectionEndAlpha
+		element.ReflectionEndPosition = source.ReflectionEndPosition
+		element.ReflectionDistance = source.ReflectionDistance
+		element.ReflectionDirection = source.ReflectionDirection
+		element.ReflectionFadeDirection = source.ReflectionFadeDirection
+		element.ReflectionScaleX = source.ReflectionScaleX
+		element.ReflectionScaleY = source.ReflectionScaleY
+		element.ReflectionSkewX = source.ReflectionSkewX
+		element.ReflectionSkewY = source.ReflectionSkewY
+		element.ReflectionAlignment = source.ReflectionAlignment
+		element.HasReflectionRotate = source.HasReflectionRotate
+		element.ReflectionRotateWithShape = source.ReflectionRotateWithShape
+		element.HasGlow = source.HasGlow
+		element.GlowColor = source.GlowColor
+		element.GlowRadius = source.GlowRadius
 		element.HasShape3D = source.HasShape3D
 		element.Shape3DFeatures = append([]string{}, source.Shape3DFeatures...)
+		element.EffectUnsupported = append([]string{}, source.EffectUnsupported...)
 	}
 }
 
@@ -490,6 +533,13 @@ func inheritPlaceholderBodyTextProperties(element *slideElement, source slideEle
 	if !element.HasTextColumns {
 		element.HasTextColumns = source.HasTextColumns
 		element.TextColumnCount = source.TextColumnCount
+	}
+	if !element.HasTextRightToLeftColumns {
+		element.HasTextRightToLeftColumns = source.HasTextRightToLeftColumns
+		element.TextRightToLeftColumns = source.TextRightToLeftColumns
+	}
+	if len(element.Text3DFeatures) == 0 {
+		element.Text3DFeatures = append([]string{}, source.Text3DFeatures...)
 	}
 	if !element.HasTextAnchorCenter {
 		element.HasTextAnchorCenter = source.HasTextAnchorCenter
@@ -597,6 +647,10 @@ func mergeParagraphStyle(base paragraphStyle, override paragraphStyle) paragraph
 	if !merged.HasItalic && !merged.Italic {
 		merged.HasItalic = base.HasItalic
 		merged.Italic = base.Italic
+	}
+	if !merged.HasTextCaps {
+		merged.HasTextCaps = base.HasTextCaps
+		merged.TextCaps = base.TextCaps
 	}
 	if !merged.HasCharSpacing {
 		merged.HasCharSpacing = base.HasCharSpacing
@@ -811,8 +865,17 @@ func applyParagraphStylesToElement(element *slideElement, styles map[int]paragra
 		if !ok {
 			continue
 		}
+		if element.HasTextColor {
+			style = paragraphStyleWithoutTextColor(style)
+		}
 		applyParagraphStyle(&element.TextParagraphs[index], style)
 	}
+}
+
+func paragraphStyleWithoutTextColor(style paragraphStyle) paragraphStyle {
+	style.HasTextColor = false
+	style.TextColor = color.RGBA{}
+	return style
 }
 
 func applyStyleBoldToParagraphs(element *slideElement) {
@@ -827,6 +890,11 @@ func applyStyleBoldToParagraphs(element *slideElement) {
 }
 
 func inheritedTextStyleForElement(element slideElement, styles map[string]textStyle) (textStyle, bool) {
+	if !element.IsPlaceholder {
+		if style, ok := styles["default"]; ok {
+			return style, true
+		}
+	}
 	for _, key := range placeholderKeys(element) {
 		if strings.HasPrefix(key, "type:") {
 			placeholderType := strings.TrimPrefix(key, "type:")
@@ -1097,31 +1165,77 @@ func parseThemeEffectStyle(style *xmlNode, theme themeColors) (themeEffectStyle,
 	if effectList := firstChild(style, "effectLst"); effectList != nil {
 		parseShapeEffects(effectList, &element, theme)
 	}
+	if scene3d := firstChild(style, "scene3d"); scene3d != nil {
+		parseScene3DProperties(scene3d, &element)
+	}
 	if sp3d := firstChild(style, "sp3d"); sp3d != nil {
 		parseShape3DProperties(sp3d, &element)
 	}
-	if !element.HasShadow && !element.HasShape3D {
+	if !element.HasShadow && !element.HasInnerShadow && !element.HasReflection && !element.HasBlur && !element.HasAlphaOutset && !element.HasRelativeOffset && !element.HasEffectTransform && !element.HasFillOverlay && !element.HasGlow && !element.HasShape3D && len(element.EffectUnsupported) == 0 {
 		return themeEffectStyle{}, false
 	}
 	return themeEffectStyle{
-		HasShadow:                true,
-		ShadowColor:              element.ShadowColor,
-		ShadowBlur:               element.ShadowBlur,
-		ShadowDistance:           element.ShadowDistance,
-		ShadowDirection:          element.ShadowDirection,
-		ShadowAlignment:          element.ShadowAlignment,
-		HasShadowRotateWithShape: element.HasShadowRotateWithShape,
-		ShadowRotateWithShape:    element.ShadowRotateWithShape,
-		HasShadowScaleX:          element.HasShadowScaleX,
-		ShadowScaleX:             element.ShadowScaleX,
-		HasShadowScaleY:          element.HasShadowScaleY,
-		ShadowScaleY:             element.ShadowScaleY,
-		HasShadowSkewX:           element.HasShadowSkewX,
-		ShadowSkewX:              element.ShadowSkewX,
-		HasShadowSkewY:           element.HasShadowSkewY,
-		ShadowSkewY:              element.ShadowSkewY,
-		HasShape3D:               element.HasShape3D,
-		Shape3DFeatures:          append([]string{}, element.Shape3DFeatures...),
+		HasShadow:                 element.HasShadow,
+		ShadowColor:               element.ShadowColor,
+		ShadowBlur:                element.ShadowBlur,
+		ShadowDistance:            element.ShadowDistance,
+		ShadowDirection:           element.ShadowDirection,
+		ShadowAlignment:           element.ShadowAlignment,
+		HasShadowRotateWithShape:  element.HasShadowRotateWithShape,
+		ShadowRotateWithShape:     element.ShadowRotateWithShape,
+		HasShadowScaleX:           element.HasShadowScaleX,
+		ShadowScaleX:              element.ShadowScaleX,
+		HasShadowScaleY:           element.HasShadowScaleY,
+		ShadowScaleY:              element.ShadowScaleY,
+		HasShadowSkewX:            element.HasShadowSkewX,
+		ShadowSkewX:               element.ShadowSkewX,
+		HasShadowSkewY:            element.HasShadowSkewY,
+		ShadowSkewY:               element.ShadowSkewY,
+		HasGlow:                   element.HasGlow,
+		GlowColor:                 element.GlowColor,
+		GlowRadius:                element.GlowRadius,
+		HasBlur:                   element.HasBlur,
+		BlurRadius:                element.BlurRadius,
+		BlurGrow:                  element.BlurGrow,
+		HasAlphaOutset:            element.HasAlphaOutset,
+		AlphaOutsetRadius:         element.AlphaOutsetRadius,
+		HasRelativeOffset:         element.HasRelativeOffset,
+		RelativeOffsetX:           element.RelativeOffsetX,
+		RelativeOffsetY:           element.RelativeOffsetY,
+		HasEffectTransform:        element.HasEffectTransform,
+		EffectTransformScaleX:     element.EffectTransformScaleX,
+		EffectTransformScaleY:     element.EffectTransformScaleY,
+		EffectTransformSkewX:      element.EffectTransformSkewX,
+		EffectTransformSkewY:      element.EffectTransformSkewY,
+		EffectTransformOffsetX:    element.EffectTransformOffsetX,
+		EffectTransformOffsetY:    element.EffectTransformOffsetY,
+		HasFillOverlay:            element.HasFillOverlay,
+		FillOverlay:               element.FillOverlay,
+		FillOverlayBlend:          element.FillOverlayBlend,
+		HasInnerShadow:            element.HasInnerShadow,
+		InnerShadowColor:          element.InnerShadowColor,
+		InnerShadowBlur:           element.InnerShadowBlur,
+		InnerShadowDistance:       element.InnerShadowDistance,
+		InnerShadowDirection:      element.InnerShadowDirection,
+		HasReflection:             element.HasReflection,
+		ReflectionBlur:            element.ReflectionBlur,
+		ReflectionStartAlpha:      element.ReflectionStartAlpha,
+		ReflectionStartPosition:   element.ReflectionStartPosition,
+		ReflectionEndAlpha:        element.ReflectionEndAlpha,
+		ReflectionEndPosition:     element.ReflectionEndPosition,
+		ReflectionDistance:        element.ReflectionDistance,
+		ReflectionDirection:       element.ReflectionDirection,
+		ReflectionFadeDirection:   element.ReflectionFadeDirection,
+		ReflectionScaleX:          element.ReflectionScaleX,
+		ReflectionScaleY:          element.ReflectionScaleY,
+		ReflectionSkewX:           element.ReflectionSkewX,
+		ReflectionSkewY:           element.ReflectionSkewY,
+		ReflectionAlignment:       element.ReflectionAlignment,
+		HasReflectionRotate:       element.HasReflectionRotate,
+		ReflectionRotateWithShape: element.ReflectionRotateWithShape,
+		HasShape3D:                element.HasShape3D,
+		Shape3DFeatures:           append([]string{}, element.Shape3DFeatures...),
+		EffectUnsupported:         append([]string{}, element.EffectUnsupported...),
 	}, true
 }
 
@@ -1158,17 +1272,7 @@ func themeWithPlaceholderColor(theme themeColors, placeholderColor color.RGBA) t
 }
 
 func backgroundPaintFromFillNode(node *xmlNode, theme themeColors) (backgroundPaint, bool) {
-	switch node.Name {
-	case "solidFill":
-		if c, ok := colorFromSolidFillWithTheme(node, theme); ok {
-			return backgroundPaint{Color: c}, true
-		}
-	case "gradFill":
-		if gradient, ok := parseGradientFill(node, theme); ok {
-			return backgroundPaint{Color: gradient.Stops[0].Color, HasGradient: true, Gradient: gradient}, true
-		}
-	}
-	return backgroundPaint{}, false
+	return fillPaintFromNode(node, theme, nil)
 }
 
 func parseThemeColors(data []byte) themeColors {

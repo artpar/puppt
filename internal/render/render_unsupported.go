@@ -46,6 +46,17 @@ func timingUnsupportedItems(slidePart string, data []byte, elements []slideEleme
 	return []model.SkipItem{unsupportedItem(slidePart, partialUnsupportedCode, "slide animation timing was not evaluated for static rendering")}
 }
 
+func presentationUnsupportedItems(presentationPart string, data []byte) []model.SkipItem {
+	root, err := parseXMLNode(data)
+	if err != nil {
+		return nil
+	}
+	if firstDescendant(root, "embeddedFontLst") == nil {
+		return nil
+	}
+	return []model.SkipItem{unsupportedItem(presentationPart, partialUnsupportedCode, "embedded font list was preserved but embedded fonts are not used by static renderer")}
+}
+
 func timingHasSupportedStaticVisibilityBuilds(root *xmlNode, timing *xmlNode, elements []slideElement) bool {
 	targetIDs := partObjectIDs(root, elements)
 	if len(targetIDs) == 0 {
@@ -201,6 +212,16 @@ func objectKindLabel(kind string) string {
 		return "graphic frame"
 	case "grpSp":
 		return "group"
+	case "contentPart":
+		return "content part"
+	case "oleObj":
+		return "OLE"
+	case "control":
+		return "control"
+	case "audio", "audioFile":
+		return "audio"
+	case "video", "videoFile":
+		return "video"
 	default:
 		return kind
 	}

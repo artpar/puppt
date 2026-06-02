@@ -29,6 +29,11 @@ func colorFromColorNodeWithTheme(node *xmlNode, theme themeColors) (color.RGBA, 
 			return applyColorModifiers(c, scrgb), true
 		}
 	}
+	if hsl := firstChild(node, "hslClr"); hsl != nil {
+		if c, ok := parseHSLColor(hsl); ok {
+			return applyColorModifiers(c, hsl), true
+		}
+	}
 	if scheme := firstChild(node, "schemeClr"); scheme != nil {
 		if c, ok := schemeColorWithTheme(attrValue(scheme.Attrs, "val"), theme); ok {
 			return applyColorModifiers(c, scheme), true
@@ -36,6 +41,9 @@ func colorFromColorNodeWithTheme(node *xmlNode, theme themeColors) (color.RGBA, 
 	}
 	if sys := firstChild(node, "sysClr"); sys != nil {
 		if c, ok := parseHexColor(attrValue(sys.Attrs, "lastClr")); ok {
+			return applyColorModifiers(c, sys), true
+		}
+		if c, ok := systemColor(attrValue(sys.Attrs, "val")); ok {
 			return applyColorModifiers(c, sys), true
 		}
 	}
@@ -49,11 +57,58 @@ func colorFromColorNodeWithTheme(node *xmlNode, theme themeColors) (color.RGBA, 
 
 func presetColor(value string) (color.RGBA, bool) {
 	switch value {
+	case "aliceBlue":
+		return color.RGBA{R: 0xf0, G: 0xf8, B: 0xff, A: 255}, true
+	case "blue":
+		return color.RGBA{B: 255, A: 255}, true
 	case "black":
 		return color.RGBA{A: 255}, true
+	case "cyan":
+		return color.RGBA{G: 255, B: 255, A: 255}, true
+	case "dkBlue":
+		return color.RGBA{B: 0x8b, A: 255}, true
+	case "dkCyan":
+		return color.RGBA{G: 0x8b, B: 0x8b, A: 255}, true
+	case "dkGray":
+		return color.RGBA{R: 0xa9, G: 0xa9, B: 0xa9, A: 255}, true
+	case "dkGreen":
+		return color.RGBA{G: 0x64, A: 255}, true
+	case "dkMagenta":
+		return color.RGBA{R: 0x8b, B: 0x8b, A: 255}, true
+	case "dkRed":
+		return color.RGBA{R: 0x8b, A: 255}, true
+	case "dkYellow":
+		return color.RGBA{R: 0x80, G: 0x80, A: 255}, true
+	case "gray":
+		return color.RGBA{R: 0x80, G: 0x80, B: 0x80, A: 255}, true
+	case "green":
+		return color.RGBA{G: 0x80, A: 255}, true
+	case "ltGray":
+		return color.RGBA{R: 0xd3, G: 0xd3, B: 0xd3, A: 255}, true
+	case "magenta":
+		return color.RGBA{R: 255, B: 255, A: 255}, true
 	case "red":
 		return color.RGBA{R: 255, A: 255}, true
 	case "white":
+		return color.RGBA{R: 255, G: 255, B: 255, A: 255}, true
+	case "yellow":
+		return color.RGBA{R: 255, G: 255, A: 255}, true
+	default:
+		return color.RGBA{}, false
+	}
+}
+
+func systemColor(value string) (color.RGBA, bool) {
+	switch value {
+	case "windowText", "menuText", "captionText", "activeCaptionText", "btnText":
+		return color.RGBA{A: 255}, true
+	case "window", "menu", "activeCaption", "btnFace":
+		return color.RGBA{R: 255, G: 255, B: 255, A: 255}, true
+	case "grayText", "scrollBar", "inactiveCaption":
+		return color.RGBA{R: 0x80, G: 0x80, B: 0x80, A: 255}, true
+	case "highlight":
+		return color.RGBA{R: 0x33, G: 0x99, B: 0xff, A: 255}, true
+	case "highlightText":
 		return color.RGBA{R: 255, G: 255, B: 255, A: 255}, true
 	default:
 		return color.RGBA{}, false
@@ -87,6 +142,20 @@ func parseScRGBLinearAttr(node *xmlNode, name string) (float64, bool) {
 	return clampFloat(float64(value)/100000, 0, 1), true
 }
 
+func parseHSLColor(node *xmlNode) (color.RGBA, bool) {
+	if attrValue(node.Attrs, "hue") == "" || attrValue(node.Attrs, "sat") == "" || attrValue(node.Attrs, "lum") == "" {
+		return color.RGBA{}, false
+	}
+	h := math.Mod(float64(parseIntAttr(node.Attrs, "hue"))/60000, 360)
+	if h < 0 {
+		h += 360
+	}
+	s := clampFloat(float64(parsePercentAttr(node.Attrs, "sat"))/100000, 0, 1)
+	l := clampFloat(float64(parsePercentAttr(node.Attrs, "lum"))/100000, 0, 1)
+	r, g, b := hslToRGB(h, s, l)
+	return color.RGBA{R: r, G: g, B: b, A: 255}, true
+}
+
 func applyColorModifiers(c color.RGBA, node *xmlNode) color.RGBA {
 	pendingLumMod := int64(100000)
 	pendingLumOff := int64(0)
@@ -118,15 +187,31 @@ func applyColorModifiers(c color.RGBA, node *xmlNode) color.RGBA {
 		case "alpha":
 			flushLuminance()
 			value := parsePercentAttr(child.Attrs, "val")
+			c.A = colorChannelFromPercent(value)
+		case "alphaMod":
+			flushLuminance()
+			value := parsePercentAttr(child.Attrs, "val")
 			c.A = scaleColorChannel(c.A, value)
 		case "alphaOff":
 			flushLuminance()
 			value := parsePercentAttr(child.Attrs, "val")
 			c.A = offsetColorChannel(c.A, value)
+		case "hue":
+			flushLuminance()
+			value := parseIntAttr(child.Attrs, "val")
+			c = applyHue(c, value)
 		case "hueOff":
 			flushLuminance()
 			value := parseIntAttr(child.Attrs, "val")
 			c = applyHueOffset(c, value)
+		case "hueMod":
+			flushLuminance()
+			value := parsePercentAttr(child.Attrs, "val")
+			c = applyHueModifier(c, value)
+		case "sat":
+			flushLuminance()
+			value := parsePercentAttr(child.Attrs, "val")
+			c = applySaturation(c, value)
 		case "tint":
 			flushLuminance()
 			value := parsePercentAttr(child.Attrs, "val")
@@ -139,10 +224,62 @@ func applyColorModifiers(c color.RGBA, node *xmlNode) color.RGBA {
 			flushLuminance()
 			value := parsePercentAttr(child.Attrs, "val")
 			c = applySaturationOffset(c, value)
+		case "lum":
+			flushLuminance()
+			value := parsePercentAttr(child.Attrs, "val")
+			c = applyLuminance(c, value)
+		case "red":
+			flushLuminance()
+			c.R = colorChannelFromPercent(parsePercentAttr(child.Attrs, "val"))
+		case "redMod":
+			flushLuminance()
+			c.R = scaleColorChannel(c.R, parsePercentAttr(child.Attrs, "val"))
+		case "redOff":
+			flushLuminance()
+			c.R = offsetColorChannel(c.R, parsePercentAttr(child.Attrs, "val"))
+		case "green":
+			flushLuminance()
+			c.G = colorChannelFromPercent(parsePercentAttr(child.Attrs, "val"))
+		case "greenMod":
+			flushLuminance()
+			c.G = scaleColorChannel(c.G, parsePercentAttr(child.Attrs, "val"))
+		case "greenOff":
+			flushLuminance()
+			c.G = offsetColorChannel(c.G, parsePercentAttr(child.Attrs, "val"))
+		case "blue":
+			flushLuminance()
+			c.B = colorChannelFromPercent(parsePercentAttr(child.Attrs, "val"))
+		case "blueMod":
+			flushLuminance()
+			c.B = scaleColorChannel(c.B, parsePercentAttr(child.Attrs, "val"))
+		case "blueOff":
+			flushLuminance()
+			c.B = offsetColorChannel(c.B, parsePercentAttr(child.Attrs, "val"))
+		case "gray":
+			flushLuminance()
+			c = applyGrayscale(c)
+		case "inv":
+			flushLuminance()
+			c.R = 255 - c.R
+			c.G = 255 - c.G
+			c.B = 255 - c.B
+		case "comp":
+			flushLuminance()
+			c = applyHueOffset(c, 10800000)
+		case "gamma":
+			flushLuminance()
+			c = applyGammaTransform(c)
+		case "invGamma":
+			flushLuminance()
+			c = applyInverseGammaTransform(c)
 		}
 	}
 	flushLuminance()
 	return c
+}
+
+func colorChannelFromPercent(value int64) uint8 {
+	return scaleColorChannel(255, value)
 }
 
 func applyLuminanceModifier(c color.RGBA, mod int64, off int64) color.RGBA {
@@ -175,6 +312,13 @@ func applyTintModifier(c color.RGBA, value int64) color.RGBA {
 	c.R = blendSRGBChannelLinear(c.R, 255, value)
 	c.G = blendSRGBChannelLinear(c.G, 255, value)
 	c.B = blendSRGBChannelLinear(c.B, 255, value)
+	return c
+}
+
+func applyLuminance(c color.RGBA, value int64) color.RGBA {
+	h, s, _ := rgbToHSL(c)
+	l := clampFloat(float64(value)/100000, 0, 1)
+	c.R, c.G, c.B = hslToRGB(h, s, l)
 	return c
 }
 
@@ -214,6 +358,13 @@ func applySaturationModifier(c color.RGBA, value int64) color.RGBA {
 	return c
 }
 
+func applySaturation(c color.RGBA, value int64) color.RGBA {
+	h, _, l := rgbToHSL(c)
+	s := clampFloat(float64(value)/100000, 0, 1)
+	c.R, c.G, c.B = hslToRGB(h, s, l)
+	return c
+}
+
 func applySaturationOffset(c color.RGBA, value int64) color.RGBA {
 	if value == 0 {
 		return c
@@ -245,6 +396,48 @@ func applyHueOffset(c color.RGBA, value int64) color.RGBA {
 	c.R = r
 	c.G = g
 	c.B = b
+	return c
+}
+
+func applyHue(c color.RGBA, value int64) color.RGBA {
+	_, s, l := rgbToHSL(c)
+	h := math.Mod(float64(value)/60000, 360)
+	if h < 0 {
+		h += 360
+	}
+	c.R, c.G, c.B = hslToRGB(h, s, l)
+	return c
+}
+
+func applyHueModifier(c color.RGBA, value int64) color.RGBA {
+	h, s, l := rgbToHSL(c)
+	h = math.Mod(h*float64(value)/100000, 360)
+	if h < 0 {
+		h += 360
+	}
+	c.R, c.G, c.B = hslToRGB(h, s, l)
+	return c
+}
+
+func applyGrayscale(c color.RGBA) color.RGBA {
+	y := clampColor(int64(math.Round(0.2126*float64(c.R) + 0.7152*float64(c.G) + 0.0722*float64(c.B))))
+	c.R = y
+	c.G = y
+	c.B = y
+	return c
+}
+
+func applyGammaTransform(c color.RGBA) color.RGBA {
+	c.R = linearToSRGBByte(float64(c.R) / 255)
+	c.G = linearToSRGBByte(float64(c.G) / 255)
+	c.B = linearToSRGBByte(float64(c.B) / 255)
+	return c
+}
+
+func applyInverseGammaTransform(c color.RGBA) color.RGBA {
+	c.R = roundUnitColorChannel(srgbByteToLinear(c.R))
+	c.G = roundUnitColorChannel(srgbByteToLinear(c.G))
+	c.B = roundUnitColorChannel(srgbByteToLinear(c.B))
 	return c
 }
 
