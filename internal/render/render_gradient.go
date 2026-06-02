@@ -5,6 +5,7 @@ import (
 	"image/color"
 	"image/draw"
 	"math"
+	"sync"
 )
 
 func drawGradientBackground(img *image.RGBA, gradient gradientPaint) {
@@ -90,18 +91,77 @@ func drawOpaqueGradientRect(img *image.RGBA, bounds image.Rectangle, gradient gr
 }
 
 func drawRadialOpaqueGradientRect(img *image.RGBA, bounds image.Rectangle, gradient gradientPaint) {
-	params := radialGradientParamsForBounds(bounds, gradient)
+	centerX, centerY, positionScale, hasCenterFastPath := radialGradientCenterFastPath(bounds, gradient)
+	var params radialGradientParams
+	if !hasCenterFastPath {
+		params = radialGradientParamsForBounds(bounds, gradient)
+	}
+	colorTable := acquireGradientColorTable()
+	defer releaseGradientColorTable(colorTable)
+	fillGradientColorTable(colorTable, gradient.Stops, gradient.Path)
 	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
 		offset := img.PixOffset(bounds.Min.X, y)
 		for x := bounds.Min.X; x < bounds.Max.X; x++ {
-			position := radialGradientPositionWithParams(float64(x)+0.5, float64(y)+0.5, params)
-			c := colorAtGradientPositionForPath(gradient.Stops, position, gradient.Path)
+			sampleX := float64(x) + 0.5
+			sampleY := float64(y) + 0.5
+			var position int64
+			if hasCenterFastPath {
+				position = int64(math.Round(math.Hypot(sampleX-centerX, sampleY-centerY) * positionScale))
+			} else {
+				position = radialGradientPositionWithParams(sampleX, sampleY, params)
+			}
+			if position < 0 {
+				position = 0
+			} else if position > 100000 {
+				position = 100000
+			}
+			c := colorTable[position]
 			img.Pix[offset] = c.R
 			img.Pix[offset+1] = c.G
 			img.Pix[offset+2] = c.B
 			img.Pix[offset+3] = c.A
 			offset += 4
 		}
+	}
+}
+
+func radialGradientCenterFastPath(bounds image.Rectangle, gradient gradientPaint) (float64, float64, float64, bool) {
+	if gradient.Path != "circle" {
+		return 0, 0, 0, false
+	}
+	if gradient.HasFillRect && !isCenteredRadialFillRect(gradient.FillRect) {
+		return 0, 0, 0, false
+	}
+	centerX := float64(bounds.Min.X) + float64(bounds.Dx())/2
+	centerY := float64(bounds.Min.Y) + float64(bounds.Dy())/2
+	radius := math.Hypot(float64(bounds.Dx()), float64(bounds.Dy())) / 2
+	if radius <= 0 {
+		return 0, 0, 0, false
+	}
+	return centerX, centerY, 100000 / radius, true
+}
+
+func isCenteredRadialFillRect(rect relativeRect) bool {
+	return rect.Left == 50000 && rect.Top == 50000 && rect.Right == 50000 && rect.Bottom == 50000
+}
+
+var gradientColorTablePool = sync.Pool{
+	New: func() any {
+		return make([]color.RGBA, 100001)
+	},
+}
+
+func acquireGradientColorTable() []color.RGBA {
+	return gradientColorTablePool.Get().([]color.RGBA)
+}
+
+func releaseGradientColorTable(table []color.RGBA) {
+	gradientColorTablePool.Put(table)
+}
+
+func fillGradientColorTable(table []color.RGBA, stops []gradientStop, path string) {
+	for position := range table {
+		table[position] = colorAtGradientPositionForPath(stops, int64(position), path)
 	}
 }
 

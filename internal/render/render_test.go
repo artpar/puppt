@@ -7693,6 +7693,32 @@ func TestRadialGradientFocusRectUsesCircumscribedCircleBounds(t *testing.T) {
 	}
 }
 
+func TestRadialGradientCenterFastPathMatchesCenteredFillRect(t *testing.T) {
+	bounds := image.Rect(0, 0, 100, 50)
+	gradient := gradientPaint{
+		Path:        "circle",
+		HasFillRect: true,
+		FillRect:    relativeRect{Left: 50000, Top: 50000, Right: 50000, Bottom: 50000},
+	}
+	centerX, centerY, scale, ok := radialGradientCenterFastPath(bounds, gradient)
+	if !ok {
+		t.Fatal("expected centered fill rect to use radial fast path")
+	}
+	params := radialGradientParamsForBounds(bounds, gradient)
+	for _, sample := range []floatPoint{{X: 50.5, Y: 25.5}, {X: 10.5, Y: 25.5}, {X: 99.5, Y: 49.5}} {
+		got := int64(math.Round(math.Hypot(sample.X-centerX, sample.Y-centerY) * scale))
+		if got < 0 {
+			got = 0
+		} else if got > 100000 {
+			got = 100000
+		}
+		want := radialGradientPositionWithParams(sample.X, sample.Y, params)
+		if got != want {
+			t.Fatalf("fast path position mismatch for %+v: got %d want %d", sample, got, want)
+		}
+	}
+}
+
 func TestRadialGradientPositionKeepsFocusEllipseAtFirstStop(t *testing.T) {
 	gradient := gradientPaint{
 		Path:        "circle",

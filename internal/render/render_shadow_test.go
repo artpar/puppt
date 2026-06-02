@@ -138,6 +138,67 @@ func TestDrawSoftRectFadesBeyondShapeBounds(t *testing.T) {
 	}
 }
 
+func TestBlurredRectAlphaMaskMatchesGaussianBlur(t *testing.T) {
+	width := 17
+	height := 13
+	fill := image.Rect(4, 3, 12, 9)
+	alpha := uint8(143)
+	blur := 5
+	src := make([]uint8, width*height)
+	for y := fill.Min.Y; y < fill.Max.Y; y++ {
+		for x := fill.Min.X; x < fill.Max.X; x++ {
+			src[y*width+x] = alpha
+		}
+	}
+
+	want := gaussianBlurAlpha(src, width, height, blur)
+	got := blurredRectAlphaMaskForTest(width, height, fill, alpha, blur)
+	if len(got) != len(want) {
+		t.Fatalf("expected %d alpha values, got %d", len(want), len(got))
+	}
+	for index := range want {
+		if got[index] != want[index] {
+			t.Fatalf("alpha mismatch at index %d: got %d want %d", index, got[index], want[index])
+		}
+	}
+}
+
+func blurredRectAlphaMaskForTest(width int, height int, fill image.Rectangle, alpha uint8, blur int) []uint8 {
+	mask := make([]uint8, width*height)
+	if width <= 0 || height <= 0 || fill.Empty() || alpha == 0 {
+		return mask
+	}
+	if blur <= 0 {
+		fill = fill.Intersect(image.Rect(0, 0, width, height))
+		if fill.Empty() {
+			return mask
+		}
+		for y := fill.Min.Y; y < fill.Max.Y; y++ {
+			row := mask[y*width+fill.Min.X : y*width+fill.Max.X]
+			for index := range row {
+				row[index] = alpha
+			}
+		}
+		return mask
+	}
+	factors := acquireBlurFactorBuffer(width + height)
+	defer releaseBlurFactorBuffer(factors)
+	xFactors := factors[:width]
+	yFactors := factors[width : width+height]
+	kernel := gaussianKernel(blur)
+	blurredRectAxisFactors(xFactors, fill.Min.X, fill.Max.X, blur, kernel)
+	blurredRectAxisFactors(yFactors, fill.Min.Y, fill.Max.Y, blur, kernel)
+	alphaScale := float64(alpha)
+	for y := 0; y < height; y++ {
+		row := mask[y*width : (y+1)*width]
+		yFactor := yFactors[y]
+		for x := 0; x < width; x++ {
+			row[x] = clampBlurAlpha(math.Round(alphaScale * xFactors[x] * yFactor))
+		}
+	}
+	return mask
+}
+
 func TestGaussianKernelNormalizesWeights(t *testing.T) {
 	kernel := gaussianKernel(4)
 	sum := 0.0

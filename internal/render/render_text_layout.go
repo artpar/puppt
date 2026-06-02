@@ -1240,7 +1240,7 @@ func wrapStyledRuns(faces *fontFaceCache, face font.Face, boldFace font.Face, ru
 	hasWord := false
 	for _, token := range tokens {
 		candidateToken := token.segmentWithPrefix(hasWord)
-		candidate := append(append([]textLineSegment{}, line...), candidateToken)
+		candidate := append(line, candidateToken)
 		width, err := measureStyledSegmentsAtDPIWithFallback(faces, face, boldFace, candidate, fallbackFontSize, dpi, tabStops)
 		if err != nil {
 			return nil, err

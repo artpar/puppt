@@ -861,9 +861,103 @@ func drawSoftRect(img *image.RGBA, rect image.Rectangle, c color.RGBA, blur int)
 	if rect.Empty() || c.A == 0 {
 		return
 	}
-	drawBlurredShadowMask(img, rect, c, blur, func(x int, y int) bool {
-		return image.Pt(x, y).In(rect)
-	})
+	drawBlurredRectMask(img, rect, c, blur)
+}
+
+func drawBlurredRectMask(img *image.RGBA, rect image.Rectangle, c color.RGBA, blur int) {
+	if rect.Empty() || c.A == 0 {
+		return
+	}
+	if blur <= 0 {
+		fillBlendRect(img, rect.Intersect(img.Bounds()), c)
+		return
+	}
+	maskBounds := rect.Inset(-blur).Intersect(img.Bounds())
+	if maskBounds.Empty() {
+		return
+	}
+	width := maskBounds.Dx()
+	height := maskBounds.Dy()
+	fill := rect.Intersect(maskBounds)
+	if fill.Empty() {
+		return
+	}
+	factors := acquireBlurFactorBuffer(width + height)
+	defer releaseBlurFactorBuffer(factors)
+	xFactors := factors[:width]
+	yFactors := factors[width : width+height]
+	kernel := gaussianKernel(blur)
+	blurredRectAxisFactors(xFactors, fill.Min.X-maskBounds.Min.X, fill.Max.X-maskBounds.Min.X, blur, kernel)
+	blurredRectAxisFactors(yFactors, fill.Min.Y-maskBounds.Min.Y, fill.Max.Y-maskBounds.Min.Y, blur, kernel)
+	alphaScale := float64(c.A)
+	yIndex := 0
+	for y := maskBounds.Min.Y; y < maskBounds.Max.Y; y++ {
+		xIndex := 0
+		for x := maskBounds.Min.X; x < maskBounds.Max.X; x++ {
+			alpha := clampBlurAlpha(math.Round(alphaScale * xFactors[xIndex] * yFactors[yIndex]))
+			if alpha != 0 {
+				blendPixel(img, x, y, color.RGBA{R: c.R, G: c.G, B: c.B, A: alpha})
+			}
+			xIndex++
+		}
+		yIndex++
+	}
+}
+
+func clampBlurAlpha(value float64) uint8 {
+	if value <= 0 {
+		return 0
+	}
+	if value >= 255 {
+		return 255
+	}
+	return uint8(value)
+}
+
+func blurredRectAxisFactors(dst []float64, fillMin int, fillMax int, radius int, kernel []float64) {
+	size := len(dst)
+	if size == 0 {
+		return
+	}
+	if fillMin < 0 {
+		fillMin = 0
+	}
+	if fillMax > size {
+		fillMax = size
+	}
+	if fillMin >= fillMax {
+		clear(dst)
+		return
+	}
+	for index := range dst {
+		sum := 0.0
+		for offset := -radius; offset <= radius; offset++ {
+			sample := index + offset
+			if sample < 0 {
+				sample = 0
+			} else if sample >= size {
+				sample = size - 1
+			}
+			if sample >= fillMin && sample < fillMax {
+				sum += kernel[offset+radius]
+			}
+		}
+		dst[index] = sum
+	}
+}
+
+var blurFactorBufferPool sync.Pool
+
+func acquireBlurFactorBuffer(length int) []float64 {
+	if item := blurFactorBufferPool.Get(); item != nil {
+		buffer := item.([]float64)
+		return ensureFloat64Buffer(buffer, length)
+	}
+	return make([]float64, length)
+}
+
+func releaseBlurFactorBuffer(buffer []float64) {
+	blurFactorBufferPool.Put(buffer)
 }
 
 func drawBlurredShadowMask(img *image.RGBA, shapeBounds image.Rectangle, c color.RGBA, blur int, covers func(x int, y int) bool) {
@@ -886,7 +980,10 @@ func drawBlurredShadowMask(img *image.RGBA, shapeBounds image.Rectangle, c color
 	}
 	width := maskBounds.Dx()
 	height := maskBounds.Dy()
-	mask := make([]uint8, width*height)
+	buffers := acquireAlphaBlurBuffers(width * height)
+	defer releaseAlphaBlurBuffers(buffers)
+	mask := buffers.mask
+	clear(mask)
 	for y := maskBounds.Min.Y; y < maskBounds.Max.Y; y++ {
 		for x := maskBounds.Min.X; x < maskBounds.Max.X; x++ {
 			if covers(x, y) {
@@ -894,7 +991,7 @@ func drawBlurredShadowMask(img *image.RGBA, shapeBounds image.Rectangle, c color
 			}
 		}
 	}
-	blurred := gaussianBlurAlpha(mask, width, height, blur)
+	blurred := gaussianBlurAlphaWithBuffers(mask, width, height, blur, buffers.tmp, buffers.dstFloat, buffers.dst)
 	for y := maskBounds.Min.Y; y < maskBounds.Max.Y; y++ {
 		for x := maskBounds.Min.X; x < maskBounds.Max.X; x++ {
 			alpha := blurred[(y-maskBounds.Min.Y)*width+x-maskBounds.Min.X]
@@ -907,14 +1004,61 @@ func drawBlurredShadowMask(img *image.RGBA, shapeBounds image.Rectangle, c color
 }
 
 func gaussianBlurAlpha(src []uint8, width int, height int, radius int) []uint8 {
+	dst := make([]uint8, len(src))
 	if radius <= 0 || width <= 0 || height <= 0 {
-		dst := make([]uint8, len(src))
+		copy(dst, src)
+		return dst
+	}
+	tmp := make([]float64, len(src))
+	dstFloat := make([]float64, len(src))
+	return gaussianBlurAlphaWithBuffers(src, width, height, radius, tmp, dstFloat, dst)
+}
+
+type alphaBlurBuffers struct {
+	mask     []uint8
+	tmp      []float64
+	dstFloat []float64
+	dst      []uint8
+}
+
+var alphaBlurBufferPool sync.Pool
+
+func acquireAlphaBlurBuffers(length int) alphaBlurBuffers {
+	var buffers alphaBlurBuffers
+	if item := alphaBlurBufferPool.Get(); item != nil {
+		buffers = item.(alphaBlurBuffers)
+	}
+	buffers.mask = ensureUint8Buffer(buffers.mask, length)
+	buffers.tmp = ensureFloat64Buffer(buffers.tmp, length)
+	buffers.dstFloat = ensureFloat64Buffer(buffers.dstFloat, length)
+	buffers.dst = ensureUint8Buffer(buffers.dst, length)
+	return buffers
+}
+
+func releaseAlphaBlurBuffers(buffers alphaBlurBuffers) {
+	alphaBlurBufferPool.Put(buffers)
+}
+
+func ensureUint8Buffer(buffer []uint8, length int) []uint8 {
+	if cap(buffer) < length {
+		return make([]uint8, length)
+	}
+	return buffer[:length]
+}
+
+func ensureFloat64Buffer(buffer []float64, length int) []float64 {
+	if cap(buffer) < length {
+		return make([]float64, length)
+	}
+	return buffer[:length]
+}
+
+func gaussianBlurAlphaWithBuffers(src []uint8, width int, height int, radius int, tmp []float64, dstFloat []float64, dst []uint8) []uint8 {
+	if radius <= 0 || width <= 0 || height <= 0 {
 		copy(dst, src)
 		return dst
 	}
 	kernel := gaussianKernel(radius)
-	tmp := make([]float64, len(src))
-	dstFloat := make([]float64, len(src))
 	for y := 0; y < height; y++ {
 		for x := 0; x < width; x++ {
 			sum := 0.0
@@ -945,9 +1089,9 @@ func gaussianBlurAlpha(src []uint8, width int, height int, radius int) []uint8 {
 			dstFloat[y*width+x] = sum
 		}
 	}
-	dst := make([]uint8, len(src))
 	for index, value := range dstFloat {
 		if value <= 0 {
+			dst[index] = 0
 			continue
 		}
 		if value >= 255 {
@@ -1051,6 +1195,9 @@ func gaussianKernel(radius int) []float64 {
 	if radius <= 0 {
 		return []float64{1}
 	}
+	if cached, ok := gaussianKernelCache.Load(radius); ok {
+		return cached.([]float64)
+	}
 	sigma := float64(radius) / 2
 	if sigma < 0.5 {
 		sigma = 0.5
@@ -1070,8 +1217,11 @@ func gaussianKernel(radius int) []float64 {
 	for index := range kernel {
 		kernel[index] /= sum
 	}
-	return kernel
+	actual, _ := gaussianKernelCache.LoadOrStore(radius, kernel)
+	return actual.([]float64)
 }
+
+var gaussianKernelCache sync.Map
 
 func boxBlurAlpha(src []uint8, width int, height int, radius int) []uint8 {
 	if radius <= 0 || width <= 0 || height <= 0 {
