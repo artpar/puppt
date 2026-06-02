@@ -1,4 +1,6 @@
 bin/
+dist/
+.tools/
 testdata/realworld-ppts/
 slide*.png
 .DS_Store

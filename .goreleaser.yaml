@@ -1,0 +1,61 @@
+version: 2
+
+project_name: puppt
+
+before:
+  hooks:
+    - make verify
+
+builds:
+  - id: puppt
+    main: ./cmd/puppt
+    binary: puppt
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X github.com/artpar/puppt/internal/cli.version={{ .Version }}
+    goos:
+      - darwin
+      - linux
+      - windows
+    goarch:
+      - amd64
+      - arm64
+
+archives:
+  - id: puppt
+    ids:
+      - puppt
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    formats:
+      - tar.gz
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+    files:
+      - README.md
+      - docs/BUILD_RELEASE.md
+      - docs/COMMANDS.md
+      - docs/SUPPORT_MATRIX.md
+      - docs/RENDERING.md
+
+checksum:
+  name_template: SHA256SUMS
+  algorithm: sha256
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  use: git
+  sort: asc
+
+release:
+  github:
+    owner: artpar
+    name: puppt
+  draft: true
+  prerelease: auto
