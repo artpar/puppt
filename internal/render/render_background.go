@@ -254,6 +254,10 @@ func parseSlideBackgroundPaintWithThemeAndResolver(data []byte, theme themeColor
 	if err != nil {
 		return backgroundPaint{}, false
 	}
+	return parseSlideBackgroundPaintFromRootWithThemeAndResolver(root, theme, resolveStyle)
+}
+
+func parseSlideBackgroundPaintFromRootWithThemeAndResolver(root *xmlNode, theme themeColors, resolveStyle backgroundStyleResolver) (backgroundPaint, bool) {
 	background := firstDescendant(root, "bg")
 	if background == nil {
 		return backgroundPaint{}, false

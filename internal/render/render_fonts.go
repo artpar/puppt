@@ -21,6 +21,7 @@ import (
 var bundledFontFS embed.FS
 var resolvedFontSourceCache sync.Map
 var parsedOpenTypeFontCache sync.Map
+var firstExistingFontPathCache sync.Map
 
 func fontResolutionUnsupportedMessage(element slideElement) string {
 	messages := fontResolutionUnsupportedMessages(element)
@@ -862,6 +863,19 @@ func fontCandidates(bold bool, italic bool) []string {
 }
 
 func firstExistingPath(paths []string) string {
+	if len(paths) == 0 {
+		return ""
+	}
+	cacheKey := strings.Join(paths, "\x00")
+	if cached, ok := firstExistingFontPathCache.Load(cacheKey); ok {
+		return cached.(string)
+	}
+	result := firstExistingPathUncached(paths)
+	actual, _ := firstExistingFontPathCache.LoadOrStore(cacheKey, result)
+	return actual.(string)
+}
+
+func firstExistingPathUncached(paths []string) string {
 	for _, candidate := range paths {
 		if strings.ContainsAny(candidate, "*?[") {
 			matches, err := filepath.Glob(candidate)

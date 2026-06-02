@@ -27,7 +27,42 @@ func collectSlideElementsWithThemeEffectsAndFills(data []byte, theme themeColors
 	if err != nil {
 		return nil
 	}
+	return collectSlideElementsFromRootWithThemeEffectsAndFills(root, theme, effectStyles, fillStyles, lineStyles)
+}
+
+func collectSlideElementsFromRootWithThemeEffectsAndFills(root *xmlNode, theme themeColors, effectStyles themeEffectStyles, fillStyles themeFillStyles, lineStyles themeLineStyles) []slideElement {
+	if root == nil {
+		return nil
+	}
 	return collectElementsFromNode(root, renderTransform{ScaleX: 1, ScaleY: 1}, theme, effectStyles, fillStyles, lineStyles)
+}
+
+func cloneSlideElements(elements []slideElement) []slideElement {
+	if len(elements) == 0 {
+		return nil
+	}
+	cloned := make([]slideElement, len(elements))
+	copy(cloned, elements)
+	for index := range cloned {
+		cloned[index].TextParagraphs = cloneTextParagraphs(cloned[index].TextParagraphs)
+		cloned[index].PlaceholderParagraphStyles = cloneParagraphStyleMap(cloned[index].PlaceholderParagraphStyles)
+		cloned[index].EffectUnsupported = append([]string{}, cloned[index].EffectUnsupported...)
+		cloned[index].Shape3DFeatures = append([]string{}, cloned[index].Shape3DFeatures...)
+		cloned[index].NonVisualProperties = append([]string{}, cloned[index].NonVisualProperties...)
+		cloned[index].NonVisualLocks = append([]string{}, cloned[index].NonVisualLocks...)
+	}
+	return cloned
+}
+
+func cloneParagraphStyleMap(styles map[int]paragraphStyle) map[int]paragraphStyle {
+	if len(styles) == 0 {
+		return nil
+	}
+	cloned := make(map[int]paragraphStyle, len(styles))
+	for key, style := range styles {
+		cloned[key] = style
+	}
+	return cloned
 }
 
 func parseXMLNode(data []byte) (*xmlNode, error) {

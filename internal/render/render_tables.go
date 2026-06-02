@@ -301,6 +301,10 @@ func parseTableStyles(data []byte, theme themeColors, fonts themeFonts, fillStyl
 	if err != nil {
 		return tableStyleSet{}
 	}
+	return parseTableStylesFromRoot(root, theme, fonts, fillStyles, lineStyles, effectStyles)
+}
+
+func parseTableStylesFromRoot(root *xmlNode, theme themeColors, fonts themeFonts, fillStyles themeFillStyles, lineStyles themeLineStyles, effectStyles themeEffectStyles) tableStyleSet {
 	styles := tableStyleSet{
 		DefaultID: strings.TrimSpace(attrValue(root.Attrs, "def")),
 		Styles:    map[string]tableStyle{},

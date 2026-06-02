@@ -1083,6 +1083,24 @@ func parseICCCurveTag(data []byte) (iccCurve, bool) {
 func convertICCImageToSRGB(source image.Image, profile iccRGBToSRGBProfile) *image.RGBA {
 	bounds := source.Bounds()
 	dst := image.NewRGBA(bounds)
+	if ycbcr, ok := source.(*image.YCbCr); ok {
+		for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
+			dstOffset := dst.PixOffset(bounds.Min.X, y)
+			for x := bounds.Min.X; x < bounds.Max.X; x++ {
+				yr := ycbcr.Y[ycbcr.YOffset(x, y)]
+				cb := ycbcr.Cb[ycbcr.COffset(x, y)]
+				cr := ycbcr.Cr[ycbcr.COffset(x, y)]
+				r, g, b := color.YCbCrToRGB(yr, cb, cr)
+				r, g, b = profile.iccRGBToSRGB(r, g, b)
+				dst.Pix[dstOffset+0] = r
+				dst.Pix[dstOffset+1] = g
+				dst.Pix[dstOffset+2] = b
+				dst.Pix[dstOffset+3] = 255
+				dstOffset += 4
+			}
+		}
+		return dst
+	}
 	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
 		for x := bounds.Min.X; x < bounds.Max.X; x++ {
 			pixel := color.NRGBAModel.Convert(source.At(x, y)).(color.NRGBA)
@@ -1159,6 +1177,24 @@ func s15Fixed16(data []byte) float64 {
 func convertAdobeRGBImageToSRGB(source image.Image) *image.RGBA {
 	bounds := source.Bounds()
 	dst := image.NewRGBA(bounds)
+	if ycbcr, ok := source.(*image.YCbCr); ok {
+		for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
+			dstOffset := dst.PixOffset(bounds.Min.X, y)
+			for x := bounds.Min.X; x < bounds.Max.X; x++ {
+				yr := ycbcr.Y[ycbcr.YOffset(x, y)]
+				cb := ycbcr.Cb[ycbcr.COffset(x, y)]
+				cr := ycbcr.Cr[ycbcr.COffset(x, y)]
+				r, g, b := color.YCbCrToRGB(yr, cb, cr)
+				r, g, b = adobeRGBToSRGB(r, g, b)
+				dst.Pix[dstOffset+0] = r
+				dst.Pix[dstOffset+1] = g
+				dst.Pix[dstOffset+2] = b
+				dst.Pix[dstOffset+3] = 255
+				dstOffset += 4
+			}
+		}
+		return dst
+	}
 	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
 		for x := bounds.Min.X; x < bounds.Max.X; x++ {
 			pixel := color.RGBAModel.Convert(source.At(x, y)).(color.RGBA)

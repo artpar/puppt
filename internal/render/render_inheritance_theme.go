@@ -90,6 +90,10 @@ func parseHeaderFooterSettings(data []byte) headerFooterSettings {
 	if err != nil {
 		return headerFooterSettings{}
 	}
+	return parseHeaderFooterSettingsFromRoot(root)
+}
+
+func parseHeaderFooterSettingsFromRoot(root *xmlNode) headerFooterSettings {
 	hf := firstDescendant(root, "hf")
 	if hf == nil {
 		return headerFooterSettings{}
@@ -253,6 +257,10 @@ func parsePresentationDefaultTextStyle(data []byte, theme themeColors) (textStyl
 	if err != nil {
 		return textStyle{}, false
 	}
+	return parsePresentationDefaultTextStyleFromRoot(root, theme)
+}
+
+func parsePresentationDefaultTextStyleFromRoot(root *xmlNode, theme themeColors) (textStyle, bool) {
 	defaultTextStyle := firstDescendant(root, "defaultTextStyle")
 	if defaultTextStyle == nil {
 		return textStyle{}, false
@@ -285,6 +293,10 @@ func parseTextStyles(data []byte, theme themeColors) map[string]textStyle {
 	if err != nil {
 		return nil
 	}
+	return parseTextStylesFromRoot(root, theme)
+}
+
+func parseTextStylesFromRoot(root *xmlNode, theme themeColors) map[string]textStyle {
 	txStyles := firstDescendant(root, "txStyles")
 	if txStyles == nil {
 		return nil
@@ -1082,6 +1094,10 @@ func parseThemeFillStyles(data []byte) themeFillStyles {
 	if err != nil {
 		return themeFillStyles{}
 	}
+	return parseThemeFillStylesFromRoot(root)
+}
+
+func parseThemeFillStylesFromRoot(root *xmlNode) themeFillStyles {
 	var styles themeFillStyles
 	if list := firstDescendant(root, "fillStyleLst"); list != nil {
 		styles.Styles = list.Children
@@ -1097,6 +1113,10 @@ func parseThemeLineStyles(data []byte) themeLineStyles {
 	if err != nil {
 		return themeLineStyles{}
 	}
+	return parseThemeLineStylesFromRoot(root)
+}
+
+func parseThemeLineStylesFromRoot(root *xmlNode) themeLineStyles {
 	list := firstDescendant(root, "lnStyleLst")
 	if list == nil {
 		return themeLineStyles{}
@@ -1142,6 +1162,10 @@ func parseThemeEffectStyles(data []byte) themeEffectStyles {
 	if err != nil {
 		return themeEffectStyles{}
 	}
+	return parseThemeEffectStylesFromRoot(root)
+}
+
+func parseThemeEffectStylesFromRoot(root *xmlNode) themeEffectStyles {
 	list := firstDescendant(root, "effectStyleLst")
 	if list == nil {
 		return themeEffectStyles{}
@@ -1280,6 +1304,10 @@ func parseThemeColors(data []byte) themeColors {
 	if err != nil {
 		return nil
 	}
+	return parseThemeColorsFromRoot(root)
+}
+
+func parseThemeColorsFromRoot(root *xmlNode) themeColors {
 	scheme := firstDescendant(root, "clrScheme")
 	if scheme == nil {
 		return nil
@@ -1313,6 +1341,10 @@ func parseMasterColorMap(data []byte) map[string]string {
 	if err != nil {
 		return nil
 	}
+	return parseMasterColorMapFromRoot(root)
+}
+
+func parseMasterColorMapFromRoot(root *xmlNode) map[string]string {
 	clrMap := firstDescendant(root, "clrMap")
 	if clrMap == nil {
 		return nil
@@ -1325,6 +1357,10 @@ func parseColorMapOverride(data []byte) (map[string]string, bool) {
 	if err != nil {
 		return nil, false
 	}
+	return parseColorMapOverrideFromRoot(root)
+}
+
+func parseColorMapOverrideFromRoot(root *xmlNode) (map[string]string, bool) {
 	override := firstDescendant(root, "overrideClrMapping")
 	if override == nil {
 		return nil, false
@@ -1375,6 +1411,10 @@ func parseThemeFonts(data []byte) themeFonts {
 	if err != nil {
 		return themeFonts{}
 	}
+	return parseThemeFontsFromRoot(root)
+}
+
+func parseThemeFontsFromRoot(root *xmlNode) themeFonts {
 	scheme := firstDescendant(root, "fontScheme")
 	if scheme == nil {
 		return themeFonts{}

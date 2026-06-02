@@ -183,6 +183,199 @@ func Open(ctx context.Context, filePath string) (*Package, error) {
 	}, nil
 }
 
+// OpenForSlide reads the package structure and the parts reachable from one
+// slide's render inheritance chain. It preserves slide order metadata but avoids
+// inflating unrelated slide media.
+func OpenForSlide(ctx context.Context, filePath string, slideNumber int) (*Package, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if strings.ToLower(filepath.Ext(filePath)) != ".pptx" {
+		return nil, packageError(ErrorUnsupportedFileType, "open", filePath, "", errors.New("expected .pptx extension"))
+	}
+
+	file, err := os.Open(filePath)
+	if err != nil {
+		return nil, packageError(ErrorInvalidPackage, "open", filePath, "", err)
+	}
+	defer file.Close()
+
+	info, err := file.Stat()
+	if err != nil {
+		return nil, packageError(ErrorInvalidPackage, "stat", filePath, "", err)
+	}
+
+	reader, err := zip.NewReader(file, info.Size())
+	if err != nil {
+		return nil, packageError(ErrorInvalidPackage, "zip", filePath, "", err)
+	}
+
+	index := map[string]*zip.File{}
+	for _, file := range reader.File {
+		if !file.FileInfo().IsDir() {
+			index[file.Name] = file
+		}
+	}
+	parts := make(map[string][]byte, 32)
+	readPart := func(partName string) ([]byte, bool, error) {
+		if err := ctx.Err(); err != nil {
+			return nil, false, err
+		}
+		if data, ok := parts[partName]; ok {
+			return data, true, nil
+		}
+		file, ok := index[partName]
+		if !ok {
+			return nil, false, nil
+		}
+		handle, err := file.Open()
+		if err != nil {
+			return nil, false, err
+		}
+		data, readErr := io.ReadAll(handle)
+		closeErr := handle.Close()
+		if readErr != nil {
+			return nil, false, readErr
+		}
+		if closeErr != nil {
+			return nil, false, closeErr
+		}
+		parts[partName] = data
+		return data, true, nil
+	}
+	readRequired := func(partName string) ([]byte, error) {
+		data, ok, err := readPart(partName)
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			return nil, packageError(ErrorMissingPart, "read", filePath, partName, nil)
+		}
+		return data, nil
+	}
+	parseRelationshipsForPart := func(partName string) ([]Relationship, error) {
+		relationshipsPart := relationshipsPartFor(partName)
+		data, ok, err := readPart(relationshipsPart)
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			return []Relationship{}, nil
+		}
+		relationships, err := parseRelationships(data)
+		if err != nil {
+			return nil, packageError(ErrorInvalidXML, "parse", filePath, relationshipsPart, err)
+		}
+		return relationships, nil
+	}
+
+	contentTypesData, err := readRequired(contentTypesPart)
+	if err != nil {
+		return nil, packageError(ErrorInvalidPackage, "read", filePath, "", err)
+	}
+	contentTypes, err := parseContentTypes(contentTypesData)
+	if err != nil {
+		return nil, packageError(ErrorInvalidXML, "parse", filePath, contentTypesPart, err)
+	}
+
+	rootRelsData, err := readRequired(rootRelationshipsPart)
+	if err != nil {
+		return nil, packageError(ErrorInvalidPackage, "read", filePath, "", err)
+	}
+	rootRels, err := parseRelationships(rootRelsData)
+	if err != nil {
+		return nil, packageError(ErrorInvalidXML, "parse", filePath, rootRelationshipsPart, err)
+	}
+
+	presentationPath, err := findOfficeDocumentPath(rootRels)
+	if err != nil {
+		return nil, packageError(ErrorMissingRelationship, "resolve", filePath, rootRelationshipsPart, err)
+	}
+	presentationData, err := readRequired(presentationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	presentationRelsPath := relationshipsPartFor(presentationPath)
+	presentationRelsData, err := readRequired(presentationRelsPath)
+	if err != nil {
+		return nil, err
+	}
+	presentationRels, err := parseRelationships(presentationRelsData)
+	if err != nil {
+		return nil, packageError(ErrorInvalidXML, "parse", filePath, presentationRelsPath, err)
+	}
+
+	slideIDs, err := parsePresentationSlideIDs(presentationData)
+	if err != nil {
+		return nil, packageError(ErrorInvalidXML, "parse", filePath, presentationPath, err)
+	}
+	slideParts, err := resolveSlideParts(presentationPath, slideIDs, presentationRels)
+	if err != nil {
+		return nil, packageError(ErrorMissingRelationship, "resolve", filePath, presentationRelsPath, err)
+	}
+	if slideNumber < 1 || slideNumber > len(slideParts) {
+		return nil, fmt.Errorf("slide %d out of range 1..%d", slideNumber, len(slideParts))
+	}
+
+	for part := range index {
+		if strings.HasPrefix(part, "ppt/theme/") && strings.HasSuffix(part, ".xml") {
+			if _, _, err := readPart(part); err != nil {
+				return nil, packageError(ErrorInvalidPackage, "read", filePath, part, err)
+			}
+		}
+	}
+	if _, _, err := readPart("ppt/tableStyles.xml"); err != nil {
+		return nil, packageError(ErrorInvalidPackage, "read", filePath, "ppt/tableStyles.xml", err)
+	}
+
+	queue := []string{slideParts[slideNumber-1]}
+	queued := map[string]bool{queue[0]: true}
+	for len(queue) > 0 {
+		part := queue[0]
+		queue = queue[1:]
+		if _, err := readRequired(part); err != nil {
+			return nil, err
+		}
+		relationships, err := parseRelationshipsForPart(part)
+		if err != nil {
+			return nil, err
+		}
+		for _, relationship := range relationships {
+			if relationship.Target == "" || (relationship.TargetMode != "" && !strings.EqualFold(relationship.TargetMode, "Internal")) {
+				continue
+			}
+			if relationship.Type == NotesSlideRelType {
+				continue
+			}
+			targetPart := resolveTargetPart(part, relationship.Target)
+			if _, _, err := readPart(targetPart); err != nil {
+				return nil, packageError(ErrorInvalidPackage, "read", filePath, targetPart, err)
+			}
+			if shouldFollowSlideRenderRelationship(targetPart) && !queued[targetPart] {
+				queued[targetPart] = true
+				queue = append(queue, targetPart)
+			}
+		}
+	}
+
+	return &Package{
+		Path:                      filePath,
+		Parts:                     parts,
+		ContentTypes:              contentTypes,
+		RootRelationships:         rootRels,
+		PresentationPath:          presentationPath,
+		PresentationRelationships: presentationRels,
+		SlideParts:                slideParts,
+	}, nil
+}
+
+func shouldFollowSlideRenderRelationship(partName string) bool {
+	return strings.HasPrefix(partName, "ppt/slideLayouts/") ||
+		strings.HasPrefix(partName, "ppt/slideMasters/") ||
+		strings.HasPrefix(partName, "ppt/diagrams/")
+}
+
 func readParts(ctx context.Context, reader *zip.Reader) (map[string][]byte, error) {
 	parts := make(map[string][]byte, len(reader.File))
 	for _, file := range reader.File {

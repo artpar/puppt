@@ -47,10 +47,11 @@ func Render(ctx context.Context, inputPath string, options Options) (model.Comma
 		return result, errors.New("render output path is required")
 	}
 
-	pkg, err := pptx.Open(ctx, inputPath)
+	pkg, err := pptx.OpenForSlide(ctx, inputPath, options.SlideNumber)
 	if err != nil {
 		return result, err
 	}
+	cache := newRenderCache(pkg)
 	if options.SlideNumber < 1 || options.SlideNumber > len(pkg.SlideParts) {
 		return result, fmt.Errorf("slide %d out of range 1..%d", options.SlideNumber, len(pkg.SlideParts))
 	}
@@ -64,24 +65,24 @@ func Render(ctx context.Context, inputPath string, options Options) (model.Comma
 	}
 
 	slidePart := pkg.SlideParts[options.SlideNumber-1]
-	theme := packageThemeColors(pkg)
-	fonts := packageThemeFonts(pkg)
+	theme := cache.packageThemeColors()
+	fonts := cache.packageThemeFonts()
 	themeForPart := func(part string) themeColors {
-		return themeColorsForPart(pkg, part, theme)
+		return cache.themeColorsForPart(part, theme)
 	}
 	fontsForPart := func(part string) themeFonts {
-		return themeFontsForPart(pkg, part, fonts)
+		return cache.themeFontsForPart(part, fonts)
 	}
-	renderParts := inheritedRenderParts(pkg, slidePart)
-	paintParts := visibleRenderParts(pkg, slidePart, renderParts)
-	placeholderSources := inheritedPlaceholderSourcesWithThemeResolver(pkg, renderParts, slidePart, themeForPart)
-	textStyles := inheritedTextStylesWithThemeResolver(pkg, renderParts, slidePart, themeForPart)
-	background := inheritedBackgroundWithThemeResolver(pkg, renderParts, themeForPart)
-	headerFooter := inheritedHeaderFooterSettings(pkg, renderParts)
-	if !presentationShowsSpecialPlaceholdersOnTitleSlide(pkg) && slideUsesTitleLayout(pkg, slidePart) {
+	renderParts := cache.inheritedRenderParts(slidePart)
+	paintParts := cache.visibleRenderParts(slidePart, renderParts)
+	placeholderSources := cache.inheritedPlaceholderSources(renderParts, slidePart, themeForPart)
+	textStyles := cache.inheritedTextStyles(renderParts, slidePart, themeForPart)
+	background := cache.inheritedBackground(renderParts, themeForPart)
+	headerFooter := cache.inheritedHeaderFooterSettings(renderParts)
+	if !cache.presentationShowsSpecialPlaceholdersOnTitleSlide() && cache.slideUsesTitleLayout(slidePart) {
 		headerFooter = headerFooterSettings{}
 	}
-	inheritedHeaderFooterPart := inheritedHeaderFooterRenderPart(pkg, paintParts, slidePart, headerFooter)
+	inheritedHeaderFooterPart := cache.inheritedHeaderFooterRenderPart(paintParts, slidePart, headerFooter)
 	img := image.NewRGBA(image.Rect(0, 0, width, height))
 	var unsupported []model.SkipItem
 	unsupported = append(unsupported, presentationUnsupportedItems(pkg.PresentationPath, pkg.Parts[pkg.PresentationPath])...)
@@ -106,11 +107,11 @@ func Render(ctx context.Context, inputPath string, options Options) (model.Comma
 	for _, renderPart := range paintParts {
 		partTheme := themeForPart(renderPart)
 		partFonts := fontsForPart(renderPart)
-		partLineStyles := themeLineStylesForPart(pkg, renderPart)
-		effectStyles := themeEffectStylesForPart(pkg, renderPart)
-		fillStyles := themeFillStylesForPart(pkg, renderPart)
-		tableStyles := packageTableStyles(pkg, partTheme, partFonts, fillStyles, partLineStyles, effectStyles)
-		elements := collectSlideElementsWithThemeEffectsAndFills(pkg.Parts[renderPart], partTheme, effectStyles, fillStyles, partLineStyles)
+		partLineStyles := cache.themeLineStylesForPart(renderPart)
+		effectStyles := cache.themeEffectStylesForPart(renderPart)
+		fillStyles := cache.themeFillStylesForPart(renderPart)
+		tableStyles := cache.packageTableStyles(renderPart, partTheme, partFonts, fillStyles, partLineStyles, effectStyles)
+		elements := cache.elementsForPart(renderPart, partTheme, effectStyles, fillStyles, partLineStyles)
 		if renderPart != slidePart {
 			elements = filterInheritedPlaceholdersForRender(elements, placeholderSources, headerFooter, renderPart == inheritedHeaderFooterPart)
 		} else {
@@ -120,7 +121,7 @@ func Render(ctx context.Context, inputPath string, options Options) (model.Comma
 		elements = applyInheritedTableTextStyles(elements, textStyles)
 		elements = applyThemeFontFamilies(elements, partFonts)
 		elements = resolveTextFields(elements, options.SlideNumber)
-		unsupported = append(unsupported, renderElementsWithDebug(pkg, slidePart, renderPart, size, img, elements, tableStyles, options.ObjectDebug)...)
+		unsupported = append(unsupported, cache.renderElementsWithDebug(slidePart, renderPart, size, img, elements, tableStyles, options.ObjectDebug)...)
 		unsupported = append(unsupported, unsupportedItems(renderPart, elements)...)
 		unsupported = append(unsupported, timingUnsupportedItems(renderPart, pkg.Parts[renderPart], elements)...)
 	}
