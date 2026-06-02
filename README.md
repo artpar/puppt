@@ -184,11 +184,8 @@ Engineering and completion:
 
 - [Renderer completion goal](docs/RENDERER_COMPLETION_GOAL.md)
 - [Renderer milestones](docs/renderer-milestones/00-INDEX.md)
-- [Renderer production path](docs/RENDERER_PRODUCTION_PATH.md)
 - [Build and release](docs/BUILD_RELEASE.md)
-- [State handoff](docs/HANDOFF.md)
 - [Technical KT](docs/TECHNICAL_KT.md)
-- [Doctrine compliance audit](docs/COMPLIANCE_AUDIT.md)
 
 ## Implementation Language
 

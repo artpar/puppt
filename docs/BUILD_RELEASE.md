@@ -18,7 +18,7 @@ Until `v1.0.0`, minor releases may change CLI or JSON behavior. Patch releases
 should be reserved for bug fixes, documentation corrections, and packaging
 fixes that do not intentionally change behavior.
 
-The first release target is:
+Current release:
 
 ```text
 v0.1.0
@@ -45,7 +45,7 @@ go build -trimpath -ldflags "-s -w" -o bin/puppt ./cmd/puppt
 Release builds inject the Git tag into `puppt version`:
 
 ```sh
-go build -trimpath -ldflags "-s -w -X github.com/artpar/puppt/internal/cli.version=v0.1.0" -o bin/puppt ./cmd/puppt
+go build -trimpath -ldflags "-s -w -X github.com/artpar/puppt/internal/cli.version=vX.Y.Z" -o bin/puppt ./cmd/puppt
 ```
 
 ## Verification
@@ -106,21 +106,20 @@ Each release includes:
 
 ## GitHub Release
 
-Release from a clean checkout:
+Release from a clean checkout, replacing `vX.Y.Z` with the next SemVer tag:
 
 ```sh
 make verify
 make release-check
 make release-snapshot
 git status --short
-git tag -a v0.1.0 -m "puppt v0.1.0"
+git tag -a vX.Y.Z -m "puppt vX.Y.Z"
 git push origin main
-git push origin v0.1.0
+git push origin vX.Y.Z
 ```
 
 The tag push triggers `.github/workflows/release.yml`, which runs GoReleaser and
-creates a draft GitHub release. Review the draft release notes and artifacts,
-then publish it from GitHub.
+publishes the GitHub release artifacts.
 
 Manual release, when needed:
 
