@@ -2727,7 +2727,7 @@ func TestLineFontSizeUsesLargestSegmentFontSize(t *testing.T) {
 }
 
 func TestMeasureTextRenderLinesUsesFontLineMetricHeight(t *testing.T) {
-	faces := newFontFaceCache(false, "")
+	faces := newFontFaceCache(false, "Carlito")
 	defer faces.Close()
 
 	face, err := faces.Get(1800, false, false)
