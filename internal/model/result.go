@@ -9,6 +9,7 @@ type CommandResult struct {
 	Status        string       `json:"status"`
 	Input         string       `json:"input"`
 	Output        *string      `json:"output"`
+	Outputs       []string     `json:"outputs,omitempty"`
 	Warnings      []Warning    `json:"warnings"`
 	Errors        []ErrorItem  `json:"errors"`
 	Summary       Summary      `json:"summary"`
@@ -20,6 +21,7 @@ type CommandResult struct {
 	Unsupported   []SkipItem   `json:"unsupported,omitempty"`
 	Validation    *Validation  `json:"validation,omitempty"`
 	Render        *Render      `json:"render,omitempty"`
+	Renders       []Render     `json:"renders,omitempty"`
 }
 
 type Summary struct {

@@ -29,6 +29,14 @@ const (
 	themeRelType           = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme"
 )
 
+func SlideCount(ctx context.Context, inputPath string) (int, error) {
+	pkg, err := pptx.OpenForSlide(ctx, inputPath, 1)
+	if err != nil {
+		return 0, err
+	}
+	return len(pkg.SlideParts), nil
+}
+
 func Render(ctx context.Context, inputPath string, options Options) (model.CommandResult, error) {
 	result := model.CommandResult{
 		SchemaVersion: model.SchemaVersion,

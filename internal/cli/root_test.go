@@ -112,6 +112,136 @@ func TestRenderJSONHonorsDPIFlag(t *testing.T) {
 	}
 }
 
+func TestRenderSlideRangeWritesDirectoryOutputs(t *testing.T) {
+	dir := t.TempDir()
+	deckPath := filepath.Join(dir, "deck.pptx")
+	outputDir := filepath.Join(dir, "renders")
+	if err := fixtures.WriteMinimalPPTX(deckPath, []string{
+		"ppt/slides/slide1.xml",
+		"ppt/slides/slide2.xml",
+		"ppt/slides/slide3.xml",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	if err := Execute(context.Background(), []string{"render", deckPath, "--slides", "1-2,3", "--out", outputDir, "--json"}, &stdout, &stderr); err != nil {
+		t.Fatalf("render range failed: %v\n%s", err, stdout.String())
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("render wrote stderr: %s", stderr.String())
+	}
+
+	var payload struct {
+		Status  string   `json:"status"`
+		Outputs []string `json:"outputs"`
+		Renders []struct {
+			SlideNumber int `json:"slide_number"`
+		} `json:"renders"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
+		t.Fatalf("invalid json: %v\n%s", err, stdout.String())
+	}
+	if payload.Status != "partial" || len(payload.Outputs) != 3 || len(payload.Renders) != 3 {
+		t.Fatalf("unexpected range payload: %+v", payload)
+	}
+	for index, wantSlide := range []int{1, 2, 3} {
+		if payload.Renders[index].SlideNumber != wantSlide {
+			t.Fatalf("unexpected rendered slide order: %+v", payload.Renders)
+		}
+		outputPath := filepath.Join(outputDir, filepath.Base(payload.Outputs[index]))
+		if payload.Outputs[index] != outputPath {
+			t.Fatalf("unexpected output path %q want %q", payload.Outputs[index], outputPath)
+		}
+		if _, err := os.Stat(outputPath); err != nil {
+			t.Fatalf("expected rendered output %s: %v", outputPath, err)
+		}
+	}
+}
+
+func TestRenderAllWritesAllSlides(t *testing.T) {
+	dir := t.TempDir()
+	deckPath := filepath.Join(dir, "deck.pptx")
+	outputDir := filepath.Join(dir, "all")
+	if err := fixtures.WriteMinimalPPTX(deckPath, []string{
+		"ppt/slides/slide1.xml",
+		"ppt/slides/slide2.xml",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	if err := Execute(context.Background(), []string{"render", deckPath, "--all", "--out", outputDir}, &stdout, &stderr); err != nil {
+		t.Fatalf("render all failed: %v\n%s", err, stdout.String())
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("render wrote stderr: %s", stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "Rendered 2 slides") {
+		t.Fatalf("unexpected render summary: %s", stdout.String())
+	}
+	for _, name := range []string{"slide-001.png", "slide-002.png"} {
+		if _, err := os.Stat(filepath.Join(outputDir, name)); err != nil {
+			t.Fatalf("expected rendered output %s: %v", name, err)
+		}
+	}
+}
+
+func TestRenderSlideRangeSupportsOutputTemplate(t *testing.T) {
+	dir := t.TempDir()
+	deckPath := filepath.Join(dir, "deck.pptx")
+	outputTemplate := filepath.Join(dir, "renders", "deck-slide-{slide:02}.png")
+	if err := fixtures.WriteMinimalPPTX(deckPath, []string{
+		"ppt/slides/slide1.xml",
+		"ppt/slides/slide2.xml",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	if err := Execute(context.Background(), []string{"render", deckPath, "--slides", "2", "--out", outputTemplate, "--json"}, &stdout, &stderr); err != nil {
+		t.Fatalf("single range render failed: %v\n%s", err, stdout.String())
+	}
+	if _, err := os.Stat(filepath.Join(dir, "renders", "deck-slide-02.png")); err != nil {
+		t.Fatalf("single-slide range should keep explicit output path: %v", err)
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if err := Execute(context.Background(), []string{"render", deckPath, "--slides", "1-2", "--out", outputTemplate, "--json"}, &stdout, &stderr); err != nil {
+		t.Fatalf("template render failed: %v\n%s", err, stdout.String())
+	}
+	for _, name := range []string{"deck-slide-01.png", "deck-slide-02.png"} {
+		if _, err := os.Stat(filepath.Join(dir, "renders", name)); err != nil {
+			t.Fatalf("expected templated output %s: %v", name, err)
+		}
+	}
+}
+
+func TestRenderSlideRangeRejectsPlainPNGOutput(t *testing.T) {
+	dir := t.TempDir()
+	deckPath := filepath.Join(dir, "deck.pptx")
+	if err := fixtures.WriteMinimalPPTX(deckPath, []string{
+		"ppt/slides/slide1.xml",
+		"ppt/slides/slide2.xml",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	err := Execute(context.Background(), []string{"render", deckPath, "--slides", "1-2", "--out", filepath.Join(dir, "slide.png")}, &stdout, &stderr)
+	if err == nil {
+		t.Fatal("multi-slide render unexpectedly accepted a plain PNG output path")
+	}
+	if !strings.Contains(err.Error(), "directory or a template") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestVersionIncludesSchemaVersion(t *testing.T) {
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer

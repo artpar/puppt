@@ -5,10 +5,16 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
+	"regexp"
+	"strconv"
+	"strings"
 
 	createworkflow "github.com/artpar/puppt/internal/create"
 	editworkflow "github.com/artpar/puppt/internal/edit"
 	inspectworkflow "github.com/artpar/puppt/internal/inspect"
+	"github.com/artpar/puppt/internal/model"
 	renderworkflow "github.com/artpar/puppt/internal/render"
 	"github.com/artpar/puppt/internal/report"
 	reviewworkflow "github.com/artpar/puppt/internal/review"
@@ -56,19 +62,21 @@ func NewRootCommand() *cobra.Command {
 
 func newRenderCommand() *cobra.Command {
 	var slideNumber int
+	var slideRange string
+	var allSlides bool
 	var outputPath string
 	var outputDPI int
 	var emitJSON bool
 	cmd := &cobra.Command{
 		Use:   "render <input.pptx>",
-		Short: "Render one .pptx slide to a PNG image.",
+		Short: "Render .pptx slides to PNG images.",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			result, err := renderworkflow.Render(cmd.Context(), args[0], renderworkflow.Options{
-				SlideNumber: slideNumber,
-				OutputPath:  outputPath,
-				DPI:         outputDPI,
-			})
+			slides, err := renderSlideSelection(cmd.Context(), args[0], slideNumber, slideRange, allSlides)
+			if err != nil {
+				return err
+			}
+			result, err := renderSelectedSlides(cmd.Context(), args[0], slides, outputPath, outputDPI)
 			if err != nil {
 				return err
 			}
@@ -80,12 +88,191 @@ func newRenderCommand() *cobra.Command {
 		},
 	}
 	cmd.Flags().IntVar(&slideNumber, "slide", 0, "1-based slide number to render")
-	cmd.Flags().StringVar(&outputPath, "out", "", "path to write rendered PNG")
+	cmd.Flags().StringVar(&slideRange, "slides", "", "1-based slide range/list to render, e.g. 1-3,5")
+	cmd.Flags().BoolVar(&allSlides, "all", false, "render all slides")
+	cmd.Flags().StringVar(&outputPath, "out", "", "path to write rendered PNG, output directory, or template containing {slide}")
 	cmd.Flags().IntVar(&outputDPI, "dpi", 72, "output PNG resolution in pixels per inch")
 	cmd.Flags().BoolVar(&emitJSON, "json", false, "emit stable machine-readable JSON")
-	cmd.MarkFlagRequired("slide")
 	cmd.MarkFlagRequired("out")
 	return cmd
+}
+
+func renderSlideSelection(ctx context.Context, inputPath string, slideNumber int, slideRange string, allSlides bool) ([]int, error) {
+	selectedModes := 0
+	if slideNumber > 0 {
+		selectedModes++
+	}
+	if strings.TrimSpace(slideRange) != "" {
+		selectedModes++
+	}
+	if allSlides {
+		selectedModes++
+	}
+	if selectedModes != 1 {
+		return nil, errors.New("exactly one of --slide, --slides, or --all is required")
+	}
+	if slideNumber > 0 {
+		return []int{slideNumber}, nil
+	}
+	if allSlides {
+		count, err := renderworkflow.SlideCount(ctx, inputPath)
+		if err != nil {
+			return nil, err
+		}
+		slides := make([]int, count)
+		for index := range slides {
+			slides[index] = index + 1
+		}
+		return slides, nil
+	}
+	return parseSlideRange(slideRange)
+}
+
+func parseSlideRange(value string) ([]int, error) {
+	var slides []int
+	seen := map[int]bool{}
+	for _, rawItem := range strings.Split(value, ",") {
+		item := strings.TrimSpace(rawItem)
+		if item == "" {
+			return nil, fmt.Errorf("invalid slide range %q", value)
+		}
+		startText, endText, hasRange := strings.Cut(item, "-")
+		start, err := parsePositiveSlideNumber(startText)
+		if err != nil {
+			return nil, fmt.Errorf("invalid slide range %q: %w", value, err)
+		}
+		end := start
+		if hasRange {
+			end, err = parsePositiveSlideNumber(endText)
+			if err != nil {
+				return nil, fmt.Errorf("invalid slide range %q: %w", value, err)
+			}
+			if end < start {
+				return nil, fmt.Errorf("invalid slide range %q: range %d-%d is descending", value, start, end)
+			}
+		}
+		for slide := start; slide <= end; slide++ {
+			if seen[slide] {
+				continue
+			}
+			seen[slide] = true
+			slides = append(slides, slide)
+		}
+	}
+	if len(slides) == 0 {
+		return nil, fmt.Errorf("invalid slide range %q", value)
+	}
+	return slides, nil
+}
+
+func parsePositiveSlideNumber(value string) (int, error) {
+	number, err := strconv.Atoi(strings.TrimSpace(value))
+	if err != nil {
+		return 0, err
+	}
+	if number < 1 {
+		return 0, fmt.Errorf("slide number must be >= 1")
+	}
+	return number, nil
+}
+
+func renderSelectedSlides(ctx context.Context, inputPath string, slides []int, outputPath string, dpi int) (model.CommandResult, error) {
+	if outputPath == "" {
+		return model.CommandResult{}, errors.New("render output path is required")
+	}
+	if len(slides) == 1 {
+		slideOutput := outputPath
+		if slideOutputPlaceholder.MatchString(outputPath) {
+			var err error
+			slideOutput, err = renderOutputPathForSlide(outputPath, slides[0], true)
+			if err != nil {
+				return model.CommandResult{}, err
+			}
+		}
+		return renderworkflow.Render(ctx, inputPath, renderworkflow.Options{
+			SlideNumber: slides[0],
+			OutputPath:  slideOutput,
+			DPI:         dpi,
+		})
+	}
+	result := model.CommandResult{
+		SchemaVersion: model.SchemaVersion,
+		Command:       "render",
+		Status:        "ok",
+		Input:         inputPath,
+		Output:        &outputPath,
+		Warnings:      []model.Warning{},
+		Errors:        []model.ErrorItem{},
+		Unsupported:   []model.SkipItem{},
+		Summary:       model.Summary{Human: fmt.Sprintf("Rendered %d slides to %s.", len(slides), outputPath)},
+	}
+	for _, slide := range slides {
+		slideOutput, err := renderOutputPathForSlide(outputPath, slide, true)
+		if err != nil {
+			return result, err
+		}
+		slideResult, err := renderworkflow.Render(ctx, inputPath, renderworkflow.Options{
+			SlideNumber: slide,
+			OutputPath:  slideOutput,
+			DPI:         dpi,
+		})
+		if err != nil {
+			return result, err
+		}
+		result.Outputs = append(result.Outputs, slideOutput)
+		if slideResult.Render != nil {
+			result.Renders = append(result.Renders, *slideResult.Render)
+		}
+		result.Unsupported = append(result.Unsupported, slideResult.Unsupported...)
+		if slideResult.Status != "ok" {
+			result.Status = slideResult.Status
+		}
+	}
+	if len(result.Unsupported) > 0 {
+		result.Status = "partial"
+		result.Summary = model.Summary{Human: fmt.Sprintf("Rendered %d slides with %d unsupported object(s).", len(slides), len(result.Unsupported))}
+	}
+	return result, nil
+}
+
+var slideOutputPlaceholder = regexp.MustCompile(`\{slide(?::0?([0-9]+))?\}`)
+
+func renderOutputPathForSlide(outputPath string, slide int, multiple bool) (string, error) {
+	if !multiple {
+		return outputPath, nil
+	}
+	if slideOutputPlaceholder.MatchString(outputPath) {
+		path := slideOutputPlaceholder.ReplaceAllStringFunc(outputPath, func(match string) string {
+			submatches := slideOutputPlaceholder.FindStringSubmatch(match)
+			if len(submatches) == 2 && submatches[1] != "" {
+				width, err := strconv.Atoi(submatches[1])
+				if err == nil && width > 0 {
+					return fmt.Sprintf("%0*d", width, slide)
+				}
+			}
+			return strconv.Itoa(slide)
+		})
+		return ensureRenderOutputParent(path)
+	}
+	if info, err := os.Stat(outputPath); err == nil && info.IsDir() {
+		return filepath.Join(outputPath, fmt.Sprintf("slide-%03d.png", slide)), nil
+	}
+	if strings.EqualFold(filepath.Ext(outputPath), ".png") {
+		return "", errors.New("multiple-slide render requires --out to be a directory or a template containing {slide}")
+	}
+	if err := os.MkdirAll(outputPath, 0o755); err != nil {
+		return "", err
+	}
+	return filepath.Join(outputPath, fmt.Sprintf("slide-%03d.png", slide)), nil
+}
+
+func ensureRenderOutputParent(path string) (string, error) {
+	if dir := filepath.Dir(path); dir != "." && dir != "" {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return "", err
+		}
+	}
+	return path, nil
 }
 
 func newVersionCommand() *cobra.Command {
