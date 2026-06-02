@@ -291,6 +291,9 @@ func resolveFontSource(fontFamily string, bold bool, italic bool) (fontSource, e
 	if fontPath := firstExistingPath(fontCandidates(bold, italic)); fontPath != "" {
 		return readFontPath(fontPath)
 	}
+	if source, ok := bundledCarlitoFontSource(bold, italic); ok {
+		return source, nil
+	}
 	return fontSource{}, errors.New("no supported font found")
 }
 
@@ -563,7 +566,15 @@ func sansSerifSubstituteFontSource(bold bool, italic bool) (fontSource, bool) {
 			return source, true
 		}
 	}
-	return fontSource{}, false
+	return bundledCarlitoFontSource(bold, italic)
+}
+
+func bundledCarlitoFontSource(bold bool, italic bool) (fontSource, bool) {
+	source, err := readBundledFont(carlitoAssetPath(bold, italic))
+	if err != nil {
+		return fontSource{}, false
+	}
+	return source, true
 }
 
 func carlitoFontCandidates(bold bool, italic bool) []string {
