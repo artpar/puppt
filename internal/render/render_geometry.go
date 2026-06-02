@@ -1151,6 +1151,16 @@ func applyDisplayP3OutputTransform(img *image.RGBA) {
 	}
 }
 
+var srgbLinearByteTable = buildSRGBLinearByteTable()
+
+func buildSRGBLinearByteTable() [256]float64 {
+	var table [256]float64
+	for index := range table {
+		table[index] = srgbByteToLinearUncached(uint8(index))
+	}
+	return table
+}
+
 func srgbToDisplayP3(r uint8, g uint8, b uint8) (uint8, uint8, uint8) {
 	linearR := srgbByteToLinear(r)
 	linearG := srgbByteToLinear(g)
@@ -1164,6 +1174,10 @@ func srgbToDisplayP3(r uint8, g uint8, b uint8) (uint8, uint8, uint8) {
 }
 
 func srgbByteToLinear(value uint8) float64 {
+	return srgbLinearByteTable[value]
+}
+
+func srgbByteToLinearUncached(value uint8) float64 {
 	encoded := float64(value) / 255
 	if encoded <= 0.04045 {
 		return encoded / 12.92

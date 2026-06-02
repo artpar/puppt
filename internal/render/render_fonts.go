@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 
 	"golang.org/x/image/font"
 	"golang.org/x/image/font/opentype"
@@ -18,6 +19,8 @@ import (
 
 //go:embed assets/fonts/carlito/*.ttf
 var bundledFontFS embed.FS
+var resolvedFontSourceCache sync.Map
+var parsedOpenTypeFontCache sync.Map
 
 func fontResolutionUnsupportedMessage(element slideElement) string {
 	messages := fontResolutionUnsupportedMessages(element)
@@ -230,11 +233,11 @@ func openFontFace(fontSize int, bold bool, italic bool, pointScale float64, font
 }
 
 func openFontFaceWithDPI(fontSize int, bold bool, italic bool, pointScale float64, fontFamily string, dpi int) (font.Face, error) {
-	source, err := resolveFontSource(fontFamily, bold, italic)
+	source, err := cachedResolvedFontSource(fontFamily, bold, italic)
 	if err != nil {
 		return nil, errors.New("no supported font found")
 	}
-	parsed, err := parseFontData(source.Data, bold, italic)
+	parsed, err := cachedParsedFontData(source, bold, italic)
 	if err != nil {
 		return nil, err
 	}
@@ -246,6 +249,35 @@ func openFontFaceWithDPI(fontSize int, bold bool, italic bool, pointScale float6
 		DPI:     float64(normalizeOutputDPI(dpi)),
 		Hinting: font.HintingNone,
 	})
+}
+
+func cachedResolvedFontSource(fontFamily string, bold bool, italic bool) (fontSource, error) {
+	key := normalizedFontFamily(fontFamily) + ":" + fontStyleKey(bold, italic)
+	if cached, ok := resolvedFontSourceCache.Load(key); ok {
+		return cached.(fontSource), nil
+	}
+	source, err := resolveFontSource(fontFamily, bold, italic)
+	if err != nil {
+		return fontSource{}, err
+	}
+	actual, _ := resolvedFontSourceCache.LoadOrStore(key, source)
+	return actual.(fontSource), nil
+}
+
+func cachedParsedFontData(source fontSource, bold bool, italic bool) (*opentype.Font, error) {
+	if source.Label == "" {
+		return parseFontData(source.Data, bold, italic)
+	}
+	key := source.Label + ":" + fontStyleKey(bold, italic)
+	if cached, ok := parsedOpenTypeFontCache.Load(key); ok {
+		return cached.(*opentype.Font), nil
+	}
+	parsed, err := parseFontData(source.Data, bold, italic)
+	if err != nil {
+		return nil, err
+	}
+	actual, _ := parsedOpenTypeFontCache.LoadOrStore(key, parsed)
+	return actual.(*opentype.Font), nil
 }
 
 func resolveFontSource(fontFamily string, bold bool, italic bool) (fontSource, error) {

@@ -40,6 +40,7 @@ type harfbuzzTextShapingBackend struct{}
 var currentTextShapingBackend textShapingBackend = harfbuzzTextShapingBackend{}
 var textShapingFontSourceCache sync.Map
 var textShapingFaceCache sync.Map
+var textShapingHarfbuzzShaperPool sync.Pool
 
 func (harfbuzzTextShapingBackend) ShapeText(input textShapingInput) (textShapingOutput, bool) {
 	if input.Text == "" || textContainsRTL(input.Text) {
@@ -60,7 +61,9 @@ func (harfbuzzTextShapingBackend) ShapeText(input textShapingInput) (textShaping
 	pointSize := fallbackFontPointSizeWithScaleAndFamily(fontSize, input.Bold, input.Italic, input.PointScale, input.FontFamily)
 	pixelSize := pointSize * float64(normalizeOutputDPI(input.DPI)) / 72
 	runes := []rune(input.Text)
-	output := (&shaping.HarfbuzzShaper{}).Shape(shaping.Input{
+	shaper := pooledTextShapingHarfbuzzShaper()
+	defer textShapingHarfbuzzShaperPool.Put(shaper)
+	output := shaper.Shape(shaping.Input{
 		Text:      runes,
 		RunStart:  0,
 		RunEnd:    len(runes),
@@ -80,6 +83,13 @@ func (harfbuzzTextShapingBackend) ShapeText(input textShapingInput) (textShaping
 		Glyphs:    len(output.Glyphs),
 		FontLabel: source.Label,
 	}, true
+}
+
+func pooledTextShapingHarfbuzzShaper() *shaping.HarfbuzzShaper {
+	if cached := textShapingHarfbuzzShaperPool.Get(); cached != nil {
+		return cached.(*shaping.HarfbuzzShaper)
+	}
+	return &shaping.HarfbuzzShaper{}
 }
 
 func cachedTextShapingFontSource(fontFamily string, bold bool, italic bool) (fontSource, error) {
