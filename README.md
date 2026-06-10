@@ -50,28 +50,331 @@ Build the local binary:
 make build
 ```
 
-Inspect a deck:
+## Examples
+
+The examples below use the local binary and show compact excerpts of real JSON
+output. `jq` is only used to keep the displayed output short.
+
+Create a small editable deck specification:
 
 ```sh
-puppt inspect deck.pptx --json
+mkdir -p .tmp/readme-examples
 ```
 
-Plan an edit before writing:
-
-```sh
-puppt plan deck.pptx --edit edit.json --json
+```json
+{
+  "metadata": {
+    "title": "Quarterly Review",
+    "author": "Puppt",
+    "subject": "Q4"
+  },
+  "slides": [
+    {
+      "layout": "title",
+      "title": "Quarterly Review"
+    },
+    {
+      "layout": "title_body",
+      "title": "Metrics",
+      "body": "Revenue and retention moved together.",
+      "bullets": [
+        "Revenue up",
+        "Retention stable"
+      ],
+      "notes": "Pause before the metrics."
+    }
+  ]
+}
 ```
 
-Apply a supported edit:
+Save that as `.tmp/readme-examples/deck.json`, then create the `.pptx`:
 
 ```sh
-puppt edit deck.pptx --edit edit.json --out edited.pptx --json
+./bin/puppt create \
+  --input .tmp/readme-examples/deck.json \
+  --out .tmp/readme-examples/quarterly.pptx \
+  --json |
+  jq '{schema_version, command, status, output, summary, validation}'
 ```
 
-Render a slide:
+Output:
+
+```json
+{
+  "schema_version": "puppt.v1",
+  "command": "create",
+  "status": "ok",
+  "output": ".tmp/readme-examples/quarterly.pptx",
+  "summary": {
+    "human": "Created 2 slide deck."
+  },
+  "validation": {
+    "valid": true,
+    "warnings": [],
+    "errors": []
+  }
+}
+```
+
+Inspect the deck:
 
 ```sh
-puppt render deck.pptx --slide 1 --out slide-1.png --json
+./bin/puppt inspect .tmp/readme-examples/quarterly.pptx --json |
+  jq '{
+    schema_version,
+    command,
+    status,
+    summary,
+    inspection: {
+      slide_count: .inspection.slide_count,
+      metadata: .inspection.metadata,
+      slides: [
+        .inspection.slides[] |
+        {number, title, visible_text: [.visible_text[].text]}
+      ]
+    }
+  }'
+```
+
+Output:
+
+```json
+{
+  "schema_version": "puppt.v1",
+  "command": "inspect",
+  "status": "ok",
+  "summary": {
+    "human": "Found 2 slides."
+  },
+  "inspection": {
+    "slide_count": 2,
+    "metadata": {
+      "title": "Quarterly Review",
+      "author": "Puppt",
+      "subject": "Q4"
+    },
+    "slides": [
+      {
+        "number": 1,
+        "title": "Quarterly Review",
+        "visible_text": [
+          "Quarterly Review"
+        ]
+      },
+      {
+        "number": 2,
+        "title": "Metrics",
+        "visible_text": [
+          "Metrics",
+          "Revenue and retention moved together.Revenue upRetention stable"
+        ]
+      }
+    ]
+  }
+}
+```
+
+Plan an edit before writing. Save this as `.tmp/readme-examples/edit.json`:
+
+```json
+{
+  "operation": "replace_text",
+  "target": {
+    "type": "visible_text",
+    "text": "Metrics"
+  },
+  "replacement": "Q4 Metrics"
+}
+```
+
+```sh
+./bin/puppt plan \
+  .tmp/readme-examples/quarterly.pptx \
+  --edit .tmp/readme-examples/edit.json \
+  --json |
+  jq '{
+    schema_version,
+    command,
+    status,
+    summary,
+    plan: {
+      operation: .plan.operation,
+      status: .plan.status,
+      message: .plan.message,
+      matches: .plan.matches,
+      replacement: .plan.replacement
+    }
+  }'
+```
+
+Output:
+
+```json
+{
+  "schema_version": "puppt.v1",
+  "command": "plan",
+  "status": "ok",
+  "summary": {
+    "human": "Planned replace_text for 1 target(s)."
+  },
+  "plan": {
+    "operation": "replace_text",
+    "status": "ready",
+    "message": "matched 1 target",
+    "matches": [
+      {
+        "slide_number": 2,
+        "slide_id": "ppt/slides/slide2.xml",
+        "object_id": "ppt/slides/slide2.xml#shape-2",
+        "kind": "visible_text",
+        "text": "Metrics"
+      }
+    ],
+    "replacement": "Q4 Metrics"
+  }
+}
+```
+
+Apply the edit and keep the JSON result as a review artifact:
+
+```sh
+./bin/puppt edit \
+  .tmp/readme-examples/quarterly.pptx \
+  --edit .tmp/readme-examples/edit.json \
+  --out .tmp/readme-examples/quarterly-edited.pptx \
+  --json |
+  tee .tmp/readme-examples/edit-result.json |
+  jq '{schema_version, command, status, output, summary, changes, validation}'
+```
+
+Output:
+
+```json
+{
+  "schema_version": "puppt.v1",
+  "command": "edit",
+  "status": "ok",
+  "output": ".tmp/readme-examples/quarterly-edited.pptx",
+  "summary": {
+    "human": "Applied replace_text with 1 change(s)."
+  },
+  "changes": [
+    {
+      "slide_number": 2,
+      "object_id": "ppt/slides/slide2.xml#shape-2",
+      "message": "Replaced 1 text match(es)."
+    }
+  ],
+  "validation": {
+    "valid": true,
+    "warnings": [],
+    "errors": []
+  }
+}
+```
+
+Validate the edited deck:
+
+```sh
+./bin/puppt validate .tmp/readme-examples/quarterly-edited.pptx --json |
+  jq '{schema_version, command, status, summary, validation}'
+```
+
+Output:
+
+```json
+{
+  "schema_version": "puppt.v1",
+  "command": "validate",
+  "status": "ok",
+  "summary": {
+    "human": "Validation passed."
+  },
+  "validation": {
+    "valid": true,
+    "warnings": [],
+    "errors": []
+  }
+}
+```
+
+Review the edited deck against the saved edit result:
+
+```sh
+./bin/puppt review \
+  .tmp/readme-examples/quarterly-edited.pptx \
+  --changes .tmp/readme-examples/edit-result.json \
+  --json |
+  jq '{schema_version, command, status, summary, changes, validation}'
+```
+
+Output:
+
+```json
+{
+  "schema_version": "puppt.v1",
+  "command": "review",
+  "status": "ok",
+  "summary": {
+    "human": "Reviewed 2 slide deck with 1 reported change(s) on slide 2; skipped 0, ambiguous 0, unsupported 0; validation passed."
+  },
+  "changes": [
+    {
+      "slide_number": 2,
+      "object_id": "ppt/slides/slide2.xml#shape-2",
+      "message": "Replaced 1 text match(es)."
+    }
+  ],
+  "validation": {
+    "valid": true,
+    "warnings": [],
+    "errors": []
+  }
+}
+```
+
+Render a slide to PNG. Rendering reports a `partial` status when visible
+objects are preserved in the deck but not painted by the current renderer:
+
+```sh
+./bin/puppt render \
+  .tmp/readme-examples/quarterly-edited.pptx \
+  --slide 2 \
+  --out .tmp/readme-examples/slide-2.png \
+  --json |
+  jq '{schema_version, command, status, output, summary, render, unsupported}'
+```
+
+Output:
+
+```json
+{
+  "schema_version": "puppt.v1",
+  "command": "render",
+  "status": "partial",
+  "output": ".tmp/readme-examples/slide-2.png",
+  "summary": {
+    "human": "Rendered slide 2 with 2 unsupported object(s)."
+  },
+  "render": {
+    "slide_number": 2,
+    "slide_part": "ppt/slides/slide2.xml",
+    "width": 960,
+    "height": 540
+  },
+  "unsupported": [
+    {
+      "code": "render_unsupported_object",
+      "message": "shape object \"Title 1\" contains text and is not rendered yet",
+      "part": "ppt/slides/slide2.xml"
+    },
+    {
+      "code": "render_unsupported_object",
+      "message": "shape object \"Body 1\" contains text and is not rendered yet",
+      "part": "ppt/slides/slide2.xml"
+    }
+  ]
+}
 ```
 
 ## Commands
