@@ -297,7 +297,15 @@ func pictureXML(id int, name string, relationshipID string) string {
         </p:nvPicPr>
         <p:blipFill>
           <a:blip xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" r:embed="%s"/>
+          <a:stretch xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:fillRect/></a:stretch>
         </p:blipFill>
+        <p:spPr>
+          <a:xfrm xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+            <a:off x="914400" y="2057400"/>
+            <a:ext cx="10363200" cy="4114800"/>
+          </a:xfrm>
+          <a:prstGeom xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" prst="rect"><a:avLst/></a:prstGeom>
+        </p:spPr>
       </p:pic>
 `, id, escapeText(name), relationshipID)
 }

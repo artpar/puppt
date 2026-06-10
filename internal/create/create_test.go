@@ -1,9 +1,12 @@
 package create
 
 import (
+	"archive/zip"
 	"context"
+	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/artpar/puppt/internal/inspect"
@@ -80,6 +83,10 @@ func TestCreateBuildsInspectableValidDeck(t *testing.T) {
 	if len(inspection.Slides[2].Images) != 1 {
 		t.Fatalf("expected image ref: %+v", inspection.Slides[2].Images)
 	}
+	slideXML := readZipPart(t, outputPath, "ppt/slides/slide3.xml")
+	if !strings.Contains(slideXML, "<a:xfrm") || !strings.Contains(slideXML, "<a:stretch") {
+		t.Fatalf("expected created picture to include renderable transform and stretch: %s", slideXML)
+	}
 
 	validationResult, err := validate.Validate(context.Background(), outputPath)
 	if err != nil {
@@ -150,6 +157,32 @@ func writeDeckSpec(t *testing.T, dir string, data string) string {
 		t.Fatal(err)
 	}
 	return inputPath
+}
+
+func readZipPart(t *testing.T, pptxPath string, partName string) string {
+	t.Helper()
+	reader, err := zip.OpenReader(pptxPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	for _, file := range reader.File {
+		if file.Name != partName {
+			continue
+		}
+		part, err := file.Open()
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer part.Close()
+		data, err := io.ReadAll(part)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(data)
+	}
+	t.Fatalf("part %s not found in %s", partName, pptxPath)
+	return ""
 }
 
 func contains(items []string, want string) bool {

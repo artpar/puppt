@@ -1,0 +1,29 @@
+{
+  "metadata": {
+    "title": "Market Expansion Review",
+    "author": "Puppt",
+    "subject": "Created from structured JSON"
+  },
+  "slides": [
+    {
+      "layout": "title",
+      "title": "Market Expansion Review"
+    },
+    {
+      "layout": "section",
+      "title": "North Star Metrics",
+      "notes": "Use this section to introduce the operating review."
+    },
+    {
+      "layout": "title_body",
+      "title": "Quarter Plan",
+      "body": "Launch the regional partner motion and measure activation quality.",
+      "bullets": [
+        "Open three priority markets",
+        "Qualify 120 partner accounts",
+        "Keep onboarding completion above 85%"
+      ],
+      "image_path": "docs/assets/readme/create-market-chart.png"
+    }
+  ]
+}

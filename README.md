@@ -276,29 +276,81 @@ Save this as `.tmp/readme-edit-visual/replace-title.json`:
 
 ### Create And Review
 
-Puppt can also create editable decks from JSON and then run the same inspection,
-planning, review, and rendering steps on the generated `.pptx`. Keep the review
-JSON and rendered slide image together so the result is both machine-checkable
-and visually inspectable.
+Puppt can also create editable decks from JSON and then run review and rendering
+on the generated `.pptx`. This example starts with `docs/examples/readme-create-deck.json`,
+writes a new deck, reviews the creation changes, and renders the visual slide.
 
 <table>
   <tr>
     <th>Command</th>
-    <th>Visual review</th>
+    <th>Created slide</th>
   </tr>
   <tr>
     <td>
-      <pre><code class="language-sh">./bin/puppt create --input deck.json --out deck.pptx --json
-./bin/puppt plan deck.pptx --edit rename.json --json
-./bin/puppt edit deck.pptx --edit rename.json --out edited.pptx --json > edit-result.json
-./bin/puppt review edited.pptx --changes edit-result.json --json
-./bin/puppt render edited.pptx --slides 1-3 --out renders --json</code></pre>
+      <pre><code class="language-sh">mkdir -p .tmp/readme-create-review
+
+./bin/puppt create \
+  --input docs/examples/readme-create-deck.json \
+  --out .tmp/readme-create-review/market-expansion-review.pptx \
+  --json > .tmp/readme-create-review/create-result.json
+
+./bin/puppt review \
+  .tmp/readme-create-review/market-expansion-review.pptx \
+  --changes .tmp/readme-create-review/create-result.json \
+  --json |
+  jq '{status, summary, changes, validation}'
+
+./bin/puppt render \
+  .tmp/readme-create-review/market-expansion-review.pptx \
+  --slide 3 \
+  --out .tmp/readme-create-review/created-slide-3.png \
+  --json |
+  jq '{status, summary, render, unsupported: (.unsupported | length)}'</code></pre>
+      <pre><code class="language-json">{
+  "status": "ok",
+  "summary": {
+    "human": "Reviewed 3 slide deck with 3 reported change(s) on slide 1, slide 2, slide 3; skipped 0, ambiguous 0, unsupported 0; validation passed."
+  },
+  "changes": [
+    {
+      "slide_number": 1,
+      "object_id": "ppt/slides/slide1.xml",
+      "message": "Created slide 1 from title."
+    },
+    {
+      "slide_number": 2,
+      "object_id": "ppt/slides/slide2.xml",
+      "message": "Created slide 2 from section."
+    },
+    {
+      "slide_number": 3,
+      "object_id": "ppt/slides/slide3.xml",
+      "message": "Created slide 3 from title_body."
+    }
+  ],
+  "validation": {
+    "valid": true,
+    "warnings": [],
+    "errors": []
+  }
+}
+{
+  "status": "partial",
+  "summary": {
+    "human": "Rendered slide 3 with 2 unsupported object(s)."
+  },
+  "render": {
+    "slide_number": 3,
+    "slide_part": "ppt/slides/slide3.xml",
+    "width": 960,
+    "height": 540
+  },
+  "unsupported": 2
+}</code></pre>
     </td>
     <td>
-      <strong>Review the rendered slides beside the JSON result</strong><br>
-      <img src="docs/assets/readme/epa-generate-slide-1.png" alt="Visual review slide 1" width="240"><br>
-      <img src="docs/assets/readme/epa-generate-slide-2.png" alt="Visual review slide 2" width="240"><br>
-      <img src="docs/assets/readme/epa-generate-slide-3.png" alt="Visual review slide 3" width="240">
+      <strong>Rendered from the created deck</strong><br>
+      <img src="docs/assets/readme/created-market-expansion-slide-3.png" alt="Rendered slide from JSON-created deck" width="300">
     </td>
   </tr>
 </table>
