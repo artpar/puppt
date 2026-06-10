@@ -277,15 +277,31 @@ Save this as `.tmp/readme-edit-visual/replace-title.json`:
 ### Create And Review
 
 Puppt can also create editable decks from JSON and then run the same inspection,
-planning, review, and rendering steps on the generated `.pptx`.
+planning, review, and rendering steps on the generated `.pptx`. Keep the review
+JSON and rendered slide image together so the result is both machine-checkable
+and visually inspectable.
 
-```sh
-./bin/puppt create --input deck.json --out deck.pptx --json
+<table>
+  <tr>
+    <th>Command</th>
+    <th>Visual review</th>
+  </tr>
+  <tr>
+    <td>
+      <pre><code class="language-sh">./bin/puppt create --input deck.json --out deck.pptx --json
 ./bin/puppt plan deck.pptx --edit rename.json --json
 ./bin/puppt edit deck.pptx --edit rename.json --out edited.pptx --json > edit-result.json
 ./bin/puppt review edited.pptx --changes edit-result.json --json
-./bin/puppt render edited.pptx --slides 1-3 --out renders --json
-```
+./bin/puppt render edited.pptx --slides 1-3 --out renders --json</code></pre>
+    </td>
+    <td>
+      <strong>Review the rendered slides beside the JSON result</strong><br>
+      <img src="docs/assets/readme/epa-generate-slide-1.png" alt="Visual review slide 1" width="240"><br>
+      <img src="docs/assets/readme/epa-generate-slide-2.png" alt="Visual review slide 2" width="240"><br>
+      <img src="docs/assets/readme/epa-generate-slide-3.png" alt="Visual review slide 3" width="240">
+    </td>
+  </tr>
+</table>
 
 ## Commands
 
