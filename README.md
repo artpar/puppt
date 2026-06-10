@@ -64,8 +64,14 @@ corpus; use the same commands with any media-heavy `.pptx`.
 Use `inspect` to turn a slide into stable JSON targets. Here slide 2 has nine
 image references and two editable text objects.
 
-```sh
-./bin/puppt inspect testdata/realworld-ppts/EPA-generate-2021-presentation.pptx --json |
+<table>
+  <tr>
+    <th>Command</th>
+    <th>Slide</th>
+  </tr>
+  <tr>
+    <td>
+      <pre><code class="language-sh">./bin/puppt inspect testdata/realworld-ppts/EPA-generate-2021-presentation.pptx --json |
   jq '{status, slide: (
     .inspection.slides[] |
     select(.number == 2) |
@@ -76,11 +82,8 @@ image references and two editable text objects.
       text_objects: (.visible_text | length),
       title_object: .visible_text[0].object_id
     }
-  )}'
-```
-
-```json
-{
+  )}'</code></pre>
+      <pre><code class="language-json">{
   "status": "ok",
   "slide": {
     "number": 2,
@@ -89,48 +92,48 @@ image references and two editable text objects.
     "text_objects": 2,
     "title_object": "ppt/slides/slide2.xml#shape-2"
   }
-}
-```
-
-<img src="docs/assets/readme/epa-generate-slide-2.png" alt="Inspected slide 2 render" width="520">
+}</code></pre>
+    </td>
+    <td><img src="docs/assets/readme/epa-generate-slide-2.png" alt="Inspected slide 2 render" width="390"></td>
+  </tr>
+</table>
 
 ### Render
 
 Use `render` to produce PNGs from the `.pptx` itself. The JSON tells you which
 slide part was painted and where the images were written.
 
-```sh
-./bin/puppt render \
+<table>
+  <tr>
+    <th>Command</th>
+    <th>Rendered PNGs</th>
+  </tr>
+  <tr>
+    <td>
+      <pre><code class="language-sh">./bin/puppt render \
   testdata/realworld-ppts/EPA-generate-2021-presentation.pptx \
   --slides 1-3 \
   --dpi 72 \
   --out 'docs/assets/readme/epa-generate-slide-{slide}.png' \
   --json |
-  jq '{status, outputs, renders, unsupported_count:(.unsupported|length)}'
-```
-
-```json
-{
+  jq '{status, outputs, renders, unsupported_count:(.unsupported|length)}'</code></pre>
+      <pre><code class="language-json">{
   "status": "ok",
   "outputs": [
     "docs/assets/readme/epa-generate-slide-1.png",
     "docs/assets/readme/epa-generate-slide-2.png",
     "docs/assets/readme/epa-generate-slide-3.png"
   ],
-  "renders": [
-    {"slide_number":1,"slide_part":"ppt/slides/slide1.xml","width":960,"height":540},
-    {"slide_number":2,"slide_part":"ppt/slides/slide2.xml","width":960,"height":540},
-    {"slide_number":3,"slide_part":"ppt/slides/slide3.xml","width":960,"height":540}
-  ],
   "unsupported_count": 0
-}
-```
-
-<p>
-  <img src="docs/assets/readme/epa-generate-slide-1.png" alt="Rendered slide 1" width="260">
-  <img src="docs/assets/readme/epa-generate-slide-2.png" alt="Rendered slide 2" width="260">
-  <img src="docs/assets/readme/epa-generate-slide-3.png" alt="Rendered slide 3" width="260">
-</p>
+}</code></pre>
+    </td>
+    <td>
+      <img src="docs/assets/readme/epa-generate-slide-1.png" alt="Rendered slide 1" width="240"><br>
+      <img src="docs/assets/readme/epa-generate-slide-2.png" alt="Rendered slide 2" width="240"><br>
+      <img src="docs/assets/readme/epa-generate-slide-3.png" alt="Rendered slide 3" width="240">
+    </td>
+  </tr>
+</table>
 
 ### Edit
 
@@ -139,55 +142,45 @@ unrelated slide content.
 
 Save this as `.tmp/readme-edit-visual/replace-title.json`:
 
-```json
-{
+<table>
+  <tr>
+    <th>Command</th>
+    <th>Before / After</th>
+  </tr>
+  <tr>
+    <td>
+      <pre><code class="language-json">{
   "operation": "replace_text",
   "target": {
     "type": "object_id",
     "object_id": "ppt/slides/slide2.xml#shape-2"
   },
   "replacement": "Energy 101: Edited with Puppt"
-}
-```
-
-```sh
-./bin/puppt edit \
+}</code></pre>
+      <pre><code class="language-sh">./bin/puppt edit \
   testdata/realworld-ppts/EPA-generate-2021-presentation.pptx \
   --edit .tmp/readme-edit-visual/replace-title.json \
   --out .tmp/readme-edit-visual/epa-generate-edited.pptx \
   --json |
-  jq '{status, summary, changes, validation}'
-```
-
-```json
-{
+  jq '{status, summary, changes, validation}'</code></pre>
+      <pre><code class="language-json">{
   "status": "ok",
   "summary": {
     "human": "Applied replace_text with 1 change(s)."
   },
-  "changes": [
-    {
-      "slide_number": 2,
-      "object_id": "ppt/slides/slide2.xml#shape-2",
-      "message": "Replaced 1 text match(es)."
-    }
-  ],
   "validation": {
     "valid": true,
     "warnings": [],
     "errors": []
   }
-}
-```
-
-<table>
-  <tr>
-    <th>Before</th>
-    <th>After</th>
-  </tr>
-  <tr>
-    <td><img src="docs/assets/readme/epa-generate-slide-2.png" alt="Before text edit" width="390"></td>
-    <td><img src="docs/assets/readme/epa-generate-slide-2-after-edit.png" alt="After text edit" width="390"></td>
+}</code></pre>
+    </td>
+    <td>
+      <strong>Before</strong><br>
+      <img src="docs/assets/readme/epa-generate-slide-2.png" alt="Before text edit" width="300"><br>
+      <strong>After</strong><br>
+      <img src="docs/assets/readme/epa-generate-slide-2-after-edit.png" alt="After text edit" width="300">
+    </td>
   </tr>
 </table>
 
