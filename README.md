@@ -458,6 +458,10 @@ Output:
 }
 ```
 
+Original inspected slide:
+
+<img src="docs/assets/readme/epa-generate-slide-2.png" alt="Original rendered slide inspected by Puppt" width="520">
+
 ```sh
 ./bin/puppt render \
   testdata/realworld-ppts/EPA-generate-2021-presentation.pptx \
@@ -491,11 +495,102 @@ Output:
 }
 ```
 
-![Puppt render of EPA Generate slide 1](docs/assets/readme/epa-generate-slide-1.png)
+<p>
+  <img src="docs/assets/readme/epa-generate-slide-1.png" alt="Puppt render of EPA Generate slide 1" width="260">
+  <img src="docs/assets/readme/epa-generate-slide-2.png" alt="Puppt render of EPA Generate slide 2" width="260">
+  <img src="docs/assets/readme/epa-generate-slide-3.png" alt="Puppt render of EPA Generate slide 3" width="260">
+</p>
 
-![Puppt render of EPA Generate slide 2](docs/assets/readme/epa-generate-slide-2.png)
+For an edit workflow, inspect gives the stable object id, `edit` mutates the
+deck, and a render makes the before/after visible:
 
-![Puppt render of EPA Generate slide 3](docs/assets/readme/epa-generate-slide-3.png)
+Save this as `.tmp/readme-edit-visual/replace-title.json`:
+
+```json
+{
+  "operation": "replace_text",
+  "target": {
+    "type": "object_id",
+    "object_id": "ppt/slides/slide2.xml#shape-2"
+  },
+  "replacement": "Energy 101: Edited with Puppt"
+}
+```
+
+```sh
+./bin/puppt edit \
+  testdata/realworld-ppts/EPA-generate-2021-presentation.pptx \
+  --edit .tmp/readme-edit-visual/replace-title.json \
+  --out .tmp/readme-edit-visual/epa-generate-edited.pptx \
+  --json |
+  jq '{command,status,output,summary,changes,validation}'
+```
+
+Output:
+
+```json
+{
+  "command": "edit",
+  "status": "ok",
+  "output": ".tmp/readme-edit-visual/epa-generate-edited.pptx",
+  "summary": {
+    "human": "Applied replace_text with 1 change(s)."
+  },
+  "changes": [
+    {
+      "slide_number": 2,
+      "object_id": "ppt/slides/slide2.xml#shape-2",
+      "message": "Replaced 1 text match(es)."
+    }
+  ],
+  "validation": {
+    "valid": true,
+    "warnings": [],
+    "errors": []
+  }
+}
+```
+
+```sh
+./bin/puppt render \
+  .tmp/readme-edit-visual/epa-generate-edited.pptx \
+  --slide 2 \
+  --dpi 72 \
+  --out docs/assets/readme/epa-generate-slide-2-after-edit.png \
+  --json |
+  jq '{command,status,output,summary,render,unsupported_count:(.unsupported|length)}'
+```
+
+Output:
+
+```json
+{
+  "command": "render",
+  "status": "ok",
+  "output": "docs/assets/readme/epa-generate-slide-2-after-edit.png",
+  "summary": {
+    "human": "Rendered slide 2 to docs/assets/readme/epa-generate-slide-2-after-edit.png."
+  },
+  "render": {
+    "slide_number": 2,
+    "slide_part": "ppt/slides/slide2.xml",
+    "width": 960,
+    "height": 540
+  },
+  "unsupported_count": 0
+}
+```
+
+<table>
+  <tr>
+    <th>Before edit</th>
+    <th>After edit</th>
+  </tr>
+  <tr>
+    <td><img src="docs/assets/readme/epa-generate-slide-2.png" alt="Before text edit" width="390"></td>
+    <td><img src="docs/assets/readme/epa-generate-slide-2-after-edit.png" alt="After text edit" width="390"></td>
+  </tr>
+</table>
 
 ## Commands
 
