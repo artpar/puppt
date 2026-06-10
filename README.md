@@ -53,60 +53,94 @@ make build
 ## Examples
 
 The examples below use the local binary and show compact excerpts of real JSON
-output. `jq` is only used to keep the displayed output short.
+output from this checkout. `jq` is only used to keep the displayed output short.
 
-Create a small editable deck specification:
+### Board Deck Automation
+
+This example creates a five-slide launch review deck, plans a deck-wide rename,
+applies seven targeted mutations, reviews the combined change artifact, and
+renders a slide range.
 
 ```sh
-mkdir -p .tmp/readme-examples
+mkdir -p .tmp/readme-showoff/specs
 ```
+
+Create `.tmp/readme-showoff/deck.json`:
 
 ```json
 {
   "metadata": {
-    "title": "Quarterly Review",
-    "author": "Puppt",
-    "subject": "Q4"
+    "title": "Launch Board Review",
+    "author": "Puppt Automation",
+    "subject": "FY27 GTM",
+    "keywords": "draft,launch,board"
   },
   "slides": [
     {
       "layout": "title",
-      "title": "Quarterly Review"
+      "title": "Launch Roadmap"
+    },
+    {
+      "layout": "section",
+      "title": "Executive Snapshot",
+      "notes": "Open with the decision ask."
     },
     {
       "layout": "title_body",
-      "title": "Metrics",
-      "body": "Revenue and retention moved together.",
+      "title": "Launch Roadmap",
+      "body": "North America pilot in Q1. EMEA expansion in Q2. APAC scale-up in Q3.",
       "bullets": [
-        "Revenue up",
-        "Retention stable"
+        "Three-region rollout",
+        "Partner channel readiness",
+        "Security review complete"
       ],
-      "notes": "Pause before the metrics."
+      "notes": "Call out dependencies by region."
+    },
+    {
+      "layout": "title_body",
+      "title": "Risk Register",
+      "body": "Top risks: partner onboarding, pricing approvals, and localization.",
+      "bullets": [
+        "Mitigation owners assigned",
+        "Weekly launch room active",
+        "Escalation path agreed"
+      ],
+      "notes": "Do not over-index on low-probability risks."
+    },
+    {
+      "layout": "title_body",
+      "title": "Board Ask",
+      "body": "Approve phased launch funding and hiring backfill.",
+      "bullets": [
+        "Approve pilot budget",
+        "Confirm executive sponsor",
+        "Authorize launch communications"
+      ],
+      "notes": "Close with the approval sequence."
     }
   ]
 }
 ```
 
-Save that as `.tmp/readme-examples/deck.json`, then create the `.pptx`:
+Create the editable `.pptx`:
 
 ```sh
 ./bin/puppt create \
-  --input .tmp/readme-examples/deck.json \
-  --out .tmp/readme-examples/quarterly.pptx \
+  --input .tmp/readme-showoff/deck.json \
+  --out .tmp/readme-showoff/showcase-00.pptx \
   --json |
-  jq '{schema_version, command, status, output, summary, validation}'
+  jq '{command,status,output,summary,validation}'
 ```
 
 Output:
 
 ```json
 {
-  "schema_version": "puppt.v1",
   "command": "create",
   "status": "ok",
-  "output": ".tmp/readme-examples/quarterly.pptx",
+  "output": ".tmp/readme-showoff/showcase-00.pptx",
   "summary": {
-    "human": "Created 2 slide deck."
+    "human": "Created 5 slide deck."
   },
   "validation": {
     "valid": true,
@@ -116,94 +150,201 @@ Output:
 }
 ```
 
-Inspect the deck:
+Create these edit specs under `.tmp/readme-showoff/specs/`:
+
+```text
+01-rename-roadmap.json
+{
+  "operation": "replace_text",
+  "target": {"type": "visible_text", "scope": "deck", "text": "Launch Roadmap"},
+  "replacement": "FY27 Launch Roadmap"
+}
+
+02-update-notes.json
+{
+  "operation": "update_notes",
+  "target": {"type": "notes", "slide_number": 3},
+  "replacement": "Narrate the region sequence: pilot, expand, scale."
+}
+
+03-update-subject.json
+{
+  "operation": "update_metadata",
+  "target": {"type": "metadata", "property": "subject"},
+  "replacement": "FY27 launch approval packet"
+}
+
+04-add-callout.json
+{
+  "operation": "add_text_box",
+  "target": {"type": "slide_number", "slide_number": 4},
+  "replacement": "Decision gate: pricing approval before Q2 expansion"
+}
+
+05-add-status-shape.json
+{
+  "operation": "add_shape",
+  "target": {"type": "slide_number", "slide_number": 4},
+  "replacement": "Owner: Revenue Ops"
+}
+
+06-duplicate-board-ask.json
+{
+  "operation": "slide_duplicate",
+  "target": {"type": "slide_number", "slide_number": 5},
+  "insert_after_slide": 5
+}
+
+07-move-duplicate.json
+{
+  "operation": "slide_move",
+  "target": {"type": "slide_number", "slide_number": 6},
+  "destination_slide_number": 2
+}
+```
+
+Plan the deck-wide rename before writing:
 
 ```sh
-./bin/puppt inspect .tmp/readme-examples/quarterly.pptx --json |
-  jq '{
-    schema_version,
-    command,
-    status,
-    summary,
-    inspection: {
-      slide_count: .inspection.slide_count,
-      metadata: .inspection.metadata,
-      slides: [
-        .inspection.slides[] |
-        {number, title, visible_text: [.visible_text[].text]}
-      ]
-    }
-  }'
+./bin/puppt plan \
+  .tmp/readme-showoff/showcase-00.pptx \
+  --edit .tmp/readme-showoff/specs/01-rename-roadmap.json \
+  --json |
+  jq '{command,status,summary,plan:{
+    operation:.plan.operation,
+    status:.plan.status,
+    message:.plan.message,
+    matches:.plan.matches,
+    replacement:.plan.replacement
+  }}'
 ```
 
 Output:
 
 ```json
 {
-  "schema_version": "puppt.v1",
+  "command": "plan",
+  "status": "ok",
+  "summary": {
+    "human": "Planned replace_text for 2 target(s)."
+  },
+  "plan": {
+    "operation": "replace_text",
+    "status": "ready",
+    "message": "matched 2 targets",
+    "matches": [
+      {
+        "slide_number": 1,
+        "slide_id": "ppt/slides/slide1.xml",
+        "object_id": "ppt/slides/slide1.xml#shape-2",
+        "kind": "visible_text",
+        "text": "Launch Roadmap"
+      },
+      {
+        "slide_number": 3,
+        "slide_id": "ppt/slides/slide3.xml",
+        "object_id": "ppt/slides/slide3.xml#shape-2",
+        "kind": "visible_text",
+        "text": "Launch Roadmap"
+      }
+    ],
+    "replacement": "FY27 Launch Roadmap"
+  }
+}
+```
+
+Apply the full edit pipeline, writing a validated deck after every step:
+
+```sh
+in=.tmp/readme-showoff/showcase-00.pptx
+i=1
+for spec in .tmp/readme-showoff/specs/*.json; do
+  out=$(printf '.tmp/readme-showoff/showcase-%02d.pptx' "$i")
+  result=$(printf '.tmp/readme-showoff/edit-%02d.json' "$i")
+  ./bin/puppt edit "$in" --edit "$spec" --out "$out" --json > "$result"
+  jq -c '{command,status,output,summary,changes,validation}' "$result"
+  in="$out"
+  i=$((i+1))
+done
+```
+
+Output:
+
+```json
+{"command":"edit","status":"ok","output":".tmp/readme-showoff/showcase-01.pptx","summary":{"human":"Applied replace_text with 2 change(s)."},"changes":[{"slide_number":1,"object_id":"ppt/slides/slide1.xml#shape-2","message":"Replaced 1 text match(es)."},{"slide_number":3,"object_id":"ppt/slides/slide3.xml#shape-2","message":"Replaced 1 text match(es)."}],"validation":{"valid":true,"warnings":[],"errors":[]}}
+{"command":"edit","status":"ok","output":".tmp/readme-showoff/showcase-02.pptx","summary":{"human":"Applied update_notes with 1 change(s)."},"changes":[{"slide_number":3,"message":"Updated speaker notes."}],"validation":{"valid":true,"warnings":[],"errors":[]}}
+{"command":"edit","status":"ok","output":".tmp/readme-showoff/showcase-03.pptx","summary":{"human":"Applied update_metadata with 1 change(s)."},"changes":[{"message":"Updated metadata property subject."}],"validation":{"valid":true,"warnings":[],"errors":[]}}
+{"command":"edit","status":"ok","output":".tmp/readme-showoff/showcase-04.pptx","summary":{"human":"Applied add_text_box with 1 change(s)."},"changes":[{"slide_number":4,"object_id":"ppt/slides/slide4.xml#shape-4","message":"Added editable object to slide 4."}],"validation":{"valid":true,"warnings":[],"errors":[]}}
+{"command":"edit","status":"ok","output":".tmp/readme-showoff/showcase-05.pptx","summary":{"human":"Applied add_shape with 1 change(s)."},"changes":[{"slide_number":4,"object_id":"ppt/slides/slide4.xml#shape-5","message":"Added editable object to slide 4."}],"validation":{"valid":true,"warnings":[],"errors":[]}}
+{"command":"edit","status":"ok","output":".tmp/readme-showoff/showcase-06.pptx","summary":{"human":"Applied slide_duplicate with 1 change(s)."},"changes":[{"slide_number":6,"object_id":"ppt/slides/slide6.xml","message":"Duplicated slide ppt/slides/slide5.xml from position 5 to position 6 as ppt/slides/slide6.xml."}],"validation":{"valid":true,"warnings":[],"errors":[]}}
+{"command":"edit","status":"ok","output":".tmp/readme-showoff/showcase-07.pptx","summary":{"human":"Applied slide_move with 1 change(s)."},"changes":[{"slide_number":2,"object_id":"ppt/slides/slide6.xml","message":"Moved slide ppt/slides/slide6.xml from position 6 to position 2."}],"validation":{"valid":true,"warnings":[],"errors":[]}}
+```
+
+Inspect the final deck shape:
+
+```sh
+./bin/puppt inspect .tmp/readme-showoff/showcase-07.pptx --json |
+  jq '{command,status,summary,inspection:{
+    slide_count:.inspection.slide_count,
+    subject:.inspection.metadata.subject,
+    outline:[.inspection.slides[] | {
+      number,title,part,
+      text_objects:(.visible_text|length),
+      notes:(.notes|length)
+    }],
+    risk_slide_text:([
+      .inspection.slides[] |
+      select(.title=="Risk Register") |
+      .visible_text[].text
+    ])
+  }}'
+```
+
+Output:
+
+```json
+{
   "command": "inspect",
   "status": "ok",
   "summary": {
-    "human": "Found 2 slides."
+    "human": "Found 6 slides."
   },
   "inspection": {
-    "slide_count": 2,
-    "metadata": {
-      "title": "Quarterly Review",
-      "author": "Puppt",
-      "subject": "Q4"
-    },
-    "slides": [
-      {
-        "number": 1,
-        "title": "Quarterly Review",
-        "visible_text": [
-          "Quarterly Review"
-        ]
-      },
-      {
-        "number": 2,
-        "title": "Metrics",
-        "visible_text": [
-          "Metrics",
-          "Revenue and retention moved together.Revenue upRetention stable"
-        ]
-      }
+    "slide_count": 6,
+    "subject": "FY27 launch approval packet",
+    "outline": [
+      {"number":1,"title":"FY27 Launch Roadmap","part":"ppt/slides/slide1.xml","text_objects":1,"notes":0},
+      {"number":2,"title":"Board Ask","part":"ppt/slides/slide6.xml","text_objects":2,"notes":1},
+      {"number":3,"title":"Executive Snapshot","part":"ppt/slides/slide2.xml","text_objects":1,"notes":1},
+      {"number":4,"title":"FY27 Launch Roadmap","part":"ppt/slides/slide3.xml","text_objects":2,"notes":1},
+      {"number":5,"title":"Risk Register","part":"ppt/slides/slide4.xml","text_objects":4,"notes":1},
+      {"number":6,"title":"Board Ask","part":"ppt/slides/slide5.xml","text_objects":2,"notes":1}
+    ],
+    "risk_slide_text": [
+      "Risk Register",
+      "Top risks: partner onboarding, pricing approvals, and localization.Mitigation owners assignedWeekly launch room activeEscalation path agreed",
+      "Decision gate: pricing approval before Q2 expansion",
+      "Owner: Revenue Ops"
     ]
   }
 }
 ```
 
-Plan an edit before writing. Save this as `.tmp/readme-examples/edit.json`:
-
-```json
-{
-  "operation": "replace_text",
-  "target": {
-    "type": "visible_text",
-    "text": "Metrics"
-  },
-  "replacement": "Q4 Metrics"
-}
-```
+Review the whole mutation set as one artifact:
 
 ```sh
-./bin/puppt plan \
-  .tmp/readme-examples/quarterly.pptx \
-  --edit .tmp/readme-examples/edit.json \
+jq -s '[.[].changes[]]' .tmp/readme-showoff/edit-*.json \
+  > .tmp/readme-showoff/all-changes.json
+
+./bin/puppt review \
+  .tmp/readme-showoff/showcase-07.pptx \
+  --changes .tmp/readme-showoff/all-changes.json \
   --json |
-  jq '{
-    schema_version,
-    command,
-    status,
-    summary,
-    plan: {
-      operation: .plan.operation,
-      status: .plan.status,
-      message: .plan.message,
-      matches: .plan.matches,
-      replacement: .plan.replacement
-    }
+  jq '{command,status,summary,
+    changes_count:(.changes|length),
+    touched_slides:([.changes[].slide_number] |
+      map(select(. != null and . != 0)) | unique),
+    validation
   }'
 ```
 
@@ -211,120 +352,13 @@ Output:
 
 ```json
 {
-  "schema_version": "puppt.v1",
-  "command": "plan",
-  "status": "ok",
-  "summary": {
-    "human": "Planned replace_text for 1 target(s)."
-  },
-  "plan": {
-    "operation": "replace_text",
-    "status": "ready",
-    "message": "matched 1 target",
-    "matches": [
-      {
-        "slide_number": 2,
-        "slide_id": "ppt/slides/slide2.xml",
-        "object_id": "ppt/slides/slide2.xml#shape-2",
-        "kind": "visible_text",
-        "text": "Metrics"
-      }
-    ],
-    "replacement": "Q4 Metrics"
-  }
-}
-```
-
-Apply the edit and keep the JSON result as a review artifact:
-
-```sh
-./bin/puppt edit \
-  .tmp/readme-examples/quarterly.pptx \
-  --edit .tmp/readme-examples/edit.json \
-  --out .tmp/readme-examples/quarterly-edited.pptx \
-  --json |
-  tee .tmp/readme-examples/edit-result.json |
-  jq '{schema_version, command, status, output, summary, changes, validation}'
-```
-
-Output:
-
-```json
-{
-  "schema_version": "puppt.v1",
-  "command": "edit",
-  "status": "ok",
-  "output": ".tmp/readme-examples/quarterly-edited.pptx",
-  "summary": {
-    "human": "Applied replace_text with 1 change(s)."
-  },
-  "changes": [
-    {
-      "slide_number": 2,
-      "object_id": "ppt/slides/slide2.xml#shape-2",
-      "message": "Replaced 1 text match(es)."
-    }
-  ],
-  "validation": {
-    "valid": true,
-    "warnings": [],
-    "errors": []
-  }
-}
-```
-
-Validate the edited deck:
-
-```sh
-./bin/puppt validate .tmp/readme-examples/quarterly-edited.pptx --json |
-  jq '{schema_version, command, status, summary, validation}'
-```
-
-Output:
-
-```json
-{
-  "schema_version": "puppt.v1",
-  "command": "validate",
-  "status": "ok",
-  "summary": {
-    "human": "Validation passed."
-  },
-  "validation": {
-    "valid": true,
-    "warnings": [],
-    "errors": []
-  }
-}
-```
-
-Review the edited deck against the saved edit result:
-
-```sh
-./bin/puppt review \
-  .tmp/readme-examples/quarterly-edited.pptx \
-  --changes .tmp/readme-examples/edit-result.json \
-  --json |
-  jq '{schema_version, command, status, summary, changes, validation}'
-```
-
-Output:
-
-```json
-{
-  "schema_version": "puppt.v1",
   "command": "review",
   "status": "ok",
   "summary": {
-    "human": "Reviewed 2 slide deck with 1 reported change(s) on slide 2; skipped 0, ambiguous 0, unsupported 0; validation passed."
+    "human": "Reviewed 6 slide deck with 8 reported change(s) on slide 1, slide 3, slide 4, slide 6, slide 2; skipped 0, ambiguous 0, unsupported 0; validation passed."
   },
-  "changes": [
-    {
-      "slide_number": 2,
-      "object_id": "ppt/slides/slide2.xml#shape-2",
-      "message": "Replaced 1 text match(es)."
-    }
-  ],
+  "changes_count": 8,
+  "touched_slides": [1, 2, 3, 4, 6],
   "validation": {
     "valid": true,
     "warnings": [],
@@ -333,47 +367,40 @@ Output:
 }
 ```
 
-Render a slide to PNG. Rendering reports a `partial` status when visible
-objects are preserved in the deck but not painted by the current renderer:
+Render the first three slides. Rendering reports `partial` when visible objects
+are preserved in the deck but not fully painted by the current renderer:
 
 ```sh
 ./bin/puppt render \
-  .tmp/readme-examples/quarterly-edited.pptx \
-  --slide 2 \
-  --out .tmp/readme-examples/slide-2.png \
+  .tmp/readme-showoff/showcase-07.pptx \
+  --slides 1-3 \
+  --out .tmp/readme-showoff/renders \
   --json |
-  jq '{schema_version, command, status, output, summary, render, unsupported}'
+  jq '{command,status,summary,outputs,renders,
+    unsupported_count:(.unsupported|length)
+  }'
 ```
 
 Output:
 
 ```json
 {
-  "schema_version": "puppt.v1",
   "command": "render",
   "status": "partial",
-  "output": ".tmp/readme-examples/slide-2.png",
   "summary": {
-    "human": "Rendered slide 2 with 2 unsupported object(s)."
+    "human": "Rendered 3 slides with 4 unsupported object(s)."
   },
-  "render": {
-    "slide_number": 2,
-    "slide_part": "ppt/slides/slide2.xml",
-    "width": 960,
-    "height": 540
-  },
-  "unsupported": [
-    {
-      "code": "render_unsupported_object",
-      "message": "shape object \"Title 1\" contains text and is not rendered yet",
-      "part": "ppt/slides/slide2.xml"
-    },
-    {
-      "code": "render_unsupported_object",
-      "message": "shape object \"Body 1\" contains text and is not rendered yet",
-      "part": "ppt/slides/slide2.xml"
-    }
-  ]
+  "outputs": [
+    ".tmp/readme-showoff/renders/showcase-07/slide-001.png",
+    ".tmp/readme-showoff/renders/showcase-07/slide-002.png",
+    ".tmp/readme-showoff/renders/showcase-07/slide-003.png"
+  ],
+  "renders": [
+    {"slide_number":1,"slide_part":"ppt/slides/slide1.xml","width":960,"height":540},
+    {"slide_number":2,"slide_part":"ppt/slides/slide6.xml","width":960,"height":540},
+    {"slide_number":3,"slide_part":"ppt/slides/slide2.xml","width":960,"height":540}
+  ],
+  "unsupported_count": 4
 }
 ```
 
