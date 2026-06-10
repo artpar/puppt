@@ -404,6 +404,99 @@ Output:
 }
 ```
 
+For image-heavy decks, the corresponding rendered PNGs are the artifacts you
+review next to the JSON. These committed README images were produced by
+`puppt render` from real `.pptx` slides in the local render corpus:
+
+```sh
+./bin/puppt inspect testdata/realworld-ppts/EPA-generate-2021-presentation.pptx --json |
+  jq '{command,status,summary,slides:[
+    .inspection.slides[] |
+    select(.number >= 1 and .number <= 3) |
+    {
+      number,
+      title,
+      images:(.images|length),
+      media:(.media|length),
+      text_objects:(.visible_text|length)
+    }
+  ]}'
+```
+
+Output:
+
+```json
+{
+  "command": "inspect",
+  "status": "ok",
+  "summary": {
+    "human": "Found 12 slides."
+  },
+  "slides": [
+    {
+      "number": 1,
+      "title": " Welcome to GENERATE: The Game of Energy Choices",
+      "images": 4,
+      "media": 4,
+      "text_objects": 2
+    },
+    {
+      "number": 2,
+      "title": "Energy 101: The big picture",
+      "images": 9,
+      "media": 9,
+      "text_objects": 2
+    },
+    {
+      "number": 3,
+      "title": "Connecting the dots",
+      "images": 1,
+      "media": 1,
+      "text_objects": 21
+    }
+  ]
+}
+```
+
+```sh
+./bin/puppt render \
+  testdata/realworld-ppts/EPA-generate-2021-presentation.pptx \
+  --slides 1-3 \
+  --dpi 72 \
+  --out 'docs/assets/readme/epa-generate-slide-{slide}.png' \
+  --json |
+  jq '{command,status,summary,outputs,renders,unsupported_count:(.unsupported|length)}'
+```
+
+Output:
+
+```json
+{
+  "command": "render",
+  "status": "ok",
+  "summary": {
+    "human": "Rendered 3 slides to docs/assets/readme/epa-generate-slide-{slide}.png."
+  },
+  "outputs": [
+    "docs/assets/readme/epa-generate-slide-1.png",
+    "docs/assets/readme/epa-generate-slide-2.png",
+    "docs/assets/readme/epa-generate-slide-3.png"
+  ],
+  "renders": [
+    {"slide_number":1,"slide_part":"ppt/slides/slide1.xml","width":960,"height":540},
+    {"slide_number":2,"slide_part":"ppt/slides/slide2.xml","width":960,"height":540},
+    {"slide_number":3,"slide_part":"ppt/slides/slide3.xml","width":960,"height":540}
+  ],
+  "unsupported_count": 0
+}
+```
+
+![Puppt render of EPA Generate slide 1](docs/assets/readme/epa-generate-slide-1.png)
+
+![Puppt render of EPA Generate slide 2](docs/assets/readme/epa-generate-slide-2.png)
+
+![Puppt render of EPA Generate slide 3](docs/assets/readme/epa-generate-slide-3.png)
+
 ## Commands
 
 | Command | Use |
