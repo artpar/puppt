@@ -16,7 +16,6 @@
 | Slide add/delete/move/duplicate | Supported for fixture-safe package structures | Slide operation tests |
 | Metadata update | Supported for title, author, subject | Edit metadata tests |
 | Simple editable text boxes/shapes | Supported | Simple addition tests |
-| Deck creation | Supported for structured JSON | Creation and CLI tests |
 | Validation | Supported for package structure and relationship reachability | Validate tests |
 | Review summaries | Supported | Review and acceptance tests |
 | PNG slide rendering | Partial | `puppt render` writes PNGs and reports unsupported visible objects |

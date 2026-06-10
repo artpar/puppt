@@ -6,7 +6,7 @@
 [![Go Reference](https://pkg.go.dev/badge/github.com/artpar/puppt.svg)](https://pkg.go.dev/github.com/artpar/puppt)
 [![Go Report Card](https://goreportcard.com/badge/github.com/artpar/puppt)](https://goreportcard.com/report/github.com/artpar/puppt)
 
-Puppt is a Go CLI for inspecting, editing, creating, validating, reviewing, and
+Puppt is a Go CLI for inspecting, editing, validating, reviewing, and
 rendering editable PowerPoint `.pptx` files.
 
 It is built for agent and automation workflows where a deck must stay editable:
@@ -24,10 +24,7 @@ deck content wherever the package structure allows it.
 - Edit supported content, including text, notes, metadata, slide order, slide
   add/delete/move/duplicate operations, image replacement, and simple editable
   shape additions.
-- Create editable `.pptx` decks from structured input, including title slides,
-  section slides, title/body slides, bullet lists, speaker notes, metadata, and
-  provided images.
-- Validate package structure and expected content after creation or edits.
+- Validate package structure and expected content after edits.
 - Review changes by combining prior command results, inspection facts, skipped
   items, unsupported items, and validation status.
 - Render a slide to PNG through Puppt-owned Go code for visual review and
@@ -274,87 +271,6 @@ Save this as `.tmp/readme-edit-visual/replace-title.json`:
   </tr>
 </table>
 
-### Create And Review
-
-Puppt can also create editable decks from JSON and then run review and rendering
-on the generated `.pptx`. This example starts with `docs/examples/readme-create-deck.json`,
-writes a new deck, reviews the creation changes, and renders the visual slide.
-
-<table>
-  <tr>
-    <th>Command</th>
-    <th>Created slide</th>
-  </tr>
-  <tr>
-    <td>
-      <pre><code class="language-sh">mkdir -p .tmp/readme-create-review
-
-./bin/puppt create \
-  --input docs/examples/readme-create-deck.json \
-  --out .tmp/readme-create-review/market-expansion-review.pptx \
-  --json > .tmp/readme-create-review/create-result.json
-
-./bin/puppt review \
-  .tmp/readme-create-review/market-expansion-review.pptx \
-  --changes .tmp/readme-create-review/create-result.json \
-  --json |
-  jq '{status, summary, changes, validation}'
-
-./bin/puppt render \
-  .tmp/readme-create-review/market-expansion-review.pptx \
-  --slide 3 \
-  --out .tmp/readme-create-review/created-slide-3.png \
-  --json |
-  jq '{status, summary, render, unsupported: (.unsupported | length)}'</code></pre>
-      <pre><code class="language-json">{
-  "status": "ok",
-  "summary": {
-    "human": "Reviewed 3 slide deck with 3 reported change(s) on slide 1, slide 2, slide 3; skipped 0, ambiguous 0, unsupported 0; validation passed."
-  },
-  "changes": [
-    {
-      "slide_number": 1,
-      "object_id": "ppt/slides/slide1.xml",
-      "message": "Created slide 1 from title."
-    },
-    {
-      "slide_number": 2,
-      "object_id": "ppt/slides/slide2.xml",
-      "message": "Created slide 2 from section."
-    },
-    {
-      "slide_number": 3,
-      "object_id": "ppt/slides/slide3.xml",
-      "message": "Created slide 3 from title_body."
-    }
-  ],
-  "validation": {
-    "valid": true,
-    "warnings": [],
-    "errors": []
-  }
-}
-{
-  "status": "partial",
-  "summary": {
-    "human": "Rendered slide 3 with 2 unsupported object(s)."
-  },
-  "render": {
-    "slide_number": 3,
-    "slide_part": "ppt/slides/slide3.xml",
-    "width": 960,
-    "height": 540
-  },
-  "unsupported": 2
-}</code></pre>
-    </td>
-    <td>
-      <strong>Rendered from the created deck</strong><br>
-      <img src="docs/assets/readme/created-market-expansion-slide-3.png" alt="Rendered slide from JSON-created deck" width="300">
-    </td>
-  </tr>
-</table>
-
 ## Commands
 
 | Command | Use |
@@ -362,7 +278,6 @@ writes a new deck, reviews the creation changes, and renders the visual slide.
 | `inspect` | Read a `.pptx` deck and return structured facts. |
 | `plan` | Resolve targets and validate an edit request without writing output. |
 | `edit` | Apply supported targeted edits and write a new `.pptx`. |
-| `create` | Create an editable `.pptx` deck from structured input. |
 | `validate` | Check package structure and expected content. |
 | `review` | Summarize deck changes for agents and human reviewers. |
 | `render` | Render one slide to a PNG image. |
@@ -418,12 +333,12 @@ completion path.
 ## Current State
 
 Puppt has fixture-backed v1 workflows for inspection, edit planning, supported
-mutations, image replacement, simple editable additions, structured deck
-creation, validation, review, and rendering. Full production-grade compliance is
+mutations, image replacement, simple editable additions, validation, review, and
+rendering. Full production-grade compliance is
 not claimed yet.
 
 All required v1 command names are implemented: `inspect`, `plan`, `edit`,
-`create`, `validate`, `review`, `render`, and `version`.
+`validate`, `review`, `render`, and `version`.
 
 ## Development
 
@@ -450,7 +365,6 @@ make verify
 User workflows:
 
 - [Commands](docs/COMMANDS.md)
-- [Create examples](docs/CREATE_EXAMPLES.md)
 - [Plan examples](docs/PLAN_EXAMPLES.md)
 - [Failure modes](docs/FAILURE_MODES.md)
 - [Acceptance workflow](docs/ACCEPTANCE.md)

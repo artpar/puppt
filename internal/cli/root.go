@@ -11,7 +11,6 @@ import (
 	"strconv"
 	"strings"
 
-	createworkflow "github.com/artpar/puppt/internal/create"
 	editworkflow "github.com/artpar/puppt/internal/edit"
 	inspectworkflow "github.com/artpar/puppt/internal/inspect"
 	"github.com/artpar/puppt/internal/model"
@@ -43,7 +42,7 @@ func Execute(ctx context.Context, args []string, stdout io.Writer, stderr io.Wri
 func NewRootCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:           appName,
-		Short:         "Inspect, edit, create, validate, and review PowerPoint .pptx files.",
+		Short:         "Inspect, edit, validate, review, and render PowerPoint .pptx files.",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
@@ -52,7 +51,6 @@ func NewRootCommand() *cobra.Command {
 	cmd.AddCommand(newInspectCommand())
 	cmd.AddCommand(newPlanCommand())
 	cmd.AddCommand(newEditCommand())
-	cmd.AddCommand(newCreateCommand())
 	cmd.AddCommand(newValidateCommand())
 	cmd.AddCommand(newReviewCommand())
 	cmd.AddCommand(newRenderCommand())
@@ -381,44 +379,6 @@ func newEditCommand() *cobra.Command {
 	cmd.Flags().StringVar(&outputPath, "out", "", "path to write edited .pptx")
 	cmd.Flags().BoolVar(&emitJSON, "json", false, "emit stable machine-readable JSON")
 	cmd.MarkFlagRequired("edit")
-	cmd.MarkFlagRequired("out")
-	return cmd
-}
-
-func newCreateCommand() *cobra.Command {
-	var inputPath string
-	var outputPath string
-	var emitJSON bool
-	cmd := &cobra.Command{
-		Use:   "create",
-		Short: "Create an editable .pptx deck from structured input.",
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			result, err := createworkflow.Create(cmd.Context(), inputPath, outputPath)
-			if err != nil {
-				return err
-			}
-			if emitJSON {
-				if err := report.WriteJSON(cmd.OutOrStdout(), result); err != nil {
-					return err
-				}
-				if result.Status != "ok" {
-					return errors.New(result.Summary.Human)
-				}
-				return nil
-			}
-			if _, err := fmt.Fprintln(cmd.OutOrStdout(), result.Summary.Human); err != nil {
-				return err
-			}
-			if result.Status != "ok" {
-				return errors.New(result.Summary.Human)
-			}
-			return nil
-		},
-	}
-	cmd.Flags().StringVar(&inputPath, "input", "", "path to structured deck JSON")
-	cmd.Flags().StringVar(&outputPath, "out", "", "path to write created .pptx")
-	cmd.Flags().BoolVar(&emitJSON, "json", false, "emit stable machine-readable JSON")
-	cmd.MarkFlagRequired("input")
 	cmd.MarkFlagRequired("out")
 	return cmd
 }

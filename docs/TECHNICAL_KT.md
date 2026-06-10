@@ -12,7 +12,6 @@ Puppt is a Go CLI with business logic in internal packages. The command layer is
 | `internal/inspect` | Structured deck inspection |
 | `internal/target` | Target resolution and ambiguity detection |
 | `internal/edit` | Edit planning and mutation workflows |
-| `internal/create` | Structured JSON deck creation |
 | `internal/validate` | Package structure and relationship validation |
 | `internal/review` | Change review summaries |
 | `internal/report` | Stable JSON output |
@@ -32,12 +31,6 @@ Edit:
 ```text
 CLI -> internal/edit.Plan -> internal/inspect -> internal/target
 CLI -> internal/edit.Apply -> internal/pptx.Open -> mutate package parts -> internal/pptx.Write -> internal/validate
-```
-
-Create:
-
-```text
-CLI -> internal/create -> build package parts -> internal/pptx.Write -> internal/validate -> internal/inspect content check
 ```
 
 Review:
@@ -79,11 +72,11 @@ Fields may be added, but existing v1 fields should not be removed or repurposed 
 
 ## Validation Boundary
 
-`internal/validate` checks core package readability and relationship target reachability. Edit and create workflows add expected-content checks after writing. General-purpose expected-content assertions are not yet part of `puppt validate`.
+`internal/validate` checks core package readability and relationship target reachability. Edit workflows add expected-content checks after writing. General-purpose expected-content assertions are not yet part of `puppt validate`.
 
 ## Dependency Boundary
 
-Cobra owns CLI routing only. PPTX reading, writing, inspection, mutation, creation, validation, and review logic remain in Puppt-owned Go code using standard library ZIP/XML/JSON primitives.
+Cobra owns CLI routing only. PPTX reading, writing, inspection, mutation, validation, and review logic remain in Puppt-owned Go code using standard library ZIP/XML/JSON primitives.
 
 ## Known Gaps
 

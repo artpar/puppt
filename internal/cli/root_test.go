@@ -21,7 +21,7 @@ func TestHelpListsRequiredV1Commands(t *testing.T) {
 	}
 
 	output := stdout.String()
-	for _, want := range []string{"inspect", "plan", "edit", "create", "validate", "review", "render", "version"} {
+	for _, want := range []string{"inspect", "plan", "edit", "validate", "review", "render", "version"} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("help output missing %q:\n%s", want, output)
 		}
@@ -412,53 +412,6 @@ func TestEditJSON(t *testing.T) {
 	}
 }
 
-func TestCreateJSON(t *testing.T) {
-	dir := t.TempDir()
-	inputPath := filepath.Join(dir, "deck.json")
-	outputPath := filepath.Join(dir, "created.pptx")
-	if err := os.WriteFile(inputPath, []byte(`{
-  "metadata": {
-    "title": "CLI Deck"
-  },
-  "slides": [
-    {
-      "layout": "title",
-      "title": "Created from CLI"
-    }
-  ]
-}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	if err := Execute(context.Background(), []string{"create", "--input", inputPath, "--out", outputPath, "--json"}, &stdout, &stderr); err != nil {
-		t.Fatalf("create failed: %v\n%s", err, stdout.String())
-	}
-	if stderr.Len() != 0 {
-		t.Fatalf("create wrote stderr: %s", stderr.String())
-	}
-
-	var payload struct {
-		SchemaVersion string `json:"schema_version"`
-		Command       string `json:"command"`
-		Status        string `json:"status"`
-		Output        string `json:"output"`
-		Validation    struct {
-			Valid bool `json:"valid"`
-		} `json:"validation"`
-	}
-	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
-		t.Fatalf("invalid json: %v\n%s", err, stdout.String())
-	}
-	if payload.SchemaVersion != "puppt.v1" || payload.Command != "create" || payload.Status != "ok" {
-		t.Fatalf("unexpected envelope: %+v", payload)
-	}
-	if payload.Output != outputPath || !payload.Validation.Valid {
-		t.Fatalf("unexpected create payload: %+v", payload)
-	}
-}
-
 func TestValidateJSON(t *testing.T) {
 	filePath := filepath.Join(t.TempDir(), "deck.pptx")
 	if err := fixtures.WriteMinimalPPTX(filePath, []string{"ppt/slides/slide1.xml"}); err != nil {
@@ -543,27 +496,13 @@ func TestReviewJSON(t *testing.T) {
 
 func TestAcceptanceWorkflowEndToEnd(t *testing.T) {
 	dir := t.TempDir()
-	inputPath := filepath.Join(dir, "deck.json")
 	createdPath := filepath.Join(dir, "created.pptx")
 	editedPath := filepath.Join(dir, "edited.pptx")
-	if err := os.WriteFile(inputPath, []byte(`{
-  "metadata": {
-    "title": "Acceptance Deck"
-  },
-  "slides": [
-    {
-      "layout": "title_body",
-      "title": "Original",
-      "body": "Body"
-    }
-  ]
-}`), 0o600); err != nil {
+	if err := fixtures.WritePPTX(createdPath, fixtures.PPTXOptions{
+		Metadata: fixtures.Metadata{Title: "Acceptance Deck"},
+		Slides:   []fixtures.Slide{{PartName: "ppt/slides/slide1.xml", Text: "Original"}},
+	}); err != nil {
 		t.Fatal(err)
-	}
-
-	var createOut bytes.Buffer
-	if err := Execute(context.Background(), []string{"create", "--input", inputPath, "--out", createdPath, "--json"}, &createOut, &bytes.Buffer{}); err != nil {
-		t.Fatalf("create failed: %v\n%s", err, createOut.String())
 	}
 	var inspectOut bytes.Buffer
 	if err := Execute(context.Background(), []string{"inspect", createdPath, "--json"}, &inspectOut, &bytes.Buffer{}); err != nil {

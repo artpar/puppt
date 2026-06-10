@@ -26,14 +26,6 @@ puppt edit input.pptx --edit edit.json --out output.pptx --json
 
 Applies supported edits after planning, writes a new `.pptx`, validates it, and reports changes.
 
-## Create
-
-```sh
-puppt create --input deck.json --out output.pptx --json
-```
-
-Builds a deterministic editable `.pptx` from structured JSON, then validates the output.
-
 ## Validate
 
 ```sh

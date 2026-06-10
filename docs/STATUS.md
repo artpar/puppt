@@ -10,14 +10,13 @@ The command surface is implemented for fixture-backed v1 workflows:
 - `inspect`
 - `plan`
 - `edit`
-- `create`
 - `validate`
 - `review`
 - `render`
 - `version`
 
 Puppt is useful today for structured `.pptx` inspection, edit planning,
-supported mutations, editable deck creation, validation, review summaries, and
+supported mutations, validation, review summaries, and
 diagnostic rendering. Full production-grade behavior for arbitrary real-world
 PowerPoint decks is not claimed.
 
@@ -32,10 +31,8 @@ PowerPoint decks is not claimed.
 - Supported edits include text, existing speaker notes, metadata, slide
   add/delete/move/duplicate operations, explicit image replacement, and simple
   editable shape additions.
-- Creation supports structured JSON decks with title, section, title/body,
-  bullet-list slides, notes, metadata, and provided images.
-- Validation checks package structure and relationship reachability; edit and
-  create workflows add expected-content checks after writing.
+- Validation checks package structure and relationship reachability; edit
+  workflows add expected-content checks after writing.
 - Review combines command results, inspection facts, skipped/ambiguous/
   unsupported items, and validation status.
 - Rendering is Puppt-owned Go code and does not shell out to Office,

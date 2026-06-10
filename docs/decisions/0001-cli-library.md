@@ -6,7 +6,7 @@ Accepted.
 
 ## Context
 
-Puppt v1 requires a stable agent-friendly CLI with subcommands for inspect, plan, edit, create, validate, and review. The project doctrine now prefers reliable third-party Go libraries where they reduce correctness, compatibility, parsing, writing, validation, or maintenance risk.
+Puppt v1 requires a stable agent-friendly CLI with subcommands for inspect, plan, edit, validate, review, and render. The project doctrine now prefers reliable third-party Go libraries where they reduce correctness, compatibility, parsing, writing, validation, or maintenance risk.
 
 ## Decision
 
