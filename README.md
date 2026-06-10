@@ -61,8 +61,8 @@ corpus; use the same commands with any media-heavy `.pptx`.
 
 ### Inspect
 
-Use `inspect` to turn a slide into stable JSON targets. Here slide 2 has nine
-image references and two editable text objects.
+Use `inspect` to turn a slide into stable JSON targets: text object IDs, text
+runs, and media relationship targets.
 
 <table>
   <tr>
@@ -72,15 +72,15 @@ image references and two editable text objects.
   <tr>
     <td>
       <pre><code class="language-sh">./bin/puppt inspect testdata/realworld-ppts/EPA-generate-2021-presentation.pptx --json |
-  jq '{status, slide: (
+  jq '{status, slide:(
     .inspection.slides[] |
     select(.number == 2) |
     {
       number,
       title,
-      images: (.images | length),
-      text_objects: (.visible_text | length),
-      title_object: .visible_text[0].object_id
+      part,
+      text_objects: [.visible_text[] | {object_id, runs}],
+      image_refs: [.images[] | {object_id, relationship, target, content_type}]
     }
   )}'</code></pre>
       <pre><code class="language-json">{
@@ -88,9 +88,99 @@ image references and two editable text objects.
   "slide": {
     "number": 2,
     "title": "Energy 101: The big picture",
-    "images": 9,
-    "text_objects": 2,
-    "title_object": "ppt/slides/slide2.xml#shape-2"
+    "part": "ppt/slides/slide2.xml",
+    "text_objects": [
+      {
+        "object_id": "ppt/slides/slide2.xml#shape-2",
+        "runs": [
+          "Energy 101: The big picture"
+        ]
+      },
+      {
+        "object_id": "ppt/slides/slide2.xml#shape-3",
+        "runs": [
+          "Primary energy resources",
+          "Fossil:  coal, natural gas, petroleum",
+          "Non-fossil, non-renewable:  uranium",
+          "Renewable: wind, solar, hydro, geothermal, biomass",
+          "Technologies to convert primary resources to ",
+          "useable energy like electricity, gasoline, …",
+          "Petroleum Refineries",
+          "Electric Power Generation",
+          "End-use sectors",
+          "Residential",
+          "Commercial",
+          "Industrial ",
+          "Transportation",
+          "Energy services – ",
+          "What do people actually need and want?  ",
+          "Mobility",
+          " (vehicle miles of travel) or ",
+          "accessibility ",
+          "(accessing education, work, shopping), ",
+          "lighting",
+          " (lumens of light), ",
+          "comfort",
+          " (space heating and cooling).  Energy is a “derived demand”"
+        ]
+      }
+    ],
+    "image_refs": [
+      {
+        "object_id": "ppt/slides/slide2.xml#rId8",
+        "relationship": "rId8",
+        "target": "ppt/media/image12.png",
+        "content_type": "image/png"
+      },
+      {
+        "object_id": "ppt/slides/slide2.xml#rId3",
+        "relationship": "rId3",
+        "target": "ppt/media/image7.jpeg",
+        "content_type": "image/jpeg"
+      },
+      {
+        "object_id": "ppt/slides/slide2.xml#rId7",
+        "relationship": "rId7",
+        "target": "ppt/media/image11.png",
+        "content_type": "image/png"
+      },
+      {
+        "object_id": "ppt/slides/slide2.xml#rId6",
+        "relationship": "rId6",
+        "target": "ppt/media/image10.png",
+        "content_type": "image/png"
+      },
+      {
+        "object_id": "ppt/slides/slide2.xml#rId11",
+        "relationship": "rId11",
+        "target": "ppt/media/image15.png",
+        "content_type": "image/png"
+      },
+      {
+        "object_id": "ppt/slides/slide2.xml#rId5",
+        "relationship": "rId5",
+        "target": "ppt/media/image9.png",
+        "content_type": "image/png"
+      },
+      {
+        "object_id": "ppt/slides/slide2.xml#rId10",
+        "relationship": "rId10",
+        "target": "ppt/media/image14.png",
+        "content_type": "image/png"
+      },
+      {
+        "object_id": "ppt/slides/slide2.xml#rId4",
+        "relationship": "rId4",
+        "target": "ppt/media/image8.jpeg",
+        "content_type": "image/jpeg"
+      },
+      {
+        "object_id": "ppt/slides/slide2.xml#rId9",
+        "relationship": "rId9",
+        "target": "ppt/media/image13.jpeg",
+        "content_type": "image/jpeg"
+      }
+    ]
   }
 }</code></pre>
     </td>
